@@ -1,14 +1,13 @@
 {
   "name": "whereisthat",
   "version": "1.0.0",
-  "main": "index.js",
+  "private": true,
+  "description": "Tooling for repository formatting and consistency checks.",
+  "license": "MIT",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "format": "prettier --write \"*.{md,json,yml,yaml}\"",
+    "format:check": "prettier --check \"*.{md,json,yml,yaml}\""
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "description": "",
   "devDependencies": {
     "prettier": "^3.6.2"
   }

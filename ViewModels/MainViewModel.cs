@@ -1,59 +1,92 @@
-using System;
+using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
+using Microsoft.Win32;
 using System.Collections.ObjectModel;
-using System.Windows.Input;
-using System.ComponentModel;
+using System.Windows;
+
 using WhereIsThat.Models;
 using WhereIsThat.Services;
 
-namespace WhereIsThat.ViewModels
+namespace WhereIsThat.ViewModels;
+
+public partial class MainViewModel : ObservableObject
 {
-    public class MainViewModel : INotifyPropertyChanged
+    private readonly FileScanner _scanner = new();
+    private readonly DatabaseService _db = new();
+
+    [ObservableProperty]
+    private Catalog? selectedCatalog;
+
+    public ObservableCollection<Catalog> Catalogs { get; } = new();
+    public ObservableCollection<FileEntry> Files { get; } = new();
+
+    public MainViewModel()
     {
-        public ObservableCollection<FileEntry> Files { get; set; } = new();
-        private readonly FileScanner _scanner = new();
-        private readonly DatabaseService _db = new();
-
-        public ICommand ScanCommand { get; set; }
-
-        public MainViewModel()
-        {
-            ScanCommand = new RelayCommand(Scan);
-        }
-
-        private void Scan()
-        {
-            string folder = "U:\\whereisit"; // Replace with user input
-            var catalog = new Catalog { Name = "Scan at " + DateTime.Now, CreatedDate = DateTime.Now };
-            int catalogId = _db.AddCatalog(catalog);
-            var scannedFiles = _scanner.ScanDirectory(folder, catalogId);
-            _db.AddFiles(scannedFiles);
-            Files.Clear();
-            foreach (var file in scannedFiles) Files.Add(file);
-        }
-
-        public event PropertyChangedEventHandler PropertyChanged;
+        RefreshCatalogs();
     }
 
-    // Simple RelayCommand implementation
-    public class RelayCommand : ICommand
+    partial void OnSelectedCatalogChanged(Catalog? value)
     {
-        private readonly Action _execute;
-        private readonly Func<bool> _canExecute;
-
-        public RelayCommand(Action execute, Func<bool> canExecute = null)
+        Files.Clear();
+        if (value is null)
         {
-            _execute = execute ?? throw new ArgumentNullException(nameof(execute));
-            _canExecute = canExecute;
+            return;
         }
 
-        public bool CanExecute(object parameter) => _canExecute == null || _canExecute();
-
-        public void Execute(object parameter) => _execute();
-
-        public event EventHandler CanExecuteChanged
+        foreach (var file in _db.GetFilesByCatalog(value.Id))
         {
-            add { CommandManager.RequerySuggested += value; }
-            remove { CommandManager.RequerySuggested -= value; }
+            Files.Add(file);
         }
+    }
+
+    [RelayCommand]
+    private void NewCatalog()
+    {
+        var dialog = new OpenFolderDialog
+        {
+            Title = "Select folder to catalog"
+        };
+
+        if (dialog.ShowDialog() != true)
+        {
+            return;
+        }
+
+        var path = dialog.FolderName;
+        var timestamp = DateTime.Now;
+        var catalog = new Catalog
+        {
+            Name = $"{System.IO.Path.GetFileName(path)} ({timestamp:yyyy-MM-dd HH:mm})",
+            RootPath = path,
+            CreatedDate = timestamp
+        };
+
+        var catalogId = _db.AddCatalog(catalog);
+        var files = _scanner.ScanDirectory(path, catalogId);
+
+        _db.AddFiles(files);
+        catalog.Id = catalogId;
+        catalog.ItemCount = files.Count;
+
+        Catalogs.Insert(0, catalog);
+        SelectedCatalog = catalog;
+    }
+
+    [RelayCommand]
+    private void RefreshCatalogs()
+    {
+        Catalogs.Clear();
+        foreach (var catalog in _db.GetCatalogs())
+        {
+            Catalogs.Add(catalog);
+        }
+
+        SelectedCatalog = Catalogs.FirstOrDefault();
+    }
+
+    [RelayCommand]
+    private static void Exit()
+    {
+        Application.Current.Shutdown();
     }
 }

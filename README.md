@@ -1,65 +1,54 @@
-# Where is That?
+# Where Is That?
 
-**Where is That?** is an open-source Windows application that aims to be a modern replacement for the discontinued **Where Is It?** disk cataloging software.
+**Where Is That?** is a Windows desktop app for cataloging files from removable or offline storage.
+It is inspired by the classic _Where Is It?_ workflow, but built with modern .NET and WPF.
 
-It allows you to catalog, search, and manage the contents of your disks, folders, and external storage devices — all without needing them to be connected. This project is fully free to use for any purpose, with no guarantees or warranties.
+## Current capabilities
 
----
+- Create a catalog from any selected folder.
+- Persist catalogs and indexed files in a local SQLite database (`catalog.db`).
+- Browse previously scanned catalogs without reconnecting the source drive.
+- View file name, type, size, path, and last-modified time.
 
-## Project Goals
+## Project status
 
-- Create a free and open-source alternative to "Where Is It?"
-- Allow users to organize and search through large collections of offline media
-- Support modern Windows systems with a clean, intuitive interface
-- Encourage community contributions and improvements
+This repository is an early but working baseline. The architecture is intentionally simple:
 
----
+- **UI:** WPF
+- **Pattern:** MVVM (CommunityToolkit.Mvvm)
+- **Storage:** SQLite (`Microsoft.Data.Sqlite`)
+- **Runtime:** .NET 8 (Windows)
 
-## Why This Project?
+## Getting started
 
-I started this project because I missed the features and convenience of **Where Is It?**, which is no longer maintained. I’m not experienced with C# or desktop application development, but I’m learning and building this as an open, community-driven effort.
+### Requirements
 
----
+- .NET SDK 8.0+
+- Windows (WPF target)
 
-## Features (Planned or In Progress)
+### Run
 
-- [x] Basic disk cataloging
-- [x] View files and folders without connecting the physical drive
-- [ ] Search functionality
-- [ ] File type filtering and metadata
-- [ ] Tagging and commenting support
-- [ ] Export/import catalogs
+```bash
+dotnet run --project whereisthat.csproj
+```
 
----
+### Build
 
-## Technology
+```bash
+dotnet build whereisthat.sln
+```
 
-- **Language:** C# (.NET)
-- **Platform:** Windows
-- **License:** MIT License
+## Next improvements
 
----
+- Search and filtering over indexed files.
+- Incremental rescans for existing catalogs.
+- Catalog metadata editing (name, notes, tags).
+- Import/export and backup functionality.
 
 ## Contributing
 
-Since I'm new to C# development, **help is very welcome**! Whether you're a developer, tester, designer, or just someone who liked "Where Is It?", your input can help make this better.
-
-Feel free to:
-- Open issues for bugs or feature ideas
-- Submit pull requests
-- Suggest improvements or refactoring
-- Help with UI/UX design
-
----
-
-## Disclaimer
-
-This software is provided **"as is"**, without any warranties or guarantees. Use it at your own risk.
-
----
+Contributions are welcome. Small, focused pull requests are preferred.
 
 ## License
 
-This project is licensed under the [MIT License](LICENSE).
-
----
+MIT. See [LICENSE](LICENSE).

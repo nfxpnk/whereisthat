@@ -1,6 +1,6 @@
 # Where Is That?
 
-Where Is That? is a native Windows 10/11 file cataloging utility. It scans a folder, stores file metadata in `catalog.db` (SQLite), and lets you browse catalogs later even when the original drive is disconnected.
+Where Is That? is a native Windows 10/11 file cataloging utility. It scans a folder or drive, stores folder/file metadata in `catalog.db` (SQLite), and lets you browse catalogs later even when the original drive is disconnected.
 
 ## Why native C++/Win32
 - Fast startup and low memory footprint.
@@ -29,12 +29,14 @@ From Developer Command Prompt for Visual Studio:
 `msbuild whereisthat.sln /p:Configuration=Release /p:Platform=x64 /m`
 
 ## Features (v1)
-- Create catalog from folder.
+- Scan a folder or drive root into a catalog.
+- Store both folder and file rows in SQLite.
 - Background scanning thread.
+- Status bar scan progress for folders and files.
 - SQLite-backed catalog/file storage.
 - Catalog list on left pane.
 - Virtual owner-data file ListView on right pane.
-- Reload catalogs on restart.
+- Reload catalogs and show saved database contents on restart.
 
 ## Limitations
 - Search menu is placeholder.

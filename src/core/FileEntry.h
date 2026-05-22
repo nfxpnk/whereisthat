@@ -12,5 +12,6 @@ struct FileEntry {
     std::uint64_t size{};
     std::wstring modifiedAt;
     std::uint32_t attributes{};
+    bool isDirectory{};
 };
 }

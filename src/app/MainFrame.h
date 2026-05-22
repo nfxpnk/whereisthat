@@ -1,6 +1,8 @@
 #pragma once
 #include <Windows.h>
 #include <CommCtrl.h>
+#include <cstdint>
+#include <string>
 #include <thread>
 #include "../storage/Database.h"
 #include "../core/FileScanner.h"
@@ -18,6 +20,7 @@ private:
     HWND catalogsCtl_{};
     HWND filesCtl_{};
     HWND status_{};
+    std::wstring dbPath_{L"catalog.db"};
     wit::storage::Database db_;
     wit::ui::CatalogListView catalogs_;
     wit::ui::FileListView files_;
@@ -36,4 +39,5 @@ private:
     LRESULT OnCatalogChanged(LPNMHDR hdr);
     LRESULT OnFileGetDispInfo(LPNMHDR hdr);
     void ReloadCatalogs();
+    void SelectCatalog(std::int64_t catalogId);
 };

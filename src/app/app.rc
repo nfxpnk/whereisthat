@@ -1,0 +1,19 @@
+#include "resource.h"
+IDR_MAINMENU MENU
+BEGIN
+    POPUP "&File"
+    BEGIN
+        MENUITEM "&New Catalog...", ID_FILE_NEWCATALOG
+        MENUITEM "&Refresh", ID_FILE_REFRESH
+        MENUITEM SEPARATOR
+        MENUITEM "E&xit", ID_FILE_EXIT
+    END
+    POPUP "&Search"
+    BEGIN
+        MENUITEM "&Find...", ID_SEARCH_FIND
+    END
+    POPUP "&Help"
+    BEGIN
+        MENUITEM "&About", ID_HELP_ABOUT
+    END
+END

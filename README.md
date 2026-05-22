@@ -1,54 +1,42 @@
 # Where Is That?
 
-**Where Is That?** is a Windows desktop app for cataloging files from removable or offline storage.
-It is inspired by the classic _Where Is It?_ workflow, but built with modern .NET and WPF.
+Where Is That? is a native Windows 10/11 file cataloging utility. It scans a folder, stores file metadata in `catalog.db` (SQLite), and lets you browse catalogs later even when the original drive is disconnected.
 
-## Current capabilities
+## Why native C++/Win32
+- Fast startup and low memory footprint.
+- Small distributable.
+- Direct control over Win32 behavior.
+- No .NET, WPF, Electron, Qt, or cross-platform runtime.
 
-- Create a catalog from any selected folder.
-- Persist catalogs and indexed files in a local SQLite database (`catalog.db`).
-- Browse previously scanned catalogs without reconnecting the source drive.
-- View file name, type, size, path, and last-modified time.
+## Requirements
+- Windows 10/11 x64
+- Visual Studio 2022 or Visual Studio 2026
+- Desktop development with C++ workload
 
-## Project status
+## Build (Visual Studio)
+1. Open `whereisthat.sln`.
+2. Select `Release` + `x64`.
+3. Build Solution.
+4. Run `bin/x64/Release/WhereIsThat.exe`.
 
-This repository is an early but working baseline. The architecture is intentionally simple:
+## Build (MSBuild)
+`msbuild whereisthat.sln /p:Configuration=Release /p:Platform=x64`
 
-- **UI:** WPF
-- **Pattern:** MVVM (CommunityToolkit.Mvvm)
-- **Storage:** SQLite (`Microsoft.Data.Sqlite`)
-- **Runtime:** .NET 8 (Windows)
+## Features (v1)
+- Create catalog from folder.
+- Background scanning thread.
+- SQLite-backed catalog/file storage.
+- Catalog list on left pane.
+- Virtual owner-data file ListView on right pane.
+- Reload catalogs on restart.
 
-## Getting started
+## Limitations
+- Search menu is placeholder.
+- Splitter is static layout in v1.
+- Offline environment placeholder SQLite amalgamation file must be replaced with official upstream amalgamation before production build.
 
-### Requirements
-
-- .NET SDK 8.0+
-- Windows (WPF target)
-
-### Run
-
-```bash
-dotnet run --project whereisthat.csproj
-```
-
-### Build
-
-```bash
-dotnet build whereisthat.sln
-```
-
-## Next improvements
-
-- Search and filtering over indexed files.
-- Incremental rescans for existing catalogs.
-- Catalog metadata editing (name, notes, tags).
-- Import/export and backup functionality.
-
-## Contributing
-
-Contributions are welcome. Small, focused pull requests are preferred.
-
-## License
-
-MIT. See [LICENSE](LICENSE).
+## Roadmap
+- Search dialog with indexed query.
+- True draggable splitter.
+- Better progress dialog and cancellation.
+- Sorting and filtering in file view.

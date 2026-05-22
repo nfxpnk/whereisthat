@@ -1,0 +1,14 @@
+#include "MainFrame.h"
+#include <shobjidl.h>
+#include "../platform/Win32Helpers.h"
+
+int MainFrame::OnCreate(LPCREATESTRUCT){ db_.Open(L"catalog.db"); CreateSimpleStatusBar(); status_=m_hWndStatusBar; catalogsCtl_.Create(m_hWnd, rcDefault, nullptr, WS_CHILD|WS_VISIBLE|LVS_REPORT|LVS_SINGLESEL, WS_EX_CLIENTEDGE, IDC_CATALOGS); filesCtl_.Create(m_hWnd, rcDefault, nullptr, WS_CHILD|WS_VISIBLE|LVS_REPORT|LVS_OWNERDATA|LVS_SINGLESEL, WS_EX_CLIENTEDGE, IDC_FILES); catalogs_.Attach(catalogsCtl_); files_.Attach(filesCtl_); catalogsCtl_.InsertColumn(0,L"Catalog",LVCFMT_LEFT,220); filesCtl_.InsertColumn(0,L"Name",LVCFMT_LEFT,200); filesCtl_.InsertColumn(1,L"Type",LVCFMT_LEFT,80); filesCtl_.InsertColumn(2,L"Size",LVCFMT_RIGHT,100); filesCtl_.InsertColumn(3,L"Path",LVCFMT_LEFT,320); filesCtl_.InsertColumn(4,L"Modified",LVCFMT_LEFT,180); ReloadCatalogs(); return 0; }
+void MainFrame::OnSize(UINT, CSize s){ RECT r{0,0,s.cx,s.cy-22}; int left=s.cx/3; MoveWindow(catalogsCtl_,0,0,left,r.bottom,TRUE); MoveWindow(filesCtl_,left+4,0,s.cx-left-4,r.bottom,TRUE);} 
+void MainFrame::OnDestroy(){ if(worker_.joinable()) worker_.join(); PostQuitMessage(0);} 
+LRESULT MainFrame::OnExit(WORD,WORD,HWND,BOOL&){ PostMessage(WM_CLOSE); return 0;} 
+LRESULT MainFrame::OnAbout(WORD,WORD,HWND,BOOL&){ MessageBox(L"Where Is That?\nNative Win32/WTL build.", L"About", MB_OK); return 0;} 
+LRESULT MainFrame::OnRefresh(WORD,WORD,HWND,BOOL&){ ReloadCatalogs(); return 0; }
+void MainFrame::ReloadCatalogs(){ catalogs_.catalogs=db_.GetCatalogs(); catalogs_.Reload(); }
+LRESULT MainFrame::OnCatalogChanged(int, LPNMHDR hdr, BOOL&){ auto* n=(NMLISTVIEW*)hdr; if((n->uChanged&LVIF_STATE)&& (n->uNewState&LVIS_SELECTED)){ auto id=(std::int64_t)catalogsCtl_.GetItemData(n->iItem); files_.SetCatalog(id,&db_);} return 0; }
+LRESULT MainFrame::OnFileGetDispInfo(int, LPNMHDR hdr, BOOL&){ auto* di=(NMLVDISPINFOW*)hdr; if(di->item.mask&LVIF_TEXT){ auto t=files_.TextFor(di->item.iItem,di->item.iSubItem); lstrcpynW(di->item.pszText,t.c_str(),di->item.cchTextMax);} return 0; }
+LRESULT MainFrame::OnNewCatalog(WORD,WORD,HWND,BOOL&){ CComPtr<IFileOpenDialog> dlg; if(FAILED(dlg.CoCreateInstance(CLSID_FileOpenDialog))) return 0; DWORD opt{}; dlg->GetOptions(&opt); dlg->SetOptions(opt|FOS_PICKFOLDERS|FOS_FORCEFILESYSTEM); if(FAILED(dlg->Show(m_hWnd))) return 0; CComPtr<IShellItem> item; dlg->GetResult(&item); PWSTR path{}; item->GetDisplayName(SIGDN_FILESYSPATH,&path); std::wstring root(path); CoTaskMemFree(path); wit::core::Catalog c{}; c.name=root.substr(root.find_last_of(L"\\/")+1); c.rootPath=root; c.createdAt=wit::platform::NowIso8601(); auto id=db_.AddCatalog(c); if(worker_.joinable()) worker_.join(); worker_=std::thread([this,root,id](){ wit::core::FileScanner s; s.ScanFolder(root,id,db_,[this](const wit::core::FileScanner::Progress& p){ status_.SetText(0,(L"Scanning: "+std::to_wstring(p.scannedFiles)).c_str()); }); PostMessage(WM_APP+1);}); ReloadCatalogs(); return 0; }

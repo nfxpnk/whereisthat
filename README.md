@@ -12,15 +12,21 @@ Where Is That? is a native Windows 10/11 file cataloging utility. It scans a fol
 - Windows 10/11 x64
 - Visual Studio 2022 or Visual Studio 2026
 - Desktop development with C++ workload
+- SQLite 3.53.1 DLL/import library/header are vendored under `third_party/sqlite`
 
 ## Build (Visual Studio)
 1. Open `whereisthat.sln`.
 2. Select `Release` + `x64`.
 3. Build Solution.
-4. Run `bin/x64/Release/WhereIsThat.exe`.
+4. Run `x64/Release/WhereIsThat.exe`.
+
+The project links against the precompiled SQLite DLL in `third_party/sqlite`.
+The post-build step copies `sqlite3.dll` next to `WhereIsThat.exe`.
 
 ## Build (MSBuild)
-`msbuild whereisthat.sln /p:Configuration=Release /p:Platform=x64`
+From Developer Command Prompt for Visual Studio:
+
+`msbuild whereisthat.sln /p:Configuration=Release /p:Platform=x64 /m`
 
 ## Features (v1)
 - Create catalog from folder.
@@ -33,7 +39,6 @@ Where Is That? is a native Windows 10/11 file cataloging utility. It scans a fol
 ## Limitations
 - Search menu is placeholder.
 - Splitter is static layout in v1.
-- Offline environment placeholder SQLite amalgamation file must be replaced with official upstream amalgamation before production build.
 
 ## Roadmap
 - Search dialog with indexed query.

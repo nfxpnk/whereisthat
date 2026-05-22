@@ -1,7 +1,7 @@
 # Architecture
 
 ## Stack choice
-Where Is That? now uses C++20 + Win32 + WTL/ATL and SQLite C API. This keeps the app small, native, and direct.
+Where Is That? uses C++20 + Win32 and the SQLite C API. This keeps the app small, native, and direct.
 
 ## Why not Qt/Electron/.NET
 Those options increase runtime/dependency footprint and abstraction layers. The project goal is simple native Windows utility behavior and predictable memory/performance.

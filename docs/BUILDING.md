@@ -6,7 +6,10 @@
 4. Select `x64` platform.
 5. Select `Release` configuration.
 6. Build Solution.
-7. Run `bin/x64/Release/WhereIsThat.exe`.
+7. Run `x64/Release/WhereIsThat.exe`.
+
+The project links against the precompiled SQLite DLL in `third_party/sqlite`.
+The post-build step copies `sqlite3.dll` next to `WhereIsThat.exe`.
 
 ## Command-line
 From Developer Command Prompt for Visual Studio:

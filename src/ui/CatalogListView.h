@@ -1,6 +1,5 @@
 #pragma once
-#include <atlbase.h>
-#include <atlwin.h>
+#include <Windows.h>
 #include <vector>
 #include "../core/Catalog.h"
 namespace wit::ui {

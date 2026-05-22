@@ -1,3 +1,13 @@
-node_modules
-bin
-obj
+# Visual Studio build output
+/.vs/
+/x64/
+/WhereIsThat/
+
+# Local database created by the app
+/catalog.db
+/catalog.db-*
+
+# Editor and OS noise
+*.user
+*.suo
+Thumbs.db

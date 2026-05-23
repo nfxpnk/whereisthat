@@ -22,7 +22,7 @@ private:
     HWND catalogsCtl_{};
     HWND filesCtl_{};
     HWND status_{};
-    std::wstring dbPath_{L"catalog.db"};
+    std::wstring activeCatalogPath_;
     wit::storage::Database db_;
     wit::ui::CatalogListView catalogs_;
     wit::ui::FileListView files_;
@@ -36,6 +36,7 @@ private:
     void OnDestroy();
     void OnCommand(int id);
     void OnNewCatalog();
+    void OnOpenCatalog();
     void OnAddOrUpdateDiskImage();
     void OnGeneralSettings();
     void ApplyDisplaySettings();
@@ -43,6 +44,8 @@ private:
     void OnAbout();
     LRESULT OnCatalogChanged(LPNMHDR hdr);
     LRESULT OnFileGetDispInfo(LPNMHDR hdr);
+    bool ActivateCatalog(const std::wstring& path, bool createNew, bool persistPath);
+    void ClearCatalogViews();
     void ReloadCatalogs();
     void SelectCatalog(std::int64_t catalogId);
 };

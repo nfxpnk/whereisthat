@@ -9,12 +9,13 @@ The user interface is a native Unicode Win32 desktop interface written with the 
 The app must provide a direct desktop workflow:
 
 - A main frame window for catalog browsing.
-- A command to choose a folder or disk for scanning.
-- A catalog view for selecting prior scans.
-- A file view showing metadata from the selected catalog.
+- Commands to create a new catalog database file or open an existing catalog database file.
+- A command to choose a folder or disk image for adding to or updating in the active catalog.
+- A media-source view for selecting prior scans in the active catalog.
+- A file view showing metadata from the selected indexed source.
 - Scan progress and completion state in the status bar when that bar is enabled.
 
-The catalog remains useful when its original storage is disconnected; the UI displays persisted data rather than relying on live filesystem access for browsing.
+The active catalog remains useful when its indexed original storage is disconnected; the UI displays persisted data rather than relying on live filesystem access for browsing. When no database is active, the UI displays an empty catalog state and permits New Catalog and Open.
 
 ## Main Menu Workflow
 
@@ -24,8 +25,10 @@ The catalog remains useful when its original storage is disconnected; the UI dis
 - The Search menu follows View and exposes Search for Items, Find in This Catalog, Find Selected Items, Scan for Duplicates, Compare to Media, Compare Files to Catalog, and Compare Cataloged Data.
 - The Actions menu follows Search and exposes Open in Explorer, View File, Launch File, Edit Description, User List, Rename Catalog, Remove Alias Name, File Management, Remove from Catalog, Remove Archive Contents, Remove Thumbnail, and Properties.
 - The Options menu follows Actions and exposes General Settings, User Interface Setup, File List Settings, Disk Image Settings, and Description Settings.
-- New Catalog prompts for a nonblank catalog name and creates a selectable empty catalog in the local catalog database without starting a scan.
-- Add/Update Disk Image is the entry point for choosing a folder or disk and starting the existing scan workflow.
+- New Catalog prompts for a new database file destination, creates a fresh empty SQLite catalog at that path without overwriting an existing file, switches the active catalog, and stores its path in settings.
+- Open prompts for an existing SQLite catalog database, switches the active catalog after a successful open, and stores its path in settings.
+- On startup the available last-used catalog path from settings is reopened; when it is absent or unavailable the application remains empty without creating or opening `catalog.db` implicitly.
+- Add/Update Disk Image requires an active catalog and scans the chosen folder or disk into that database only; selecting an already indexed source refreshes it without duplicate source contents.
 - General Settings opens a native settings dialog; its initial `Show status bar` preference immediately controls status-bar visibility and defaults to enabled.
 - Commands introduced as placeholders have no storage, settings, catalog, file, or display effect until their feature behavior is specified and implemented.
 
@@ -36,6 +39,7 @@ The catalog remains useful when its original storage is disconnected; the UI dis
 - Common Controls should provide standard list and status presentation.
 - Expensive filesystem scanning or database operations triggered by the UI must not block the main window message pump.
 - Updates from background activity must be safely marshaled to the UI thread through Win32 messaging or equivalent native synchronization.
+- Catalog switching must not occur while an asynchronous scan is mutating the active database.
 
 ## Large Result Sets
 

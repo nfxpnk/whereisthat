@@ -26,11 +26,16 @@ std::wstring DisplayNameForRoot(const std::wstring& rootPath) {
 }
 }
 
-bool FileScanner::ScanFolder(const std::wstring& rootPath, std::int64_t catalogId, wit::storage::Database& db, const ProgressCallback& onProgress){
+bool FileScanner::ScanFolder(const std::wstring& rootPath, std::int64_t catalogId, wit::storage::Database& db,
+    const ProgressCallback& onProgress, bool manageTransaction){
     std::vector<std::wstring> stack{rootPath};
     std::uint64_t fileCount=0;
     std::uint64_t folderCount=0;
-    if(!db.BeginTransaction()) return false;
+    if(manageTransaction && !db.BeginTransaction()) return false;
+    const auto fail = [&db, manageTransaction]() {
+        if(manageTransaction) db.Rollback();
+        return false;
+    };
 
     WIN32_FILE_ATTRIBUTE_DATA rootAttrs{};
     if (GetFileAttributesExW(rootPath.c_str(), GetFileExInfoStandard, &rootAttrs)) {
@@ -43,7 +48,8 @@ bool FileScanner::ScanFolder(const std::wstring& rootPath, std::int64_t catalogI
         root.modifiedAt = wit::platform::FileTimeToIso8601(rootAttrs.ftLastWriteTime);
         root.attributes = rootAttrs.dwFileAttributes;
         root.isDirectory = true;
-        if(db.InsertFile(root)) ++folderCount;
+        if(!db.InsertFile(root)) return fail();
+        ++folderCount;
     }
 
     while(!stack.empty()){
@@ -59,18 +65,26 @@ bool FileScanner::ScanFolder(const std::wstring& rootPath, std::int64_t catalogI
             if(e.isDirectory) {
                 e.extension = L"";
                 e.size = 0;
-                if(db.InsertFile(e)) ++folderCount;
+                if(!db.InsertFile(e)) {
+                    FindClose(h);
+                    return fail();
+                }
+                ++folderCount;
                 if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)) stack.push_back(full);
             } else {
-                if(db.InsertFile(e)) ++fileCount;
+                if(!db.InsertFile(e)) {
+                    FindClose(h);
+                    return fail();
+                }
+                ++fileCount;
             }
             auto total = fileCount + folderCount;
             if (onProgress && total % 250 == 0) onProgress({fileCount, folderCount, full});
         } while(FindNextFileW(h,&fd));
         FindClose(h);
     }
-    db.UpdateCatalogItemCount(catalogId,fileCount + folderCount);
-    db.Commit();
+    if(!db.UpdateCatalogItemCount(catalogId,fileCount + folderCount)) return fail();
+    if(manageTransaction && !db.Commit()) return fail();
     if (onProgress) onProgress({fileCount, folderCount, rootPath});
     return true;
 }

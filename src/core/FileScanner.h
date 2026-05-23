@@ -13,6 +13,7 @@ public:
         std::wstring currentPath;
     };
     using ProgressCallback = std::function<void(const Progress&)>;
-    bool ScanFolder(const std::wstring& rootPath, std::int64_t catalogId, wit::storage::Database& db, const ProgressCallback& onProgress);
+    bool ScanFolder(const std::wstring& rootPath, std::int64_t catalogId, wit::storage::Database& db,
+        const ProgressCallback& onProgress, bool manageTransaction = true);
 };
 }

@@ -2,7 +2,7 @@
 
 ## Persistence Model
 
-Where Is That? persists catalogs in a local SQLite database, currently `catalog.db`. The database must retain enough filesystem metadata to list prior scans without accessing the original folder or drive.
+Where Is That? treats each user-selected SQLite database file as one catalog. A catalog database retains enough filesystem metadata to list prior scans without accessing the original folder or drive. A file named `catalog.db` is supported like any other catalog filename, but is not implicitly created or opened as the permanent catalog.
 
 SQLite is accessed in native C++ through the SQLite C API. Storage behavior belongs in `src/storage`; domain objects consumed by storage belong in `src/core`.
 
@@ -12,6 +12,7 @@ Application preferences are separate from catalog data and must not be added to 
 
 - General Settings persists implemented preferences in `settings.ini` beside `WhereIsThat.exe`.
 - The initial preference is `[General] ShowStatusBar`, which defaults to enabled when the file or key is absent.
+- The optional `[General] LastCatalogPath` value records the most recently activated catalog database for startup restoration; an absent, empty, or unavailable path produces an empty startup state.
 - UI preference reads and writes use a focused native platform helper; `src/storage` remains responsible for SQLite catalog persistence only.
 
 ## SQLite Packaging Decision
@@ -27,10 +28,11 @@ SQLite must not be replaced with a managed data layer, a framework database abst
 
 ## Current Data Responsibilities
 
-- A catalog records its name, root path, creation timestamp, and item count.
-- File rows record their catalog ownership, parent path, name, extension, size, modification timestamp, attributes, and whether the row represents a directory.
-- File listing queries are scoped to a selected catalog and paged for the virtual ListView.
-- Useful catalog lookup paths remain indexed as the data set grows.
+- A catalog database contains indexed media-source records with name, root path, creation timestamp, and item count.
+- File rows record their media-source ownership, parent path, name, extension, size, modification timestamp, attributes, and whether the row represents a directory.
+- File listing queries are scoped to a selected media source within the active catalog database and paged for the virtual ListView.
+- Useful media-source lookup paths remain indexed as the data set grows.
+- Existing databases that use the established `catalogs` and `files` schema remain valid catalog files; the table name is retained for data compatibility.
 
 ## Storage Rules
 
@@ -42,6 +44,7 @@ SQLite must not be replaced with a managed data layer, a framework database abst
 
 ## Operational Expectations
 
-- Opening a database initializes the schema needed by the current application.
-- Scanning writes catalog contents reliably and updates aggregate item count when scanning completes.
-- Stored catalogs can be loaded at application start without requiring the scanned source path to be online.
+- Creating a catalog initializes a new SQLite database only at the user-selected new file path.
+- Opening an existing catalog validates and initializes the supported schema without replacing an active catalog when opening fails.
+- Scanning adds a new media source or replaces contents for the same source path in the active catalog only, and updates aggregate item count when scanning completes.
+- The last-used available catalog can be loaded at application start without requiring any scanned source path to be online; otherwise startup has no active catalog.

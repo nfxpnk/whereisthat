@@ -22,9 +22,12 @@ The delivered application and supported build must not depend on .NET, WPF, C#, 
 ## Functional Acceptance Checklist
 
 - The application opens as a native Windows desktop GUI on supported x64 Windows versions.
-- A user can select a folder or disk and start a scan.
+- Without a usable saved last-used database path, the application starts with no active catalog and does not create or open `catalog.db` implicitly.
+- A user can create a fresh SQLite catalog file and open an existing SQLite catalog file, and activating either stores it as the last-used catalog for startup.
+- Creating a catalog never modifies the previously active catalog or overwrites an existing file selected as a destination.
+- A user can select a folder or disk image and add it to or refresh it in the active catalog only, without duplicate contents for the same indexed source.
 - Scan work does not freeze the primary UI message loop, and progress is surfaced in the interface.
-- After restart, saved catalogs can be browsed from persisted data even when the scanned source is unavailable.
+- After restart, an available last-used catalog can be browsed from persisted data even when an indexed source is unavailable.
 - File browsing remains database-backed and paged for large catalogs.
 
 ## Documentation Acceptance

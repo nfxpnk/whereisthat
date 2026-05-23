@@ -1,7 +1,8 @@
 #include "MainFrame.h"
-#include <cwctype>
 #include <shobjidl.h>
 #include <string>
+#include <utility>
+#include <vector>
 #include "../platform/Win32Helpers.h"
 
 namespace {
@@ -13,12 +14,13 @@ struct ScanProgressMessage {
     std::uint64_t folders{};
 };
 
-struct NewCatalogDialogData {
-    std::wstring name;
-};
-
 struct GeneralSettingsDialogData {
     wit::platform::AppSettings settings;
+};
+
+constexpr COMDLG_FILTERSPEC kCatalogFileTypes[] = {
+    {L"SQLite catalog database (*.db)", L"*.db"},
+    {L"All files (*.*)", L"*.*"}
 };
 
 std::wstring NameForCatalogRoot(const std::wstring& root) {
@@ -29,45 +31,69 @@ std::wstring NameForCatalogRoot(const std::wstring& root) {
     return pos == std::wstring::npos ? root.substr(0, end + 1) : root.substr(pos + 1, end - pos);
 }
 
-std::wstring TrimWhitespace(const std::wstring& value) {
-    std::size_t first = 0;
-    while(first < value.size() && std::iswspace(value[first])) ++first;
-    std::size_t last = value.size();
-    while(last > first && std::iswspace(value[last - 1])) --last;
-    return value.substr(first, last - first);
+std::wstring NormalizedSourcePath(const std::wstring& path) {
+    std::vector<wchar_t> buffer(MAX_PATH);
+    for (;;) {
+        const DWORD length = GetFullPathNameW(path.c_str(), static_cast<DWORD>(buffer.size()), buffer.data(), nullptr);
+        if (length == 0) return path;
+        if (length < buffer.size()) {
+            std::wstring normalized(buffer.data(), length);
+            while (normalized.size() > 3 && (normalized.back() == L'\\' || normalized.back() == L'/')) normalized.pop_back();
+            return normalized;
+        }
+        buffer.resize(static_cast<std::size_t>(length) + 1);
+    }
 }
 
-INT_PTR CALLBACK NewCatalogDialogProc(HWND dialog, UINT message, WPARAM wparam, LPARAM lparam) {
-    auto* data = reinterpret_cast<NewCatalogDialogData*>(GetWindowLongPtrW(dialog, GWLP_USERDATA));
-    switch(message) {
-    case WM_INITDIALOG:
-        data = reinterpret_cast<NewCatalogDialogData*>(lparam);
-        SetWindowLongPtrW(dialog, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(data));
-        SendDlgItemMessageW(dialog, IDC_CATALOG_NAME, EM_SETLIMITTEXT, 255, 0);
-        SetFocus(GetDlgItem(dialog, IDC_CATALOG_NAME));
-        return FALSE;
-    case WM_COMMAND:
-        if(LOWORD(wparam) == IDOK) {
-            const int length = GetWindowTextLengthW(GetDlgItem(dialog, IDC_CATALOG_NAME));
-            std::wstring name(static_cast<std::size_t>(length) + 1, L'\0');
-            GetDlgItemTextW(dialog, IDC_CATALOG_NAME, name.data(), length + 1);
-            name.resize(static_cast<std::size_t>(length));
-            data->name = TrimWhitespace(name);
-            if(data->name.empty()) {
-                MessageBoxW(dialog, L"Enter a catalog name.", L"New Catalog", MB_OK | MB_ICONINFORMATION);
-                SetFocus(GetDlgItem(dialog, IDC_CATALOG_NAME));
-                return TRUE;
-            }
-            EndDialog(dialog, IDOK);
-            return TRUE;
+bool ItemFileSystemPath(IShellItem* item, std::wstring& path) {
+    PWSTR selected{};
+    if(FAILED(item->GetDisplayName(SIGDN_FILESYSPATH, &selected))) return false;
+    path = selected;
+    CoTaskMemFree(selected);
+    return true;
+}
+
+bool ChooseNewCatalogPath(HWND owner, std::wstring& path) {
+    IFileSaveDialog* dialog{};
+    if(FAILED(CoCreateInstance(CLSID_FileSaveDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dialog)))) return false;
+    dialog->SetTitle(L"Create a new catalog database");
+    dialog->SetFileTypes(2, kCatalogFileTypes);
+    dialog->SetFileTypeIndex(1);
+    dialog->SetDefaultExtension(L"db");
+    DWORD options{};
+    dialog->GetOptions(&options);
+    dialog->SetOptions(options | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST | FOS_NOCHANGEDIR);
+    bool selected = false;
+    if(SUCCEEDED(dialog->Show(owner))) {
+        IShellItem* item{};
+        if(SUCCEEDED(dialog->GetResult(&item))) {
+            selected = ItemFileSystemPath(item, path);
+            item->Release();
         }
-        if(LOWORD(wparam) == IDCANCEL) {
-            EndDialog(dialog, IDCANCEL);
-            return TRUE;
-        }
-        break;
     }
-    return FALSE;
+    dialog->Release();
+    return selected;
+}
+
+bool ChooseCatalogToOpen(HWND owner, std::wstring& path) {
+    IFileOpenDialog* dialog{};
+    if(FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dialog)))) return false;
+    dialog->SetTitle(L"Open a catalog database");
+    dialog->SetFileTypes(2, kCatalogFileTypes);
+    dialog->SetFileTypeIndex(1);
+    DWORD options{};
+    dialog->GetOptions(&options);
+    dialog->SetOptions(options | FOS_FORCEFILESYSTEM | FOS_FILEMUSTEXIST | FOS_NOCHANGEDIR);
+    bool selected = false;
+    if(SUCCEEDED(dialog->Show(owner))) {
+        IShellItem* item{};
+        if(SUCCEEDED(dialog->GetResult(&item))) {
+            selected = ItemFileSystemPath(item, path);
+            item->Release();
+        }
+    }
+    dialog->Release();
+    return selected;
 }
 
 INT_PTR CALLBACK GeneralSettingsDialogProc(HWND dialog, UINT message, WPARAM wparam, LPARAM lparam) {
@@ -152,9 +178,13 @@ LRESULT MainFrame::HandleMessage(UINT message, WPARAM wparam, LPARAM lparam){
     }
     case WM_SCAN_COMPLETE:
         if(worker_.joinable()) worker_.join();
-        ReloadCatalogs();
-        SelectCatalog(static_cast<std::int64_t>(wparam));
-        SendMessageW(status_, SB_SETTEXTW, 0, reinterpret_cast<LPARAM>(L"Scan complete"));
+        if(lparam != 0) {
+            ReloadCatalogs();
+            SelectCatalog(static_cast<std::int64_t>(wparam));
+            SendMessageW(status_, SB_SETTEXTW, 0, reinterpret_cast<LPARAM>(L"Scan complete"));
+        } else {
+            SendMessageW(status_, SB_SETTEXTW, 0, reinterpret_cast<LPARAM>(L"Scan failed; catalog unchanged"));
+        }
         return 0;
     case WM_DESTROY: OnDestroy(); return 0;
     }
@@ -162,7 +192,6 @@ LRESULT MainFrame::HandleMessage(UINT message, WPARAM wparam, LPARAM lparam){
 }
 
 bool MainFrame::OnCreate(){
-    db_.Open(dbPath_);
     settings_ = wit::platform::LoadAppSettings();
     DWORD statusStyle = WS_CHILD;
     if(settings_.showStatusBar) statusStyle |= WS_VISIBLE;
@@ -180,7 +209,7 @@ bool MainFrame::OnCreate(){
     files_.Attach(filesCtl_);
 
     LVCOLUMNW col{LVCF_TEXT | LVCF_WIDTH | LVCF_FMT};
-    col.fmt = LVCFMT_LEFT; col.cx = 220; col.pszText = const_cast<LPWSTR>(L"Catalog");
+    col.fmt = LVCFMT_LEFT; col.cx = 220; col.pszText = const_cast<LPWSTR>(L"Media Source");
     ListView_InsertColumn(catalogsCtl_, 0, &col);
     col.cx = 200; col.pszText = const_cast<LPWSTR>(L"Name"); ListView_InsertColumn(filesCtl_, 0, &col);
     col.cx = 80; col.pszText = const_cast<LPWSTR>(L"Type"); ListView_InsertColumn(filesCtl_, 1, &col);
@@ -188,8 +217,10 @@ bool MainFrame::OnCreate(){
     col.fmt = LVCFMT_LEFT; col.cx = 320; col.pszText = const_cast<LPWSTR>(L"Path"); ListView_InsertColumn(filesCtl_, 3, &col);
     col.cx = 180; col.pszText = const_cast<LPWSTR>(L"Modified"); ListView_InsertColumn(filesCtl_, 4, &col);
 
-    ReloadCatalogs();
-    if(!catalogs_.catalogs.empty()) SelectCatalog(catalogs_.catalogs.front().id);
+    ClearCatalogViews();
+    if(!settings_.lastCatalogPath.empty() && !ActivateCatalog(settings_.lastCatalogPath, false, false)) {
+        SendMessageW(status_, SB_SETTEXTW, 0, reinterpret_cast<LPARAM>(L"Last used catalog is unavailable"));
+    }
     return true;
 }
 
@@ -212,32 +243,63 @@ void MainFrame::OnExit(){ PostMessageW(hwnd_, WM_CLOSE, 0, 0);}
 void MainFrame::OnAbout(){ MessageBoxW(hwnd_, L"Where Is That?\nNative Win32 build.", L"About", MB_OK);}
 void MainFrame::OnCommand(int id){
     if(id == ID_FILE_NEWCATALOG) OnNewCatalog();
+    else if(id == ID_FILE_OPEN) OnOpenCatalog();
     else if(id == ID_EDIT_ADDDISKIMAGE) OnAddOrUpdateDiskImage();
     else if(id == ID_OPTIONS_GENERAL_SETTINGS) OnGeneralSettings();
     else if(id == ID_FILE_EXIT) OnExit();
     else if(id == ID_HELP_ABOUT) OnAbout();
 }
-void MainFrame::ReloadCatalogs(){ catalogs_.catalogs=db_.GetCatalogs(); catalogs_.Reload(); }
+void MainFrame::ClearCatalogViews(){ catalogs_.catalogs.clear(); catalogs_.Reload(); files_.SetCatalog(0, nullptr); }
+void MainFrame::ReloadCatalogs(){ catalogs_.catalogs=db_.IsOpen()?db_.GetCatalogs():std::vector<wit::core::Catalog>{}; catalogs_.Reload(); if(catalogs_.catalogs.empty()) files_.SetCatalog(0, nullptr); }
 void MainFrame::SelectCatalog(std::int64_t catalogId){ for(int i=0;i<ListView_GetItemCount(catalogsCtl_);++i){ LVITEMW item{}; item.mask=LVIF_PARAM; item.iItem=i; if(ListView_GetItem(catalogsCtl_, &item) && item.lParam==catalogId){ ListView_SetItemState(catalogsCtl_, i, LVIS_SELECTED|LVIS_FOCUSED, LVIS_SELECTED|LVIS_FOCUSED); ListView_EnsureVisible(catalogsCtl_, i, FALSE); files_.SetCatalog(catalogId,&db_); break; } } }
 LRESULT MainFrame::OnCatalogChanged(LPNMHDR hdr){ auto* n=(NMLISTVIEW*)hdr; if((n->uChanged&LVIF_STATE)&& (n->uNewState&LVIS_SELECTED)){ LVITEMW item{}; item.mask=LVIF_PARAM; item.iItem=n->iItem; if(ListView_GetItem(catalogsCtl_, &item)) files_.SetCatalog((std::int64_t)item.lParam,&db_);} return 0; }
 LRESULT MainFrame::OnFileGetDispInfo(LPNMHDR hdr){ auto* di=(NMLVDISPINFOW*)hdr; if(di->item.mask&LVIF_TEXT){ auto t=files_.TextFor(di->item.iItem,di->item.iSubItem); lstrcpynW(di->item.pszText,t.c_str(),di->item.cchTextMax);} return 0; }
+bool MainFrame::ActivateCatalog(const std::wstring& path, bool createNew, bool persistPath) {
+    wit::storage::Database candidate;
+    const bool opened = createNew ? candidate.CreateNew(path) : candidate.OpenExisting(path);
+    if(!opened) return false;
+    db_ = std::move(candidate);
+    activeCatalogPath_ = path;
+    ClearCatalogViews();
+    ReloadCatalogs();
+    if(!catalogs_.catalogs.empty()) SelectCatalog(catalogs_.catalogs.front().id);
+    if(persistPath) {
+        settings_.lastCatalogPath = path;
+        if(!wit::platform::SaveAppSettings(settings_)) {
+            MessageBoxW(hwnd_, L"The catalog opened, but its path could not be saved in settings.ini.",
+                L"Catalog Settings", MB_OK | MB_ICONWARNING);
+        }
+    }
+    return true;
+}
 void MainFrame::OnNewCatalog(){
     if(worker_.joinable()){
         MessageBoxW(hwnd_, L"A scan is already running.", L"Scan in progress", MB_OK | MB_ICONINFORMATION);
         return;
     }
-    NewCatalogDialogData data{};
-    const auto result = DialogBoxParamW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDD_NEW_CATALOG),
-        hwnd_, NewCatalogDialogProc, reinterpret_cast<LPARAM>(&data));
-    if(result != IDOK) return;
-
-    wit::core::Catalog catalog{};
-    catalog.name = data.name;
-    catalog.createdAt = wit::platform::NowIso8601();
-    const auto id = db_.AddCatalog(catalog);
-    ReloadCatalogs();
-    SelectCatalog(id);
+    std::wstring path;
+    if(!ChooseNewCatalogPath(hwnd_, path)) return;
+    if(!ActivateCatalog(path, true, true)) {
+        MessageBoxW(hwnd_, L"Unable to create the new catalog. Choose a filename that does not already exist.",
+            L"New Catalog", MB_OK | MB_ICONERROR);
+        return;
+    }
     SendMessageW(status_, SB_SETTEXTW, 0, reinterpret_cast<LPARAM>(L"Catalog created"));
+}
+
+void MainFrame::OnOpenCatalog(){
+    if(worker_.joinable()){
+        MessageBoxW(hwnd_, L"A scan is already running.", L"Scan in progress", MB_OK | MB_ICONINFORMATION);
+        return;
+    }
+    std::wstring path;
+    if(!ChooseCatalogToOpen(hwnd_, path)) return;
+    if(!ActivateCatalog(path, false, true)) {
+        MessageBoxW(hwnd_, L"The selected file is not an available catalog database.", L"Open Catalog",
+            MB_OK | MB_ICONERROR);
+        return;
+    }
+    SendMessageW(status_, SB_SETTEXTW, 0, reinterpret_cast<LPARAM>(L"Catalog opened"));
 }
 
 void MainFrame::OnGeneralSettings(){
@@ -265,6 +327,11 @@ void MainFrame::OnAddOrUpdateDiskImage(){
         MessageBoxW(hwnd_, L"A scan is already running.", L"Scan in progress", MB_OK | MB_ICONINFORMATION);
         return;
     }
+    if(!db_.IsOpen() || activeCatalogPath_.empty()){
+        MessageBoxW(hwnd_, L"Create or open a catalog before adding a disk image.", L"No Active Catalog",
+            MB_OK | MB_ICONINFORMATION);
+        return;
+    }
     IFileOpenDialog* dialog{};
     if(FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dialog)))) return;
     DWORD options{};
@@ -276,26 +343,44 @@ void MainFrame::OnAddOrUpdateDiskImage(){
         if(SUCCEEDED(dialog->GetResult(&item))){
             PWSTR path{};
             if(SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &path))){
-                std::wstring root(path);
+                std::wstring root = NormalizedSourcePath(path);
                 CoTaskMemFree(path);
-                wit::core::Catalog catalog{};
-                catalog.name = NameForCatalogRoot(root);
-                catalog.rootPath = root;
-                catalog.createdAt = wit::platform::NowIso8601();
-                const auto id = db_.AddCatalog(catalog);
-                ReloadCatalogs();
-                SelectCatalog(id);
                 SendMessageW(status_, SB_SETTEXTW, 0, reinterpret_cast<LPARAM>(L"Starting scan..."));
-                const auto dbPath = dbPath_;
-                worker_ = std::thread([this, root, id, dbPath](){
+                const auto dbPath = activeCatalogPath_;
+                worker_ = std::thread([this, root, dbPath](){
                     wit::storage::Database scanDb;
-                    scanDb.Open(dbPath);
-                    wit::core::FileScanner scanner;
-                    scanner.ScanFolder(root, id, scanDb, [this](const wit::core::FileScanner::Progress& progress){
-                        PostMessageW(hwnd_, WM_SCAN_PROGRESS, 0, reinterpret_cast<LPARAM>(
-                            new ScanProgressMessage{progress.scannedFiles, progress.scannedFolders}));
-                    });
-                    PostMessageW(hwnd_, WM_SCAN_COMPLETE, static_cast<WPARAM>(id), 0);
+                    std::int64_t id{};
+                    bool success = scanDb.OpenExisting(dbPath) && scanDb.BeginTransaction();
+                    if(success) {
+                        id = scanDb.FindCatalogByRootPath(root);
+                        if(id != 0) {
+                            success = scanDb.DeleteDuplicateCatalogsForRootPath(root, id) &&
+                                scanDb.DeleteFilesForCatalog(id);
+                        } else {
+                            wit::core::Catalog catalog{};
+                            catalog.name = NameForCatalogRoot(root);
+                            catalog.rootPath = root;
+                            catalog.createdAt = wit::platform::NowIso8601();
+                            id = scanDb.AddCatalog(catalog);
+                            success = id != 0;
+                        }
+                    }
+                    if(success) {
+                        wit::core::FileScanner scanner;
+                        success = scanner.ScanFolder(root, id, scanDb, [this](const wit::core::FileScanner::Progress& progress){
+                            PostMessageW(hwnd_, WM_SCAN_PROGRESS, 0, reinterpret_cast<LPARAM>(
+                                new ScanProgressMessage{progress.scannedFiles, progress.scannedFolders}));
+                        }, false);
+                    }
+                    if(success) {
+                        if(!scanDb.Commit()) {
+                            scanDb.Rollback();
+                            success = false;
+                        }
+                    } else if(scanDb.IsOpen()) {
+                        scanDb.Rollback();
+                    }
+                    PostMessageW(hwnd_, WM_SCAN_COMPLETE, static_cast<WPARAM>(id), success ? 1 : 0);
                 });
             }
             item->Release();

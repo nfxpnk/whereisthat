@@ -6,6 +6,7 @@ namespace wit::platform {
 
 struct AppSettings {
     bool showStatusBar{true};
+    std::wstring lastCatalogPath;
 };
 
 std::wstring SettingsFilePath();

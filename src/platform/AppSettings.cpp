@@ -45,12 +45,12 @@ AppSettings LoadAppSettings() {
     settings.showStatusBar =
         GetPrivateProfileIntW(L"General", L"ShowStatusBar", 1, path.c_str()) != 0;
     settings.lastCatalogPath = ReadProfileString(L"General", L"LastCatalogPath", path);
-    for(std::size_t index = kMaximumRecentCatalogs; index > 0; --index) {
+    for (std::size_t index = kMaximumRecentCatalogs; index > 0; --index) {
         const auto key = L"Path" + std::to_wstring(index);
         auto recentPath = ReadProfileString(L"RecentCatalogs", key.c_str(), path);
-        if(!recentPath.empty()) RememberRecentCatalog(settings, recentPath);
+        if (!recentPath.empty()) RememberRecentCatalog(settings, recentPath);
     }
-    if(!settings.lastCatalogPath.empty()) RememberRecentCatalog(settings, settings.lastCatalogPath);
+    if (!settings.lastCatalogPath.empty()) RememberRecentCatalog(settings, settings.lastCatalogPath);
     return settings;
 }
 
@@ -60,7 +60,7 @@ bool SaveAppSettings(const AppSettings& settings) {
         settings.showStatusBar ? L"1" : L"0", path.c_str()) != FALSE &&
         WritePrivateProfileStringW(L"General", L"LastCatalogPath",
             settings.lastCatalogPath.c_str(), path.c_str()) != FALSE;
-    for(std::size_t index = 0; index < kMaximumRecentCatalogs; ++index) {
+    for (std::size_t index = 0; index < kMaximumRecentCatalogs; ++index) {
         const auto key = L"Path" + std::to_wstring(index + 1);
         const wchar_t* value = index < settings.recentCatalogPaths.size()
             ? settings.recentCatalogPaths[index].c_str() : nullptr;
@@ -71,13 +71,13 @@ bool SaveAppSettings(const AppSettings& settings) {
 }
 
 void RememberRecentCatalog(AppSettings& settings, const std::wstring& path) {
-    if(path.empty()) return;
+    if (path.empty()) return;
     settings.recentCatalogPaths.erase(std::remove_if(settings.recentCatalogPaths.begin(),
         settings.recentCatalogPaths.end(), [&path](const std::wstring& existing) {
             return CompareStringOrdinal(existing.c_str(), -1, path.c_str(), -1, TRUE) == CSTR_EQUAL;
         }), settings.recentCatalogPaths.end());
     settings.recentCatalogPaths.insert(settings.recentCatalogPaths.begin(), path);
-    if(settings.recentCatalogPaths.size() > kMaximumRecentCatalogs) {
+    if (settings.recentCatalogPaths.size() > kMaximumRecentCatalogs) {
         settings.recentCatalogPaths.resize(kMaximumRecentCatalogs);
     }
 }

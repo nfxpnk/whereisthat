@@ -27,13 +27,13 @@ std::wstring DisplayNameForRoot(const std::wstring& rootPath) {
 }
 
 bool FileScanner::ScanFolder(const std::wstring& rootPath, std::int64_t catalogId, wit::storage::Database& db,
-    const ProgressCallback& onProgress, bool manageTransaction){
+    const ProgressCallback& onProgress, bool manageTransaction) {
     std::vector<std::wstring> stack{rootPath};
-    std::uint64_t fileCount=0;
-    std::uint64_t folderCount=0;
-    if(manageTransaction && !db.BeginTransaction()) return false;
+    std::uint64_t fileCount = 0;
+    std::uint64_t folderCount = 0;
+    if (manageTransaction && !db.BeginTransaction()) return false;
     const auto fail = [&db, manageTransaction]() {
-        if(manageTransaction) db.Rollback();
+        if (manageTransaction) db.Rollback();
         return false;
     };
 
@@ -48,43 +48,52 @@ bool FileScanner::ScanFolder(const std::wstring& rootPath, std::int64_t catalogI
         root.modifiedAt = wit::platform::FileTimeToIso8601(rootAttrs.ftLastWriteTime);
         root.attributes = rootAttrs.dwFileAttributes;
         root.isDirectory = true;
-        if(!db.InsertFile(root)) return fail();
+        if (!db.InsertFile(root)) return fail();
         ++folderCount;
     }
 
-    while(!stack.empty()){
-        auto dir=stack.back(); stack.pop_back();
-        WIN32_FIND_DATAW fd{}; auto query = WildcardFor(dir);
-        HANDLE h = FindFirstFileW(query.c_str(), &fd); if (h==INVALID_HANDLE_VALUE) continue;
+    while (!stack.empty()) {
+        auto directory = stack.back();
+        stack.pop_back();
+        WIN32_FIND_DATAW findData{};
+        auto query = WildcardFor(directory);
+        HANDLE findHandle = FindFirstFileW(query.c_str(), &findData);
+        if (findHandle == INVALID_HANDLE_VALUE) continue;
         do {
-            if (wcscmp(fd.cFileName,L".")==0||wcscmp(fd.cFileName,L"..")==0) continue;
-            std::wstring full = JoinPath(dir, fd.cFileName);
-            wit::core::FileEntry e{}; e.catalogId=catalogId; e.name=fd.cFileName; e.parentPath=dir; e.extension=wit::platform::FileExtension(e.name);
-            e.size=((uint64_t)fd.nFileSizeHigh<<32)|fd.nFileSizeLow; e.modifiedAt=wit::platform::FileTimeToIso8601(fd.ftLastWriteTime); e.attributes=fd.dwFileAttributes;
-            e.isDirectory=(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)!=0;
-            if(e.isDirectory) {
-                e.extension = L"";
-                e.size = 0;
-                if(!db.InsertFile(e)) {
-                    FindClose(h);
+            if (wcscmp(findData.cFileName, L".") == 0 || wcscmp(findData.cFileName, L"..") == 0) continue;
+            std::wstring fullPath = JoinPath(directory, findData.cFileName);
+            wit::core::FileEntry entry{};
+            entry.catalogId = catalogId;
+            entry.name = findData.cFileName;
+            entry.parentPath = directory;
+            entry.extension = wit::platform::FileExtension(entry.name);
+            entry.size = (static_cast<std::uint64_t>(findData.nFileSizeHigh) << 32) | findData.nFileSizeLow;
+            entry.modifiedAt = wit::platform::FileTimeToIso8601(findData.ftLastWriteTime);
+            entry.attributes = findData.dwFileAttributes;
+            entry.isDirectory = (findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+            if (entry.isDirectory) {
+                entry.extension = L"";
+                entry.size = 0;
+                if (!db.InsertFile(entry)) {
+                    FindClose(findHandle);
                     return fail();
                 }
                 ++folderCount;
-                if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)) stack.push_back(full);
+                if (!(findData.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)) stack.push_back(fullPath);
             } else {
-                if(!db.InsertFile(e)) {
-                    FindClose(h);
+                if (!db.InsertFile(entry)) {
+                    FindClose(findHandle);
                     return fail();
                 }
                 ++fileCount;
             }
             auto total = fileCount + folderCount;
-            if (onProgress && total % 250 == 0) onProgress({fileCount, folderCount, full});
-        } while(FindNextFileW(h,&fd));
-        FindClose(h);
+            if (onProgress && total % 250 == 0) onProgress({fileCount, folderCount, fullPath});
+        } while (FindNextFileW(findHandle, &findData));
+        FindClose(findHandle);
     }
-    if(!db.UpdateCatalogItemCount(catalogId,fileCount + folderCount)) return fail();
-    if(manageTransaction && !db.Commit()) return fail();
+    if (!db.UpdateCatalogItemCount(catalogId, fileCount + folderCount)) return fail();
+    if (manageTransaction && !db.Commit()) return fail();
     if (onProgress) onProgress({fileCount, folderCount, rootPath});
     return true;
 }

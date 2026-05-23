@@ -1,3 +1,16 @@
 #include "CatalogListView.h"
 #include <CommCtrl.h>
-namespace wit::ui { void CatalogListView::Reload(){ ListView_DeleteAllItems(hwnd); for(size_t i=0;i<catalogs.size();++i){ LVITEMW it{}; it.mask=LVIF_TEXT|LVIF_PARAM; it.iItem=(int)i; it.pszText=(LPWSTR)catalogs[i].name.c_str(); it.lParam=(LPARAM)catalogs[i].id; ListView_InsertItem(hwnd,&it);} } }
+
+namespace wit::ui {
+void CatalogListView::Reload() {
+    ListView_DeleteAllItems(hwnd);
+    for (std::size_t index = 0; index < catalogs.size(); ++index) {
+        LVITEMW item{};
+        item.mask = LVIF_TEXT | LVIF_PARAM;
+        item.iItem = static_cast<int>(index);
+        item.pszText = const_cast<LPWSTR>(catalogs[index].name.c_str());
+        item.lParam = static_cast<LPARAM>(catalogs[index].id);
+        ListView_InsertItem(hwnd, &item);
+    }
+}
+}

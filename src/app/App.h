@@ -1,2 +1,6 @@
 #pragma once
-class App { public: int Run(); };
+
+class App {
+public:
+    int Run();
+};

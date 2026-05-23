@@ -2,7 +2,9 @@
 
 Where Is That? is built with C++20, the Win32 API, SQLite, and the MSVC v143 toolset.
 
-1. Install Visual Studio Build Tools 2022 or Visual Studio 2022.
+The canonical build, dependency, and acceptance rules are in [`spec/build.md`](spec/build.md) and [`spec/acceptance.md`](spec/acceptance.md). All build changes must remain consistent with the project specification in [`spec/`](spec/).
+
+1. Install Visual Studio Build Tools 2022, Visual Studio 2022, or Visual Studio 2026 with MSVC v143 installed.
 2. Install **Desktop development with C++**.
 3. Open `whereisthat.sln`.
 4. Select `x64` platform.

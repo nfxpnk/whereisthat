@@ -1,0 +1,40 @@
+# Architecture Specification
+
+## Architectural Contract
+
+Where Is That? is a C++20, x64-only native Windows desktop application. The UI is implemented directly with the Win32 API and Common Controls; persistence is implemented with the SQLite C API loaded through a separately deployed `sqlite3.dll`. The Visual Studio/MSBuild project is the supported build definition.
+
+The following alternatives are forbidden: .NET, WPF, C#, Qt, Electron, Python, CMake, vcpkg, and WTL.
+
+## Layers
+
+The source tree establishes these responsibilities:
+
+| Directory | Responsibility |
+| --- | --- |
+| `src/app` | Entry point, app lifetime, main frame window, command routing, Windows resources. |
+| `src/ui` | Win32/Common Controls view adapters and dialog presentation. |
+| `src/core` | Catalog and file models, scanning behavior, domain formatting. |
+| `src/storage` | SQLite connection, schema, queries, statement/resource management. |
+| `src/platform` | Win32-specific conversion, filesystem, path, and time helpers. |
+
+Dependencies should flow from application/UI orchestration into core, storage, and platform helpers. Storage must not own window behavior, and UI code must not encode the SQLite schema or SQL queries.
+
+## Runtime Shape
+
+- `WhereIsThat.exe` is a Unicode Win32 GUI executable.
+- The main window uses Common Controls for catalog browsing, file browsing, status display, and related native interactions.
+- A scan is initiated from the UI and performs filesystem enumeration without blocking interactive window message handling.
+- Scanned metadata is persisted to `catalog.db`; browsing stored catalogs remains possible after the source drive is unavailable.
+- Large file lists are presented through an owner-data ListView backed by paged database access rather than loading an entire catalog into memory.
+
+## Dependency Boundaries
+
+- Win32 and Common Controls are the only UI platform dependencies.
+- SQLite is the only database engine dependency.
+- Third-party SQLite deployment consists of `sqlite3.h`, `sqlite3.lib`, and `sqlite3.dll` under `third_party/sqlite`.
+- New dependencies require an explicit update to this specification before adoption.
+
+## Authority
+
+The files in `docs/spec/` are the persistent architectural contract. Documentation, implementation changes, and proposed features must conform to them or amend them deliberately before changing the architecture.

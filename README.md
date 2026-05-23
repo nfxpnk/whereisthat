@@ -2,17 +2,20 @@
 
 Where Is That? is a native Windows 10/11 file cataloging utility built with C++20, the Win32 API, SQLite, and MSVC. It scans a folder or drive, stores folder/file metadata in `catalog.db` (SQLite), and lets you browse catalogs later even when the original drive is disconnected.
 
+## Project Specification
+The canonical product, architecture, build, storage, UI, coding, and acceptance rules are maintained in [`docs/spec/`](docs/spec/). Contributors should read and preserve these decisions when proposing or implementing changes.
+
 ## Why C++ + Win32 API + SQLite + MSVC
 - Fast startup and low memory footprint.
 - Small distributable.
 - Direct control over Win32 API behavior.
 - SQLite storage through the SQLite C API.
 - MSVC toolchain and MSBuild project files.
-- No .NET, WPF, Electron, Qt, or cross-platform runtime.
+- No .NET, WPF, C#, Qt, Electron, Python, CMake, vcpkg, WTL, or cross-platform runtime.
 
 ## Requirements
 - Windows 10/11 x64
-- Visual Studio Build Tools 2022 or Visual Studio 2022
+- Visual Studio Build Tools 2022, Visual Studio 2022, or Visual Studio 2026 with MSVC v143 installed
 - Desktop development with C++ workload
 - SQLite 3.53.1 DLL/import library/header are vendored under `third_party/sqlite`
 

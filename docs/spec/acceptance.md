@@ -29,7 +29,8 @@ The delivered application and supported build must not depend on .NET, WPF, C#, 
 - A user can select a folder or disk image and add it to or refresh it in the active catalog only, without duplicate contents for the same indexed source.
 - Scan work does not freeze the primary UI message loop, and progress is surfaced in the interface.
 - After restart, an available last-used catalog can be browsed from persisted data even when an indexed source is unavailable.
-- File browsing remains database-backed and paged for large catalogs.
+- The main browser displays an active-catalog root with folder-only TreeView expansion, immediate file/folder contents, a catalog-relative address display, and synchronized Back/Forward navigation.
+- File browsing remains database-backed and paged for large catalog locations.
 
 ## Documentation Acceptance
 

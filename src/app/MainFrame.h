@@ -4,10 +4,12 @@
 #include <cstdint>
 #include <string>
 #include <thread>
+#include <vector>
 #include "../storage/Database.h"
 #include "../core/FileScanner.h"
+#include "../core/BrowserLocation.h"
 #include "../platform/AppSettings.h"
-#include "../ui/CatalogListView.h"
+#include "../ui/CatalogTreeView.h"
 #include "../ui/FileListView.h"
 #include "resource.h"
 
@@ -21,8 +23,11 @@ private:
     static constexpr int kSplitterWidth = 4;
     static constexpr int kMinPaneWidth = 80;
     HWND hwnd_{};
-    HWND catalogsCtl_{};
+    HWND treeCtl_{};
     HWND filesCtl_{};
+    HWND backCtl_{};
+    HWND forwardCtl_{};
+    HWND addressCtl_{};
     HWND status_{};
     HWND toolbar_{};
     HIMAGELIST toolbarImages_{};
@@ -33,10 +38,14 @@ private:
     bool splitterDragging_{};
     std::wstring activeCatalogPath_;
     wit::storage::Database db_;
-    wit::ui::CatalogListView catalogs_;
+    wit::ui::CatalogTreeView tree_;
     wit::ui::FileListView files_;
     wit::platform::AppSettings settings_;
     std::thread worker_;
+    wit::core::BrowserLocation currentLocation_;
+    std::vector<wit::core::BrowserLocation> history_;
+    int historyIndex_{-1};
+    bool selectingTree_{};
 
     static LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam);
     LRESULT HandleMessage(UINT message, WPARAM wparam, LPARAM lparam);
@@ -55,12 +64,19 @@ private:
     void ApplyDisplaySettings();
     void OnExit();
     void OnAbout();
-    LRESULT OnCatalogChanged(LPNMHDR hdr);
+    LRESULT OnTreeSelectionChanged(LPNMHDR hdr);
+    LRESULT OnTreeExpanding(LPNMHDR hdr);
     LRESULT OnFileGetDispInfo(LPNMHDR hdr);
+    LRESULT OnFileActivate(LPNMHDR hdr);
     LRESULT OnToolbarDropDown(LPNMTOOLBAR notification);
     bool ActivateCatalog(const std::wstring& path, bool createNew, bool persistPath);
     void RefreshOpenRecentMenu();
     void ClearCatalogViews();
-    void ReloadCatalogs();
-    void SelectCatalog(std::int64_t catalogId);
+    void ReloadBrowser();
+    void NavigateTo(const wit::core::BrowserLocation& location, bool addToHistory);
+    void NavigateBack();
+    void NavigateForward();
+    std::wstring CatalogLabel() const;
+    std::wstring AddressFor(const wit::core::BrowserLocation& location) const;
+    void UpdateNavigationControls();
 };

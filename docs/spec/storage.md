@@ -31,7 +31,8 @@ SQLite must not be replaced with a managed data layer, a framework database abst
 
 - A catalog database contains indexed media-source records with name, root path, creation timestamp, and item count.
 - File rows record their media-source ownership, parent path, name, extension, size, modification timestamp, attributes, and whether the row represents a directory.
-- File listing queries are scoped to a selected media source within the active catalog database and paged for the virtual ListView.
+- Browser listing queries are scoped to the virtual catalog root or to the immediate children of a selected stored source/folder location, and are paged for the virtual ListView.
+- Folder-tree expansion queries return stored child directories only, keyed by source identity and persisted parent path; browsing never requires the indexed source to be online.
 - Item-name search queries match literal text across all file and folder rows in the active catalog database and page results for the virtual search ListView.
 - Useful media-source lookup paths remain indexed as the data set grows.
 - Existing databases that use the established `catalogs` and `files` schema remain valid catalog files; the table name is retained for data compatibility.

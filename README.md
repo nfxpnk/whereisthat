@@ -39,8 +39,9 @@ From **Developer Command Prompt for VS 2022**:
 - Background scanning thread.
 - Status bar scan progress for folders and files.
 - SQLite-backed catalog/file storage.
-- Catalog list on left pane.
-- Virtual owner-data file ListView on right pane.
+- Explorer-style catalog browser with a folder TreeView on the left and current-location contents on the right.
+- Back/Forward navigation and a catalog-relative address display.
+- Virtual owner-data contents ListView with database-backed paging.
 - Search for indexed files and folders by name with paged results.
 - Reopen the last-used available catalog database on startup.
 

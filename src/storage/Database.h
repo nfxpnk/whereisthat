@@ -2,6 +2,7 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+#include "../core/BrowserLocation.h"
 #include "../core/Catalog.h"
 #include "../core/FileEntry.h"
 struct sqlite3;
@@ -30,8 +31,10 @@ public:
     bool UpdateCatalogItemCount(std::int64_t catalogId, std::int64_t itemCount);
     bool InsertFile(const wit::core::FileEntry& file);
     std::vector<wit::core::Catalog> GetCatalogs();
-    int GetFileCountForCatalog(std::int64_t catalogId);
-    std::vector<wit::core::FileEntry> GetFilesPageForCatalog(std::int64_t catalogId, int offset, int limit);
+    int GetBrowserItemCount(const wit::core::BrowserLocation& location);
+    std::vector<wit::core::FileEntry> GetBrowserItemsPage(const wit::core::BrowserLocation& location,
+        int offset, int limit);
+    std::vector<wit::core::FileEntry> GetChildFolders(std::int64_t sourceId, const std::wstring& parentPath);
     int GetItemSearchCount(const std::wstring& nameTerm);
     std::vector<wit::core::FileEntry> GetItemSearchPage(const std::wstring& nameTerm, int offset, int limit);
 private:

@@ -15,6 +15,13 @@ constexpr UINT WM_SCAN_PROGRESS = WM_APP + 1;
 constexpr UINT WM_SCAN_COMPLETE = WM_APP + 2;
 constexpr int kToolbarIconSize = 16;
 constexpr int kToolbarButtonSize = 25;
+constexpr int kNavigationHeight = 32;
+
+std::wstring JoinStoredPath(const std::wstring& parent, const std::wstring& name) {
+    if (parent.empty()) return name;
+    const auto last = parent.back();
+    return last == L'\\' || last == L'/' ? parent + name : parent + L"\\" + name;
+}
 
 void CompositeToolbarBackground(BYTE* pixels) {
     const COLORREF face = GetSysColor(COLOR_BTNFACE);
@@ -343,8 +350,10 @@ LRESULT MainFrame::HandleMessage(UINT message, WPARAM wparam, LPARAM lparam) {
         return 0;
     case WM_NOTIFY: {
         auto* hdr = reinterpret_cast<LPNMHDR>(lparam);
-        if (hdr->idFrom == IDC_CATALOGS && hdr->code == LVN_ITEMCHANGED) return OnCatalogChanged(hdr);
+        if (hdr->idFrom == IDC_BROWSER_TREE && hdr->code == TVN_SELCHANGEDW) return OnTreeSelectionChanged(hdr);
+        if (hdr->idFrom == IDC_BROWSER_TREE && hdr->code == TVN_ITEMEXPANDINGW) return OnTreeExpanding(hdr);
         if (hdr->idFrom == IDC_FILES && hdr->code == LVN_GETDISPINFOW) return OnFileGetDispInfo(hdr);
+        if (hdr->idFrom == IDC_FILES && hdr->code == LVN_ITEMACTIVATE) return OnFileActivate(hdr);
         if (hdr->idFrom == IDC_TOOLBAR && hdr->code == TBN_DROPDOWN) {
             return OnToolbarDropDown(reinterpret_cast<LPNMTOOLBAR>(hdr));
         }
@@ -365,8 +374,7 @@ LRESULT MainFrame::HandleMessage(UINT message, WPARAM wparam, LPARAM lparam) {
     case WM_SCAN_COMPLETE:
         if (worker_.joinable()) worker_.join();
         if (lparam != 0) {
-            ReloadCatalogs();
-            SelectCatalog(static_cast<std::int64_t>(wparam));
+            ReloadBrowser();
             SendMessageW(status_, SB_SETTEXTW, 0, reinterpret_cast<LPARAM>(L"Scan complete"));
         } else {
             SendMessageW(status_, SB_SETTEXTW, 0, reinterpret_cast<LPARAM>(L"Scan failed; catalog unchanged"));
@@ -387,22 +395,27 @@ bool MainFrame::OnCreate() {
     if (settings_.showStatusBar) statusStyle |= WS_VISIBLE;
     status_ = CreateWindowExW(0, STATUSCLASSNAMEW, nullptr, statusStyle,
         0, 0, 0, 0, hwnd_, nullptr, GetModuleHandle(nullptr), nullptr);
-    catalogsCtl_ = CreateWindowExW(WS_EX_CLIENTEDGE, WC_LISTVIEWW, nullptr,
-        WS_CHILD | WS_VISIBLE | LVS_REPORT | LVS_SINGLESEL, 0, 0, 0, 0,
-        hwnd_, reinterpret_cast<HMENU>(IDC_CATALOGS), GetModuleHandle(nullptr), nullptr);
+    treeCtl_ = CreateWindowExW(WS_EX_CLIENTEDGE, WC_TREEVIEWW, nullptr,
+        WS_CHILD | WS_VISIBLE | TVS_HASBUTTONS | TVS_HASLINES | TVS_LINESATROOT |
+        TVS_SHOWSELALWAYS, 0, 0, 0, 0, hwnd_, reinterpret_cast<HMENU>(IDC_BROWSER_TREE),
+        GetModuleHandle(nullptr), nullptr);
+    backCtl_ = CreateWindowExW(0, L"BUTTON", L"<", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+        0, 0, 0, 0, hwnd_, reinterpret_cast<HMENU>(IDC_BROWSER_BACK), GetModuleHandle(nullptr), nullptr);
+    forwardCtl_ = CreateWindowExW(0, L"BUTTON", L">", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+        0, 0, 0, 0, hwnd_, reinterpret_cast<HMENU>(IDC_BROWSER_FORWARD), GetModuleHandle(nullptr), nullptr);
+    addressCtl_ = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"",
+        WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL | ES_READONLY, 0, 0, 0, 0,
+        hwnd_, reinterpret_cast<HMENU>(IDC_BROWSER_ADDRESS), GetModuleHandle(nullptr), nullptr);
     filesCtl_ = CreateWindowExW(WS_EX_CLIENTEDGE, WC_LISTVIEWW, nullptr,
         WS_CHILD | WS_VISIBLE | LVS_REPORT | LVS_OWNERDATA | LVS_SINGLESEL, 0, 0, 0, 0,
         hwnd_, reinterpret_cast<HMENU>(IDC_FILES), GetModuleHandle(nullptr), nullptr);
-    if (!status_ || !catalogsCtl_ || !filesCtl_) return false;
+    if (!status_ || !treeCtl_ || !backCtl_ || !forwardCtl_ || !addressCtl_ || !filesCtl_) return false;
 
-    catalogs_.Attach(catalogsCtl_);
+    tree_.Attach(treeCtl_);
     files_.Attach(filesCtl_);
 
     LVCOLUMNW col{LVCF_TEXT | LVCF_WIDTH | LVCF_FMT};
     col.fmt = LVCFMT_LEFT;
-    col.cx = 220;
-    col.pszText = const_cast<LPWSTR>(L"Media Source");
-    ListView_InsertColumn(catalogsCtl_, 0, &col);
     col.cx = 200;
     col.pszText = const_cast<LPWSTR>(L"Name");
     ListView_InsertColumn(filesCtl_, 0, &col);
@@ -527,9 +540,16 @@ void MainFrame::OnSize(int width, int height) {
     const int minimumWidth = (std::min)(kMinPaneWidth, availableWidth / 2);
     if (splitterPosition_ < 0) splitterPosition_ = width / 3;
     splitterPosition_ = std::clamp(splitterPosition_, minimumWidth, availableWidth - minimumWidth);
-    MoveWindow(catalogsCtl_, 0, toolbarHeight_, splitterPosition_, contentHeight_, TRUE);
-    MoveWindow(filesCtl_, splitterPosition_ + kSplitterWidth, toolbarHeight_,
-        availableWidth - splitterPosition_, contentHeight_, TRUE);
+    MoveWindow(treeCtl_, 0, toolbarHeight_, splitterPosition_, contentHeight_, TRUE);
+    const int rightLeft = splitterPosition_ + kSplitterWidth;
+    const int rightWidth = availableWidth - splitterPosition_;
+    const int buttonWidth = 30;
+    const int controlTop = toolbarHeight_ + 3;
+    MoveWindow(backCtl_, rightLeft + 3, controlTop, buttonWidth, 24, TRUE);
+    MoveWindow(forwardCtl_, rightLeft + 37, controlTop, buttonWidth, 24, TRUE);
+    MoveWindow(addressCtl_, rightLeft + 72, controlTop, (std::max)(0, rightWidth - 75), 24, TRUE);
+    MoveWindow(filesCtl_, rightLeft, toolbarHeight_ + kNavigationHeight, rightWidth,
+        (std::max)(0, contentHeight_ - kNavigationHeight), TRUE);
 }
 
 bool MainFrame::IsOverSplitter(int x, int y) const {
@@ -560,48 +580,102 @@ void MainFrame::OnCommand(int id) {
     else if (id >= ID_FILE_RECENT_FIRST && id <= ID_FILE_RECENT_LAST) OnOpenRecentCatalog(id);
     else if (id == ID_EDIT_ADDDISKIMAGE) OnAddOrUpdateDiskImage();
     else if (id == ID_SEARCH_FOR_ITEMS) OnSearchForItems();
+    else if (id == IDC_BROWSER_BACK) NavigateBack();
+    else if (id == IDC_BROWSER_FORWARD) NavigateForward();
     else if (id == ID_OPTIONS_GENERAL_SETTINGS) OnGeneralSettings();
     else if (id == ID_FILE_EXIT) OnExit();
     else if (id == ID_HELP_ABOUT) OnAbout();
 }
 
 void MainFrame::ClearCatalogViews() {
-    catalogs_.catalogs.clear();
-    catalogs_.Reload();
-    files_.SetCatalog(0, nullptr);
+    tree_.Clear();
+    currentLocation_ = {};
+    history_.clear();
+    historyIndex_ = -1;
+    files_.SetLocation(currentLocation_, nullptr);
+    SetWindowTextW(addressCtl_, L"");
+    UpdateNavigationControls();
 }
 
-void MainFrame::ReloadCatalogs() {
-    catalogs_.catalogs = db_.IsOpen() ? db_.GetCatalogs() : std::vector<wit::core::Catalog>{};
-    catalogs_.Reload();
-    if (catalogs_.catalogs.empty()) files_.SetCatalog(0, nullptr);
+std::wstring MainFrame::CatalogLabel() const {
+    return activeCatalogPath_.empty() ? L"" : NameForCatalogRoot(activeCatalogPath_);
 }
 
-void MainFrame::SelectCatalog(std::int64_t catalogId) {
-    for (int index = 0; index < ListView_GetItemCount(catalogsCtl_); ++index) {
-        LVITEMW item{};
-        item.mask = LVIF_PARAM;
-        item.iItem = index;
-        if (ListView_GetItem(catalogsCtl_, &item) && item.lParam == catalogId) {
-            ListView_SetItemState(catalogsCtl_, index, LVIS_SELECTED | LVIS_FOCUSED,
-                LVIS_SELECTED | LVIS_FOCUSED);
-            ListView_EnsureVisible(catalogsCtl_, index, FALSE);
-            files_.SetCatalog(catalogId, &db_);
-            break;
+std::wstring MainFrame::AddressFor(const wit::core::BrowserLocation& location) const {
+    auto address = CatalogLabel();
+    if (location.isRoot) return address;
+    address += L"\\" + location.sourceName;
+    if (location.path.size() > location.sourceRoot.size()) {
+        auto relative = location.path.substr(location.sourceRoot.size());
+        if (!relative.empty() && relative.front() != L'\\' && relative.front() != L'/') {
+            address += L"\\";
         }
+        address += relative;
     }
+    return address;
 }
 
-LRESULT MainFrame::OnCatalogChanged(LPNMHDR hdr) {
-    auto* notification = reinterpret_cast<NMLISTVIEW*>(hdr);
-    if ((notification->uChanged & LVIF_STATE) && (notification->uNewState & LVIS_SELECTED)) {
-        LVITEMW item{};
-        item.mask = LVIF_PARAM;
-        item.iItem = notification->iItem;
-        if (ListView_GetItem(catalogsCtl_, &item)) {
-            files_.SetCatalog(static_cast<std::int64_t>(item.lParam), &db_);
-        }
+void MainFrame::UpdateNavigationControls() {
+    EnableWindow(backCtl_, historyIndex_ > 0);
+    EnableWindow(forwardCtl_, historyIndex_ >= 0 &&
+        historyIndex_ + 1 < static_cast<int>(history_.size()));
+}
+
+void MainFrame::NavigateTo(const wit::core::BrowserLocation& location, bool addToHistory) {
+    if (!db_.IsOpen()) return;
+    if (addToHistory) {
+        if (historyIndex_ >= 0 && currentLocation_ == location) return;
+        history_.resize(static_cast<std::size_t>(historyIndex_ + 1));
+        history_.push_back(location);
+        historyIndex_ = static_cast<int>(history_.size()) - 1;
     }
+    currentLocation_ = location;
+    files_.SetLocation(currentLocation_, &db_);
+    const auto address = AddressFor(currentLocation_);
+    SetWindowTextW(addressCtl_, address.c_str());
+    selectingTree_ = true;
+    tree_.SelectLocation(currentLocation_);
+    selectingTree_ = false;
+    UpdateNavigationControls();
+}
+
+void MainFrame::ReloadBrowser() {
+    if (!db_.IsOpen()) {
+        ClearCatalogViews();
+        return;
+    }
+    const auto sources = db_.GetCatalogs();
+    selectingTree_ = true;
+    tree_.Reload(CatalogLabel(), sources, &db_);
+    selectingTree_ = false;
+    history_.clear();
+    historyIndex_ = -1;
+    NavigateTo({}, true);
+}
+
+void MainFrame::NavigateBack() {
+    if (historyIndex_ <= 0) return;
+    --historyIndex_;
+    NavigateTo(history_[historyIndex_], false);
+}
+
+void MainFrame::NavigateForward() {
+    if (historyIndex_ < 0 || historyIndex_ + 1 >= static_cast<int>(history_.size())) return;
+    ++historyIndex_;
+    NavigateTo(history_[historyIndex_], false);
+}
+
+LRESULT MainFrame::OnTreeSelectionChanged(LPNMHDR hdr) {
+    if (selectingTree_) return 0;
+    const auto* notification = reinterpret_cast<NMTREEVIEWW*>(hdr);
+    const auto* location = tree_.LocationFor(notification->itemNew.hItem);
+    if (location) NavigateTo(*location, true);
+    return 0;
+}
+
+LRESULT MainFrame::OnTreeExpanding(LPNMHDR hdr) {
+    const auto* notification = reinterpret_cast<NMTREEVIEWW*>(hdr);
+    if (notification->action == TVE_EXPAND) tree_.Expand(notification->itemNew.hItem);
     return 0;
 }
 
@@ -611,6 +685,27 @@ LRESULT MainFrame::OnFileGetDispInfo(LPNMHDR hdr) {
         auto text = files_.TextFor(displayInfo->item.iItem, displayInfo->item.iSubItem);
         lstrcpynW(displayInfo->item.pszText, text.c_str(), displayInfo->item.cchTextMax);
     }
+    return 0;
+}
+
+LRESULT MainFrame::OnFileActivate(LPNMHDR hdr) {
+    const auto* activation = reinterpret_cast<NMITEMACTIVATE*>(hdr);
+    if (activation->iItem < 0) return 0;
+    const auto* entry = files_.EntryAt(activation->iItem);
+    if (!entry || !entry->isDirectory) return 0;
+
+    wit::core::BrowserLocation next;
+    next.isRoot = false;
+    if (currentLocation_.isRoot) {
+        next.sourceId = entry->catalogId;
+        next.sourceName = entry->name;
+        next.sourceRoot = entry->parentPath;
+        next.path = entry->parentPath;
+    } else {
+        next = currentLocation_;
+        next.path = JoinStoredPath(currentLocation_.path, entry->name);
+    }
+    NavigateTo(next, true);
     return 0;
 }
 
@@ -639,8 +734,7 @@ bool MainFrame::ActivateCatalog(const std::wstring& path, bool createNew, bool p
     db_ = std::move(candidate);
     activeCatalogPath_ = path;
     ClearCatalogViews();
-    ReloadCatalogs();
-    if (!catalogs_.catalogs.empty()) SelectCatalog(catalogs_.catalogs.front().id);
+    ReloadBrowser();
     if (persistPath) {
         settings_.lastCatalogPath = path;
         wit::platform::RememberRecentCatalog(settings_, path);

@@ -28,7 +28,8 @@ Dependencies should flow from application/UI orchestration into core, storage, a
 - Scanned metadata is persisted to the currently active user-selected SQLite catalog database; `catalog.db` is not implicitly preferred over other filenames.
 - The main frame can have no active catalog at startup, or can restore the available catalog identified by `settings.ini`.
 - A catalog database can contain several indexed media-source records; browsing them remains possible after the original source drive is unavailable.
-- Large file lists are presented through an owner-data ListView backed by paged database access rather than loading an entire catalog into memory.
+- The main catalog browser presents a native TreeView rooted at the active database catalog and an owner-data ListView for the current folder's immediate persisted contents, with Back/Forward and catalog-relative location display.
+- Large location lists are presented through an owner-data ListView backed by paged database access rather than loading an entire catalog into memory.
 
 ## Dependency Boundaries
 

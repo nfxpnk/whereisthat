@@ -193,23 +193,36 @@ std::vector<wit::core::Catalog> Database::GetCatalogs() {
     return catalogs;
 }
 
-int Database::GetFileCountForCatalog(std::int64_t id) {
-    SQLiteStatement statement(db_, "SELECT COUNT(*) FROM files WHERE catalog_id=?;");
-    statement.BindInt64(1, id);
+int Database::GetBrowserItemCount(const wit::core::BrowserLocation& location) {
+    if (location.isRoot) {
+        SQLiteStatement statement(db_, "SELECT COUNT(*) FROM catalogs;");
+        return sqlite3_step(statement.Raw()) == SQLITE_ROW ? sqlite3_column_int(statement.Raw(), 0) : 0;
+    }
+    SQLiteStatement statement(db_, "SELECT COUNT(*) FROM files WHERE catalog_id=? AND parent_path=?;");
+    statement.BindInt64(1, location.sourceId);
+    statement.BindText(2, wit::platform::ToUtf8(location.path));
     return sqlite3_step(statement.Raw()) == SQLITE_ROW ? sqlite3_column_int(statement.Raw(), 0) : 0;
 }
 
-std::vector<wit::core::FileEntry> Database::GetFilesPageForCatalog(std::int64_t id, int offset, int limit) {
+std::vector<wit::core::FileEntry> Database::GetBrowserItemsPage(
+    const wit::core::BrowserLocation& location, int offset, int limit) {
     std::vector<wit::core::FileEntry> files;
-    SQLiteStatement statement(db_,
-        "SELECT id,parent_path,name,extension,size,modified_at,attributes,is_directory FROM files WHERE catalog_id=? ORDER BY is_directory DESC,parent_path,name LIMIT ? OFFSET ?;");
-    statement.BindInt64(1, id);
-    statement.BindInt64(2, limit);
-    statement.BindInt64(3, offset);
+    const char* query = location.isRoot
+        ? "SELECT id,root_path,name,'',0,created_at,0,1 FROM catalogs ORDER BY name LIMIT ? OFFSET ?;"
+        : "SELECT id,parent_path,name,extension,size,modified_at,attributes,is_directory FROM files "
+            "WHERE catalog_id=? AND parent_path=? ORDER BY is_directory DESC,name LIMIT ? OFFSET ?;";
+    SQLiteStatement statement(db_, query);
+    int parameter = 1;
+    if (!location.isRoot) {
+        statement.BindInt64(parameter++, location.sourceId);
+        statement.BindText(parameter++, wit::platform::ToUtf8(location.path));
+    }
+    statement.BindInt64(parameter++, limit);
+    statement.BindInt64(parameter, offset);
     while (sqlite3_step(statement.Raw()) == SQLITE_ROW) {
         wit::core::FileEntry file;
         file.id = sqlite3_column_int64(statement.Raw(), 0);
-        file.catalogId = id;
+        file.catalogId = location.isRoot ? file.id : location.sourceId;
         file.parentPath = wit::platform::ToUtf16(reinterpret_cast<const char*>(sqlite3_column_text(statement.Raw(), 1)));
         file.name = wit::platform::ToUtf16(reinterpret_cast<const char*>(sqlite3_column_text(statement.Raw(), 2)));
         file.extension = wit::platform::ToUtf16(reinterpret_cast<const char*>(sqlite3_column_text(statement.Raw(), 3)));
@@ -220,6 +233,30 @@ std::vector<wit::core::FileEntry> Database::GetFilesPageForCatalog(std::int64_t 
         files.push_back(file);
     }
     return files;
+}
+
+std::vector<wit::core::FileEntry> Database::GetChildFolders(
+    std::int64_t sourceId, const std::wstring& parentPath) {
+    std::vector<wit::core::FileEntry> folders;
+    SQLiteStatement statement(db_,
+        "SELECT id,parent_path,name,extension,size,modified_at,attributes,is_directory FROM files "
+        "WHERE catalog_id=? AND parent_path=? AND is_directory=1 ORDER BY name;");
+    statement.BindInt64(1, sourceId);
+    statement.BindText(2, wit::platform::ToUtf8(parentPath));
+    while (sqlite3_step(statement.Raw()) == SQLITE_ROW) {
+        wit::core::FileEntry folder;
+        folder.id = sqlite3_column_int64(statement.Raw(), 0);
+        folder.catalogId = sourceId;
+        folder.parentPath = wit::platform::ToUtf16(reinterpret_cast<const char*>(sqlite3_column_text(statement.Raw(), 1)));
+        folder.name = wit::platform::ToUtf16(reinterpret_cast<const char*>(sqlite3_column_text(statement.Raw(), 2)));
+        folder.extension = wit::platform::ToUtf16(reinterpret_cast<const char*>(sqlite3_column_text(statement.Raw(), 3)));
+        folder.size = sqlite3_column_int64(statement.Raw(), 4);
+        folder.modifiedAt = wit::platform::ToUtf16(reinterpret_cast<const char*>(sqlite3_column_text(statement.Raw(), 5)));
+        folder.attributes = static_cast<std::uint32_t>(sqlite3_column_int(statement.Raw(), 6));
+        folder.isDirectory = true;
+        folders.push_back(folder);
+    }
+    return folders;
 }
 
 int Database::GetItemSearchCount(const std::wstring& nameTerm) {

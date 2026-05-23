@@ -9,6 +9,8 @@ The user interface is a native Unicode Win32 desktop interface written with the 
 The app must provide a direct desktop workflow:
 
 - A main frame window for catalog browsing.
+- An Explorer-style main browser with the active catalog as the tree root, folder-only hierarchy on the left, and location contents on the right.
+- A compact navigation row above the contents list with Back, Forward, and a read-only catalog-relative address display.
 - Commands to create a new catalog database file or open an existing catalog database file.
 - A command to choose a folder or disk image for adding to or updating in the active catalog.
 - A media-source view for selecting prior scans in the active catalog.
@@ -31,6 +33,8 @@ The active catalog remains useful when its indexed original storage is disconnec
 - On startup the available last-used catalog path from settings is reopened; when it is absent or unavailable the application remains empty without creating or opening `catalog.db` implicitly.
 - Add/Update Disk Image requires an active catalog and scans the chosen folder or disk into that database only; selecting an already indexed source refreshes it without duplicate source contents.
 - Search for Items (`Ctrl+F`) requires an active catalog and opens a native search window with a file/folder name input and Search action; matching indexed items from all media sources in that database appear below the controls with name, type, size, path, and modified metadata.
+- The main folder tree uses a native TreeView: its top-level node is the active catalog database label, its children are indexed source roots, and expanding a node loads only stored descendant folders.
+- The main contents area uses a native owner-data ListView showing immediate folders and files for the current catalog location; activating a folder navigates into it and updates the tree selection, address display, and Back/Forward history.
 - General Settings opens a native settings dialog; its initial `Show status bar` preference immediately controls status-bar visibility and defaults to enabled, and it displays the stored last-opened catalog path as read-only information.
 - Commands still introduced as placeholders, including the remaining Search commands, have no storage, settings, catalog, file, or display effect until their feature behavior is specified and implemented.
 
@@ -46,7 +50,7 @@ The active catalog remains useful when its indexed original storage is disconnec
 ## Large Result Sets
 
 - Catalog contents must be viable for large scans.
-- The file result view uses virtual/owner-data ListView behavior with database-backed paging.
+- The main contents view uses virtual/owner-data ListView behavior with database-backed paging scoped to the current catalog location.
 - The Search for Items result list uses virtual/owner-data ListView behavior with database-backed paging.
 - UI changes must not require loading all rows in a catalog into memory merely to display them.
 

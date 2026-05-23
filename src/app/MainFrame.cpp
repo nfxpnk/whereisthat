@@ -1,15 +1,139 @@
 #include "MainFrame.h"
 #include <algorithm>
+#include <array>
+#include <cstring>
 #include <shobjidl.h>
 #include <string>
 #include <utility>
 #include <vector>
+#include <wincodec.h>
 #include "../platform/Win32Helpers.h"
 #include "../ui/SearchDialog.h"
 
 namespace {
 constexpr UINT WM_SCAN_PROGRESS = WM_APP + 1;
 constexpr UINT WM_SCAN_COMPLETE = WM_APP + 2;
+constexpr int kToolbarIconSize = 16;
+constexpr int kToolbarButtonSize = 25;
+
+void CompositeToolbarBackground(BYTE* pixels) {
+    const COLORREF face = GetSysColor(COLOR_BTNFACE);
+    const BYTE background[] = {GetBValue(face), GetGValue(face), GetRValue(face)};
+    for (int index = 0; index < kToolbarIconSize * kToolbarIconSize; ++index) {
+        auto* pixel = pixels + index * 4;
+        const int remainingAlpha = 255 - pixel[3];
+        for (int component = 0; component < 3; ++component) {
+            pixel[component] = static_cast<BYTE>(pixel[component] +
+                background[component] * remainingAlpha / 255);
+        }
+        pixel[3] = 255;
+    }
+}
+
+template<typename T>
+void ReleaseIfPresent(T*& value) {
+    if (value) {
+        value->Release();
+        value = nullptr;
+    }
+}
+
+HBITMAP LoadToolbarBitmap(IWICImagingFactory* factory, UINT resourceId) {
+    const auto instance = GetModuleHandleW(nullptr);
+    const auto resource = FindResourceW(instance, MAKEINTRESOURCEW(resourceId), RT_RCDATA);
+    if (!resource) return nullptr;
+    const auto resourceData = LoadResource(instance, resource);
+    const auto size = SizeofResource(instance, resource);
+    const auto bytes = resourceData ? LockResource(resourceData) : nullptr;
+    if (!bytes || size == 0) return nullptr;
+
+    HGLOBAL memory = GlobalAlloc(GMEM_MOVEABLE, size);
+    if (!memory) return nullptr;
+    auto* destination = GlobalLock(memory);
+    if (!destination) {
+        GlobalFree(memory);
+        return nullptr;
+    }
+    std::memcpy(destination, bytes, size);
+    GlobalUnlock(memory);
+
+    IStream* stream{};
+    if (FAILED(CreateStreamOnHGlobal(memory, TRUE, &stream))) {
+        GlobalFree(memory);
+        return nullptr;
+    }
+    IWICBitmapDecoder* decoder{};
+    IWICBitmapFrameDecode* frame{};
+    IWICFormatConverter* converter{};
+    HBITMAP bitmap{};
+    void* pixels{};
+    if (SUCCEEDED(factory->CreateDecoderFromStream(stream, nullptr, WICDecodeMetadataCacheOnLoad, &decoder)) &&
+        SUCCEEDED(decoder->GetFrame(0, &frame))) {
+        UINT width{};
+        UINT height{};
+        if (SUCCEEDED(frame->GetSize(&width, &height)) && width == kToolbarIconSize && height == kToolbarIconSize &&
+            SUCCEEDED(factory->CreateFormatConverter(&converter)) &&
+            SUCCEEDED(converter->Initialize(frame, GUID_WICPixelFormat32bppPBGRA,
+                WICBitmapDitherTypeNone, nullptr, 0.0, WICBitmapPaletteTypeCustom))) {
+            BITMAPINFO info{};
+            info.bmiHeader.biSize = sizeof(info.bmiHeader);
+            info.bmiHeader.biWidth = kToolbarIconSize;
+            info.bmiHeader.biHeight = -kToolbarIconSize;
+            info.bmiHeader.biPlanes = 1;
+            info.bmiHeader.biBitCount = 32;
+            info.bmiHeader.biCompression = BI_RGB;
+            bitmap = CreateDIBSection(nullptr, &info, DIB_RGB_COLORS, &pixels, nullptr, 0);
+            if (!bitmap || FAILED(converter->CopyPixels(nullptr, kToolbarIconSize * 4,
+                kToolbarIconSize * kToolbarIconSize * 4, static_cast<BYTE*>(pixels)))) {
+                if (bitmap) DeleteObject(bitmap);
+                bitmap = nullptr;
+            } else {
+                CompositeToolbarBackground(static_cast<BYTE*>(pixels));
+            }
+        }
+    }
+    ReleaseIfPresent(converter);
+    ReleaseIfPresent(frame);
+    ReleaseIfPresent(decoder);
+    ReleaseIfPresent(stream);
+    return bitmap;
+}
+
+const wchar_t* ToolbarTooltipText(int commandId) {
+    switch (commandId) {
+    case ID_FILE_NEWCATALOG:
+    case ID_FILE_OPEN:
+        return L"Catalog";
+    case ID_FILE_SAVE:
+        return L"Save current catalog";
+    case ID_FILE_REPORT_GENERATOR:
+        return L"Generate Report";
+    case ID_SEARCH_FOR_ITEMS:
+        return L"Search";
+    case ID_ACTIONS_EDIT_DESCRIPTION:
+        return L"Edit Description";
+    case ID_ACTIONS_PROPERTIES:
+        return L"Item Properties";
+    case ID_ACTIONS_OPEN_EXPLORER:
+        return L"Open In Explorer";
+    case ID_ACTIONS_VIEW_FILE:
+        return L"View File";
+    case ID_VIEW_DETAILS:
+        return L"View Details";
+    case ID_TOOLBAR_SORT_NAME:
+        return L"Sort By Name";
+    case ID_TOOLBAR_SORT_EXTENSION:
+        return L"Sort By Extension";
+    case ID_TOOLBAR_SORT_SIZE:
+        return L"Sort By Size";
+    case ID_TOOLBAR_SORT_DATE:
+        return L"Sort By Date";
+    case ID_TOOLBAR_SORT_REVERSE:
+        return L"Reverse Sort Order";
+    default:
+        return L"";
+    }
+}
 
 struct ScanProgressMessage {
     std::uint64_t files{};
@@ -221,6 +345,14 @@ LRESULT MainFrame::HandleMessage(UINT message, WPARAM wparam, LPARAM lparam) {
         auto* hdr = reinterpret_cast<LPNMHDR>(lparam);
         if (hdr->idFrom == IDC_CATALOGS && hdr->code == LVN_ITEMCHANGED) return OnCatalogChanged(hdr);
         if (hdr->idFrom == IDC_FILES && hdr->code == LVN_GETDISPINFOW) return OnFileGetDispInfo(hdr);
+        if (hdr->idFrom == IDC_TOOLBAR && hdr->code == TBN_DROPDOWN) {
+            return OnToolbarDropDown(reinterpret_cast<LPNMTOOLBAR>(hdr));
+        }
+        if (hdr->idFrom == IDC_TOOLBAR && hdr->code == TBN_GETINFOTIPW) {
+            auto* tip = reinterpret_cast<LPNMTBGETINFOTIPW>(hdr);
+            lstrcpynW(tip->pszText, ToolbarTooltipText(tip->iItem), tip->cchTextMax);
+            return 0;
+        }
         break;
     }
     case WM_SCAN_PROGRESS: {
@@ -250,6 +382,7 @@ LRESULT MainFrame::HandleMessage(UINT message, WPARAM wparam, LPARAM lparam) {
 bool MainFrame::OnCreate() {
     settings_ = wit::platform::LoadAppSettings();
     RefreshOpenRecentMenu();
+    if (!CreateToolbar()) return false;
     DWORD statusStyle = WS_CHILD;
     if (settings_.showStatusBar) statusStyle |= WS_VISIBLE;
     status_ = CreateWindowExW(0, STATUSCLASSNAMEW, nullptr, statusStyle,
@@ -295,7 +428,93 @@ bool MainFrame::OnCreate() {
     return true;
 }
 
+bool MainFrame::CreateToolbar() {
+    toolbar_ = CreateWindowExW(0, TOOLBARCLASSNAMEW, nullptr,
+        WS_CHILD | WS_VISIBLE | TBSTYLE_FLAT | TBSTYLE_TOOLTIPS | CCS_TOP | CCS_NODIVIDER,
+        0, 0, 0, 0, hwnd_, reinterpret_cast<HMENU>(IDC_TOOLBAR), GetModuleHandleW(nullptr), nullptr);
+    if (!toolbar_) return false;
+
+    SendMessageW(toolbar_, TB_BUTTONSTRUCTSIZE, sizeof(TBBUTTON), 0);
+    SendMessageW(toolbar_, TB_SETEXTENDEDSTYLE, 0, TBSTYLE_EX_DRAWDDARROWS);
+    SendMessageW(toolbar_, TB_SETBITMAPSIZE, 0, MAKELONG(kToolbarIconSize, kToolbarIconSize));
+    SendMessageW(toolbar_, TB_SETBUTTONSIZE, 0, MAKELONG(kToolbarButtonSize, kToolbarButtonSize));
+
+    toolbarImages_ = ImageList_Create(kToolbarIconSize, kToolbarIconSize, ILC_COLOR32, 15, 0);
+    if (!toolbarImages_) return false;
+
+    IWICImagingFactory* factory{};
+    if (FAILED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
+        IID_PPV_ARGS(&factory)))) return false;
+    constexpr std::array<UINT, 15> imageIds = {
+        IDB_TOOLBAR_NEW_CATALOG, IDB_TOOLBAR_OPEN, IDB_TOOLBAR_SAVE, IDB_TOOLBAR_REPORT,
+        IDB_TOOLBAR_SEARCH, IDB_TOOLBAR_EDIT_DESCRIPTION, IDB_TOOLBAR_PROPERTIES,
+        IDB_TOOLBAR_OPEN_EXPLORER, IDB_TOOLBAR_VIEW_FILE, IDB_TOOLBAR_VIEW_DETAILS,
+        IDB_TOOLBAR_SORT_NAME, IDB_TOOLBAR_SORT_EXTENSION, IDB_TOOLBAR_SORT_SIZE,
+        IDB_TOOLBAR_SORT_DATE, IDB_TOOLBAR_SORT_REVERSE
+    };
+    for (const auto id : imageIds) {
+        const auto bitmap = LoadToolbarBitmap(factory, id);
+        if (!bitmap || ImageList_Add(toolbarImages_, bitmap, nullptr) == -1) {
+            if (bitmap) DeleteObject(bitmap);
+            factory->Release();
+            return false;
+        }
+        DeleteObject(bitmap);
+    }
+    factory->Release();
+    SendMessageW(toolbar_, TB_SETIMAGELIST, 0, reinterpret_cast<LPARAM>(toolbarImages_));
+
+    std::vector<TBBUTTON> buttons;
+    const auto addButton = [&buttons](int image, int command, BYTE style) {
+        TBBUTTON button{};
+        button.iBitmap = image;
+        button.idCommand = command;
+        button.fsState = TBSTATE_ENABLED;
+        button.fsStyle = style;
+        button.iString = -1;
+        buttons.push_back(button);
+    };
+    const auto addSeparator = [&buttons]() {
+        TBBUTTON separator{};
+        separator.fsStyle = BTNS_SEP;
+        separator.iBitmap = 8;
+        buttons.push_back(separator);
+    };
+
+    addButton(0, ID_FILE_NEWCATALOG, BTNS_BUTTON);
+    addButton(1, ID_FILE_OPEN, BTNS_BUTTON);
+    addButton(2, ID_FILE_SAVE, BTNS_BUTTON);
+    addButton(3, ID_FILE_REPORT_GENERATOR, BTNS_BUTTON);
+    addSeparator();
+    addButton(4, ID_SEARCH_FOR_ITEMS, BTNS_BUTTON);
+    addSeparator();
+    addButton(5, ID_ACTIONS_EDIT_DESCRIPTION, BTNS_BUTTON);
+    addButton(6, ID_ACTIONS_PROPERTIES, BTNS_BUTTON);
+    addButton(7, ID_ACTIONS_OPEN_EXPLORER, BTNS_BUTTON);
+    addButton(8, ID_ACTIONS_VIEW_FILE, BTNS_BUTTON);
+    addSeparator();
+    addButton(9, ID_VIEW_DETAILS, BTNS_DROPDOWN);
+    addSeparator();
+    addButton(10, ID_TOOLBAR_SORT_NAME, BTNS_CHECK);
+    addButton(11, ID_TOOLBAR_SORT_EXTENSION, BTNS_CHECK);
+    addButton(12, ID_TOOLBAR_SORT_SIZE, BTNS_CHECK);
+    addButton(13, ID_TOOLBAR_SORT_DATE, BTNS_CHECK);
+    addButton(14, ID_TOOLBAR_SORT_REVERSE, BTNS_CHECK);
+    if (!SendMessageW(toolbar_, TB_ADDBUTTONSW, static_cast<WPARAM>(buttons.size()),
+        reinterpret_cast<LPARAM>(buttons.data()))) {
+        return false;
+    }
+    SendMessageW(toolbar_, TB_AUTOSIZE, 0, 0);
+    return true;
+}
+
 void MainFrame::OnSize(int width, int height) {
+    if (toolbar_) {
+        SendMessageW(toolbar_, TB_AUTOSIZE, 0, 0);
+        RECT toolbarRect{};
+        GetWindowRect(toolbar_, &toolbarRect);
+        toolbarHeight_ = toolbarRect.bottom - toolbarRect.top;
+    }
     int statusHeight = 0;
     if (settings_.showStatusBar) {
         SendMessageW(status_, WM_SIZE, 0, 0);
@@ -303,23 +522,27 @@ void MainFrame::OnSize(int width, int height) {
         GetWindowRect(status_, &sr);
         statusHeight = sr.bottom - sr.top;
     }
-    contentHeight_ = (std::max)(0, height - statusHeight);
+    contentHeight_ = (std::max)(0, height - toolbarHeight_ - statusHeight);
     const int availableWidth = (std::max)(0, width - kSplitterWidth);
     const int minimumWidth = (std::min)(kMinPaneWidth, availableWidth / 2);
     if (splitterPosition_ < 0) splitterPosition_ = width / 3;
     splitterPosition_ = std::clamp(splitterPosition_, minimumWidth, availableWidth - minimumWidth);
-    MoveWindow(catalogsCtl_, 0, 0, splitterPosition_, contentHeight_, TRUE);
-    MoveWindow(filesCtl_, splitterPosition_ + kSplitterWidth, 0,
+    MoveWindow(catalogsCtl_, 0, toolbarHeight_, splitterPosition_, contentHeight_, TRUE);
+    MoveWindow(filesCtl_, splitterPosition_ + kSplitterWidth, toolbarHeight_,
         availableWidth - splitterPosition_, contentHeight_, TRUE);
 }
 
 bool MainFrame::IsOverSplitter(int x, int y) const {
     return x >= splitterPosition_ && x < splitterPosition_ + kSplitterWidth &&
-        y >= 0 && y < contentHeight_;
+        y >= toolbarHeight_ && y < toolbarHeight_ + contentHeight_;
 }
 
 void MainFrame::OnDestroy() {
     if (worker_.joinable()) worker_.join();
+    if (toolbarImages_) {
+        ImageList_Destroy(toolbarImages_);
+        toolbarImages_ = nullptr;
+    }
     PostQuitMessage(0);
 }
 
@@ -389,6 +612,24 @@ LRESULT MainFrame::OnFileGetDispInfo(LPNMHDR hdr) {
         lstrcpynW(displayInfo->item.pszText, text.c_str(), displayInfo->item.cchTextMax);
     }
     return 0;
+}
+
+LRESULT MainFrame::OnToolbarDropDown(LPNMTOOLBAR notification) {
+    if (notification->iItem != ID_VIEW_DETAILS) return TBDDRET_NODEFAULT;
+    RECT buttonRect{};
+    if (!SendMessageW(toolbar_, TB_GETRECT, ID_VIEW_DETAILS, reinterpret_cast<LPARAM>(&buttonRect))) {
+        return TBDDRET_NODEFAULT;
+    }
+    MapWindowPoints(toolbar_, HWND_DESKTOP, reinterpret_cast<LPPOINT>(&buttonRect), 2);
+    const auto menu = CreatePopupMenu();
+    if (!menu) return TBDDRET_NODEFAULT;
+    AppendMenuW(menu, MF_STRING, ID_VIEW_LIST, L"View List");
+    AppendMenuW(menu, MF_STRING, ID_VIEW_DETAILS, L"View Details");
+    const auto command = TrackPopupMenuEx(menu, TPM_RETURNCMD | TPM_LEFTALIGN | TPM_TOPALIGN,
+        buttonRect.left, buttonRect.bottom, hwnd_, nullptr);
+    DestroyMenu(menu);
+    if (command != 0) PostMessageW(hwnd_, WM_COMMAND, command, 0);
+    return TBDDRET_DEFAULT;
 }
 
 bool MainFrame::ActivateCatalog(const std::wstring& path, bool createNew, bool persistPath) {

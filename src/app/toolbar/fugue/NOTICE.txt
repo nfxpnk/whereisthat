@@ -1,0 +1,13 @@
+Fugue Icons
+===========
+
+The PNG files in this directory are selected from Fugue Icons by Yusuke
+Kamiyamane and are used without resizing or modification.
+
+Source: https://github.com/unikent/fugue-icons/tree/master/icons
+License: Creative Commons Attribution 3.0 Unported
+License text: https://creativecommons.org/licenses/by/3.0/
+
+Attribution:
+Icons by Yusuke Kamiyamane. Licensed under a Creative Commons Attribution
+3.0 License.

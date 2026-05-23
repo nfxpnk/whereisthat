@@ -24,9 +24,12 @@ private:
     HWND catalogsCtl_{};
     HWND filesCtl_{};
     HWND status_{};
+    HWND toolbar_{};
+    HIMAGELIST toolbarImages_{};
     int splitterPosition_{-1};
     int splitterDragOffset_{};
     int contentHeight_{};
+    int toolbarHeight_{};
     bool splitterDragging_{};
     std::wstring activeCatalogPath_;
     wit::storage::Database db_;
@@ -38,6 +41,7 @@ private:
     static LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam);
     LRESULT HandleMessage(UINT message, WPARAM wparam, LPARAM lparam);
     bool OnCreate();
+    bool CreateToolbar();
     void OnSize(int width, int height);
     bool IsOverSplitter(int x, int y) const;
     void OnDestroy();
@@ -53,6 +57,7 @@ private:
     void OnAbout();
     LRESULT OnCatalogChanged(LPNMHDR hdr);
     LRESULT OnFileGetDispInfo(LPNMHDR hdr);
+    LRESULT OnToolbarDropDown(LPNMTOOLBAR notification);
     bool ActivateCatalog(const std::wstring& path, bool createNew, bool persistPath);
     void RefreshOpenRecentMenu();
     void ClearCatalogViews();

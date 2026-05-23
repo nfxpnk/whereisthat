@@ -1,6 +1,21 @@
 #include "resource.h"
 #include <windows.h>
 IDI_APPICON ICON "app.ico"
+IDB_TOOLBAR_NEW_CATALOG RCDATA "toolbar\\fugue\\database--plus.png"
+IDB_TOOLBAR_OPEN RCDATA "toolbar\\fugue\\folder-open.png"
+IDB_TOOLBAR_SAVE RCDATA "toolbar\\fugue\\disk.png"
+IDB_TOOLBAR_REPORT RCDATA "toolbar\\fugue\\report.png"
+IDB_TOOLBAR_SEARCH RCDATA "toolbar\\fugue\\magnifier.png"
+IDB_TOOLBAR_EDIT_DESCRIPTION RCDATA "toolbar\\fugue\\document--pencil.png"
+IDB_TOOLBAR_PROPERTIES RCDATA "toolbar\\fugue\\application-detail.png"
+IDB_TOOLBAR_OPEN_EXPLORER RCDATA "toolbar\\fugue\\folder-horizontal-open.png"
+IDB_TOOLBAR_VIEW_FILE RCDATA "toolbar\\fugue\\blue-document-view.png"
+IDB_TOOLBAR_VIEW_DETAILS RCDATA "toolbar\\fugue\\application-list.png"
+IDB_TOOLBAR_SORT_NAME RCDATA "toolbar\\fugue\\sort-alphabet.png"
+IDB_TOOLBAR_SORT_EXTENSION RCDATA "toolbar\\fugue\\document-attribute.png"
+IDB_TOOLBAR_SORT_SIZE RCDATA "toolbar\\fugue\\sort-number.png"
+IDB_TOOLBAR_SORT_DATE RCDATA "toolbar\\fugue\\sort-date.png"
+IDB_TOOLBAR_SORT_REVERSE RCDATA "toolbar\\fugue\\arrow-switch.png"
 
 IDR_MAINMENU MENU
 BEGIN
@@ -17,7 +32,7 @@ BEGIN
         MENUITEM "Rebuild catalog &database", ID_FILE_REBUILD_DATABASE
         MENUITEM "&Close", ID_FILE_CLOSE
         MENUITEM "Catalog &Info", ID_FILE_CATALOG_INFO
-        MENUITEM "&Report Generator", ID_FILE_REPORT_GENERATOR
+        MENUITEM "&Report Generator\tCtrl+R", ID_FILE_REPORT_GENERATOR
         MENUITEM "E&xit\tAlt+F4", ID_FILE_EXIT
     END
     POPUP "&Edit"
@@ -83,8 +98,16 @@ IDR_MAINACCEL ACCELERATORS
 BEGIN
     "N", ID_FILE_NEWCATALOG, VIRTKEY, CONTROL
     "O", ID_FILE_OPEN, VIRTKEY, CONTROL
+    "S", ID_FILE_SAVE, VIRTKEY, CONTROL
+    "R", ID_FILE_REPORT_GENERATOR, VIRTKEY, CONTROL
     "D", ID_EDIT_ADDDISKIMAGE, VIRTKEY, CONTROL
     "F", ID_SEARCH_FOR_ITEMS, VIRTKEY, CONTROL
+    VK_F3, ID_SEARCH_FOR_ITEMS, VIRTKEY
+    "E", ID_ACTIONS_EDIT_DESCRIPTION, VIRTKEY, CONTROL
+    "P", ID_ACTIONS_PROPERTIES, VIRTKEY, CONTROL
+    VK_RETURN, ID_ACTIONS_PROPERTIES, VIRTKEY, ALT
+    VK_F4, ID_ACTIONS_PROPERTIES, VIRTKEY
+    "I", ID_ACTIONS_VIEW_FILE, VIRTKEY, CONTROL
 END
 
 IDD_GENERAL_SETTINGS DIALOGEX 0, 0, 300, 104

@@ -6,6 +6,14 @@ Where Is That? persists catalogs in a local SQLite database, currently `catalog.
 
 SQLite is accessed in native C++ through the SQLite C API. Storage behavior belongs in `src/storage`; domain objects consumed by storage belong in `src/core`.
 
+## Application Preferences
+
+Application preferences are separate from catalog data and must not be added to SQLite merely to support UI configuration.
+
+- General Settings persists implemented preferences in `settings.ini` beside `WhereIsThat.exe`.
+- The initial preference is `[General] ShowStatusBar`, which defaults to enabled when the file or key is absent.
+- UI preference reads and writes use a focused native platform helper; `src/storage` remains responsible for SQLite catalog persistence only.
+
 ## SQLite Packaging Decision
 
 The following decision is mandatory:

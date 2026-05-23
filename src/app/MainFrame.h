@@ -6,6 +6,7 @@
 #include <thread>
 #include "../storage/Database.h"
 #include "../core/FileScanner.h"
+#include "../platform/AppSettings.h"
 #include "../ui/CatalogListView.h"
 #include "../ui/FileListView.h"
 #include "resource.h"
@@ -25,6 +26,7 @@ private:
     wit::storage::Database db_;
     wit::ui::CatalogListView catalogs_;
     wit::ui::FileListView files_;
+    wit::platform::AppSettings settings_;
     std::thread worker_;
 
     static LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam);
@@ -35,6 +37,8 @@ private:
     void OnCommand(int id);
     void OnNewCatalog();
     void OnAddOrUpdateDiskImage();
+    void OnGeneralSettings();
+    void ApplyDisplaySettings();
     void OnExit();
     void OnAbout();
     LRESULT OnCatalogChanged(LPNMHDR hdr);

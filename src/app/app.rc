@@ -22,9 +22,52 @@ BEGIN
         MENUITEM "&Catalog Manager", ID_EDIT_CATALOG_MANAGER
         MENUITEM "Catalog Set&up", ID_EDIT_CATALOG_SETUP
     END
+    POPUP "&View"
+    BEGIN
+        MENUITEM "&Sort items", ID_VIEW_SORT_ITEMS
+        MENUITEM "View &Icons", ID_VIEW_ICONS
+        MENUITEM "View &List", ID_VIEW_LIST
+        MENUITEM "View S&mall Icons", ID_VIEW_SMALL_ICONS
+        MENUITEM "View &Details", ID_VIEW_DETAILS
+        MENUITEM "View &Thumbnails", ID_VIEW_THUMBNAILS
+        MENUITEM "&Columns Setup", ID_VIEW_COLUMNS_SETUP
+        MENUITEM "Show &Alias Item Names", ID_VIEW_SHOW_ALIAS_NAMES
+        MENUITEM "Locate in Catalo&g", ID_VIEW_LOCATE_IN_CATALOG
+        MENUITEM "Tool&bar", ID_VIEW_TOOLBAR
+        MENUITEM "Status Ba&r", ID_VIEW_STATUS_BAR
+    END
     POPUP "&Search"
     BEGIN
-        MENUITEM "&Find...", ID_SEARCH_FIND
+        MENUITEM "&Search for Items\tCtrl+F", ID_SEARCH_FOR_ITEMS
+        MENUITEM "&Find in This Catalog", ID_SEARCH_FIND_IN_CATALOG
+        MENUITEM "Find Selected &Items", ID_SEARCH_FIND_SELECTED_ITEMS
+        MENUITEM "Scan for &Duplicates", ID_SEARCH_SCAN_DUPLICATES
+        MENUITEM "Compare to &Media", ID_SEARCH_COMPARE_MEDIA
+        MENUITEM "Compare &Files to Catalog", ID_SEARCH_COMPARE_FILES_TO_CATALOG
+        MENUITEM "Compare Cataloged &Data", ID_SEARCH_COMPARE_CATALOGED_DATA
+    END
+    POPUP "&Actions"
+    BEGIN
+        MENUITEM "Open in &Explorer", ID_ACTIONS_OPEN_EXPLORER
+        MENUITEM "&View File\tCtrl+I", ID_ACTIONS_VIEW_FILE
+        MENUITEM "&Launch File", ID_ACTIONS_LAUNCH_FILE
+        MENUITEM "Edit &Description\tCtrl+E", ID_ACTIONS_EDIT_DESCRIPTION
+        MENUITEM "&User List", ID_ACTIONS_USER_LIST
+        MENUITEM "&Rename Catalog", ID_ACTIONS_RENAME_CATALOG
+        MENUITEM "Remove &Alias Name", ID_ACTIONS_REMOVE_ALIAS_NAME
+        MENUITEM "File Mana&gement", ID_ACTIONS_FILE_MANAGEMENT
+        MENUITEM "Remove from &Catalog", ID_ACTIONS_REMOVE_FROM_CATALOG
+        MENUITEM "Remove Archive C&ontents", ID_ACTIONS_REMOVE_ARCHIVE_CONTENTS
+        MENUITEM "Remove &Thumbnail", ID_ACTIONS_REMOVE_THUMBNAIL
+        MENUITEM "&Properties\tCtrl+P", ID_ACTIONS_PROPERTIES
+    END
+    POPUP "&Options"
+    BEGIN
+        MENUITEM "&General Settings", ID_OPTIONS_GENERAL_SETTINGS
+        MENUITEM "&User Interface Setup", ID_OPTIONS_USER_INTERFACE_SETUP
+        MENUITEM "&File List Settings", ID_OPTIONS_FILE_LIST_SETTINGS
+        MENUITEM "&Disk Image Settings", ID_OPTIONS_DISK_IMAGE_SETTINGS
+        MENUITEM "D&escription Settings", ID_OPTIONS_DESCRIPTION_SETTINGS
     END
     POPUP "&Help"
     BEGIN
@@ -45,6 +88,17 @@ FONT 9, "Segoe UI"
 BEGIN
     LTEXT "Catalog name:", IDC_STATIC, 7, 9, 226, 10
     EDITTEXT IDC_CATALOG_NAME, 7, 23, 226, 14, ES_AUTOHSCROLL
+    DEFPUSHBUTTON "OK", IDOK, 126, 53, 50, 14
+    PUSHBUTTON "Cancel", IDCANCEL, 183, 53, 50, 14
+END
+
+IDD_GENERAL_SETTINGS DIALOGEX 0, 0, 240, 76
+STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "General Settings"
+FONT 9, "Segoe UI"
+BEGIN
+    LTEXT "Display", IDC_STATIC, 7, 9, 226, 10
+    CONTROL "Show status bar", IDC_SHOW_STATUS_BAR, "Button", BS_AUTOCHECKBOX | WS_TABSTOP, 12, 24, 120, 12
     DEFPUSHBUTTON "OK", IDOK, 126, 53, 50, 14
     PUSHBUTTON "Cancel", IDCANCEL, 183, 53, 50, 14
 END

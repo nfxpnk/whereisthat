@@ -17,6 +17,10 @@ struct NewCatalogDialogData {
     std::wstring name;
 };
 
+struct GeneralSettingsDialogData {
+    wit::platform::AppSettings settings;
+};
+
 std::wstring NameForCatalogRoot(const std::wstring& root) {
     if (root.size() == 3 && root[1] == L':' && (root[2] == L'\\' || root[2] == L'/')) return root;
     auto end = root.find_last_not_of(L"\\/");
@@ -54,6 +58,29 @@ INT_PTR CALLBACK NewCatalogDialogProc(HWND dialog, UINT message, WPARAM wparam, 
                 SetFocus(GetDlgItem(dialog, IDC_CATALOG_NAME));
                 return TRUE;
             }
+            EndDialog(dialog, IDOK);
+            return TRUE;
+        }
+        if(LOWORD(wparam) == IDCANCEL) {
+            EndDialog(dialog, IDCANCEL);
+            return TRUE;
+        }
+        break;
+    }
+    return FALSE;
+}
+
+INT_PTR CALLBACK GeneralSettingsDialogProc(HWND dialog, UINT message, WPARAM wparam, LPARAM lparam) {
+    auto* data = reinterpret_cast<GeneralSettingsDialogData*>(GetWindowLongPtrW(dialog, GWLP_USERDATA));
+    switch(message) {
+    case WM_INITDIALOG:
+        data = reinterpret_cast<GeneralSettingsDialogData*>(lparam);
+        SetWindowLongPtrW(dialog, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(data));
+        CheckDlgButton(dialog, IDC_SHOW_STATUS_BAR, data->settings.showStatusBar ? BST_CHECKED : BST_UNCHECKED);
+        return TRUE;
+    case WM_COMMAND:
+        if(LOWORD(wparam) == IDOK) {
+            data->settings.showStatusBar = IsDlgButtonChecked(dialog, IDC_SHOW_STATUS_BAR) == BST_CHECKED;
             EndDialog(dialog, IDOK);
             return TRUE;
         }
@@ -136,7 +163,10 @@ LRESULT MainFrame::HandleMessage(UINT message, WPARAM wparam, LPARAM lparam){
 
 bool MainFrame::OnCreate(){
     db_.Open(dbPath_);
-    status_ = CreateWindowExW(0, STATUSCLASSNAMEW, nullptr, WS_CHILD | WS_VISIBLE,
+    settings_ = wit::platform::LoadAppSettings();
+    DWORD statusStyle = WS_CHILD;
+    if(settings_.showStatusBar) statusStyle |= WS_VISIBLE;
+    status_ = CreateWindowExW(0, STATUSCLASSNAMEW, nullptr, statusStyle,
         0, 0, 0, 0, hwnd_, nullptr, GetModuleHandle(nullptr), nullptr);
     catalogsCtl_ = CreateWindowExW(WS_EX_CLIENTEDGE, WC_LISTVIEWW, nullptr,
         WS_CHILD | WS_VISIBLE | LVS_REPORT | LVS_SINGLESEL, 0, 0, 0, 0,
@@ -164,10 +194,13 @@ bool MainFrame::OnCreate(){
 }
 
 void MainFrame::OnSize(int width, int height){
-    SendMessageW(status_, WM_SIZE, 0, 0);
-    RECT sr{};
-    GetWindowRect(status_, &sr);
-    int statusHeight = sr.bottom - sr.top;
+    int statusHeight = 0;
+    if(settings_.showStatusBar) {
+        SendMessageW(status_, WM_SIZE, 0, 0);
+        RECT sr{};
+        GetWindowRect(status_, &sr);
+        statusHeight = sr.bottom - sr.top;
+    }
     int contentHeight = height - statusHeight;
     int left = width / 3;
     MoveWindow(catalogsCtl_, 0, 0, left, contentHeight, TRUE);
@@ -180,6 +213,7 @@ void MainFrame::OnAbout(){ MessageBoxW(hwnd_, L"Where Is That?\nNative Win32 bui
 void MainFrame::OnCommand(int id){
     if(id == ID_FILE_NEWCATALOG) OnNewCatalog();
     else if(id == ID_EDIT_ADDDISKIMAGE) OnAddOrUpdateDiskImage();
+    else if(id == ID_OPTIONS_GENERAL_SETTINGS) OnGeneralSettings();
     else if(id == ID_FILE_EXIT) OnExit();
     else if(id == ID_HELP_ABOUT) OnAbout();
 }
@@ -204,6 +238,26 @@ void MainFrame::OnNewCatalog(){
     ReloadCatalogs();
     SelectCatalog(id);
     SendMessageW(status_, SB_SETTEXTW, 0, reinterpret_cast<LPARAM>(L"Catalog created"));
+}
+
+void MainFrame::OnGeneralSettings(){
+    GeneralSettingsDialogData data{settings_};
+    const auto result = DialogBoxParamW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDD_GENERAL_SETTINGS),
+        hwnd_, GeneralSettingsDialogProc, reinterpret_cast<LPARAM>(&data));
+    if(result != IDOK) return;
+    if(!wit::platform::SaveAppSettings(data.settings)) {
+        MessageBoxW(hwnd_, L"Unable to save settings.ini.", L"General Settings", MB_OK | MB_ICONERROR);
+        return;
+    }
+    settings_ = data.settings;
+    ApplyDisplaySettings();
+}
+
+void MainFrame::ApplyDisplaySettings(){
+    ShowWindow(status_, settings_.showStatusBar ? SW_SHOW : SW_HIDE);
+    RECT client{};
+    GetClientRect(hwnd_, &client);
+    OnSize(client.right - client.left, client.bottom - client.top);
 }
 
 void MainFrame::OnAddOrUpdateDiskImage(){

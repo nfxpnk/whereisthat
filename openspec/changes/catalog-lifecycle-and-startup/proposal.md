@@ -8,6 +8,7 @@ The application currently treats `catalog.db` as a container for multiple in-dat
 - Make `File > New Catalog` prompt for a destination, create a new empty SQLite catalog database at that path, switch the active catalog to it, and leave any previously active database unchanged.
 - Make `File > Open` select and activate an existing SQLite catalog database.
 - Store the last successfully opened or created catalog path in application settings and attempt to reopen it on application startup.
+- Display the last-opened catalog in General Settings and persist up to ten recently activated catalogs for access through `File > Open Recent`.
 - Start with no active catalog when no prior path is stored or the saved path cannot be opened, while keeping New/Open available to enter an active-catalog state.
 - Define `Edit > Add/Update Disk Image` as an operation against only the active catalog, updating existing contents for the same selected media source rather than creating duplicates.
 - Revise product, storage, architecture, UI, and acceptance documentation that currently names `catalog.db` as the permanent application catalog or describes New Catalog as inserting an in-database row.

@@ -44,6 +44,7 @@ private:
     void OnCommand(int id);
     void OnNewCatalog();
     void OnOpenCatalog();
+    void OnOpenRecentCatalog(int commandId);
     void OnAddOrUpdateDiskImage();
     void OnGeneralSettings();
     void ApplyDisplaySettings();
@@ -52,6 +53,7 @@ private:
     LRESULT OnCatalogChanged(LPNMHDR hdr);
     LRESULT OnFileGetDispInfo(LPNMHDR hdr);
     bool ActivateCatalog(const std::wstring& path, bool createNew, bool persistPath);
+    void RefreshOpenRecentMenu();
     void ClearCatalogViews();
     void ReloadCatalogs();
     void SelectCatalog(std::int64_t catalogId);

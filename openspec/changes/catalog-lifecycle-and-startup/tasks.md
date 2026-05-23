@@ -27,3 +27,11 @@
 - [x] 5.1 Build `whereisthat.sln` for `Release|x64` with MSBuild and confirm the existing native Win32/SQLite DLL deployment remains intact.
 - [x] 5.2 Smoke test empty startup, New/Open switching between differently named database files, persistence/restoration of the last-used path, and missing/unusable saved-path fallback.
 - [x] 5.3 Smoke test that New Catalog never modifies an existing or previously active file and that repeated Add/Update refreshes one source only in the active catalog while another database remains unchanged.
+
+## 6. Recent Catalog Access And Settings Display
+
+- [x] 6.1 Extend `AppSettings` to persist a deduplicated most-recently-used list of up to ten catalog paths separately from SQLite content.
+- [x] 6.2 Display the stored last-opened catalog path read-only in General Settings.
+- [x] 6.3 Implement `File > Open Recent` population and validated activation for recent catalog entries.
+- [x] 6.4 Build `whereisthat.sln` for `Release|x64` after the recent-catalog and General Settings additions.
+- [ ] 6.5 Smoke test recent-list ordering, ten-entry trimming, successful recent activation, unavailable-entry handling, and General Settings display.

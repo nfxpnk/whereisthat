@@ -19,7 +19,7 @@ The active catalog remains useful when its indexed original storage is disconnec
 
 ## Main Menu Workflow
 
-- The File menu exposes catalog lifecycle commands: New Catalog, Open, Save, Save As, Rebuild catalog database, Close, Catalog Info, Report Generator, and Exit.
+- The File menu exposes catalog lifecycle commands: New Catalog, Open, Open Recent, Save, Save As, Rebuild catalog database, Close, Catalog Info, Report Generator, and Exit.
 - The Edit menu follows File and exposes Add/Update Disk Image, Catalog Manager, and Catalog Setup.
 - The View menu follows Edit and exposes Sort items, View Icons, View List, View Small Icons, View Details, View Thumbnails, Columns Setup, Show Alias Item Names, Locate in Catalog, Toolbar, and Status Bar.
 - The Search menu follows View and exposes Search for Items, Find in This Catalog, Find Selected Items, Scan for Duplicates, Compare to Media, Compare Files to Catalog, and Compare Cataloged Data.
@@ -27,9 +27,10 @@ The active catalog remains useful when its indexed original storage is disconnec
 - The Options menu follows Actions and exposes General Settings, User Interface Setup, File List Settings, Disk Image Settings, and Description Settings.
 - New Catalog prompts for a new database file destination, creates a fresh empty SQLite catalog at that path without overwriting an existing file, switches the active catalog, and stores its path in settings.
 - Open prompts for an existing SQLite catalog database, switches the active catalog after a successful open, and stores its path in settings.
+- Open Recent lists up to ten successfully activated catalog database paths in most-recent-first order and uses the same validated activation behavior as Open.
 - On startup the available last-used catalog path from settings is reopened; when it is absent or unavailable the application remains empty without creating or opening `catalog.db` implicitly.
 - Add/Update Disk Image requires an active catalog and scans the chosen folder or disk into that database only; selecting an already indexed source refreshes it without duplicate source contents.
-- General Settings opens a native settings dialog; its initial `Show status bar` preference immediately controls status-bar visibility and defaults to enabled.
+- General Settings opens a native settings dialog; its initial `Show status bar` preference immediately controls status-bar visibility and defaults to enabled, and it displays the stored last-opened catalog path as read-only information.
 - Commands introduced as placeholders have no storage, settings, catalog, file, or display effect until their feature behavior is specified and implemented.
 
 ## Win32 Interaction Rules

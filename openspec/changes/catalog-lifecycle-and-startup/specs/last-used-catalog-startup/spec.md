@@ -15,6 +15,33 @@ The system SHALL persist the path of the last successfully created or opened act
 - **WHEN** a requested create or open operation fails before activating a catalog
 - **THEN** the application does not replace the stored last-used catalog path with the failed path
 
+### Requirement: Recent catalog access
+The system SHALL persist up to ten most recently successfully activated catalog database paths in application settings and SHALL expose those paths through `File > Open Recent`.
+
+#### Scenario: A catalog is activated from a user command
+- **WHEN** New Catalog, Open, or Open Recent successfully activates a catalog database
+- **THEN** its path becomes the first Open Recent entry
+- **THEN** duplicate entries for that path are removed and no more than ten recent paths are stored
+
+#### Scenario: User selects a recent catalog
+- **WHEN** the user selects an available catalog path from `File > Open Recent`
+- **THEN** the application validates and activates it as it does for File > Open
+
+#### Scenario: User selects an unavailable recent catalog
+- **WHEN** the user selects a recent path whose database cannot be opened
+- **THEN** the application reports the failure without replacing the active catalog or reordering saved successful recent paths
+
+### Requirement: General Settings catalog display
+The system SHALL display the stored last-opened catalog path in General Settings as informational, read-only application state.
+
+#### Scenario: Last-used path exists
+- **WHEN** the user opens General Settings after a catalog was successfully activated
+- **THEN** the dialog displays that catalog path as the last opened catalog
+
+#### Scenario: No catalog has been opened
+- **WHEN** the user opens General Settings without a stored last-used catalog path
+- **THEN** the dialog indicates that no catalog has been opened
+
 ### Requirement: Startup restoration of the active catalog
 The system SHALL attempt to activate the saved last-used catalog database when the application starts and SHALL otherwise begin with no active catalog.
 

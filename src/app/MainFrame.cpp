@@ -104,6 +104,8 @@ INT_PTR CALLBACK GeneralSettingsDialogProc(HWND dialog, UINT message, WPARAM wpa
         data = reinterpret_cast<GeneralSettingsDialogData*>(lparam);
         SetWindowLongPtrW(dialog, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(data));
         CheckDlgButton(dialog, IDC_SHOW_STATUS_BAR, data->settings.showStatusBar ? BST_CHECKED : BST_UNCHECKED);
+        SetDlgItemTextW(dialog, IDC_LAST_OPENED_CATALOG, data->settings.lastCatalogPath.empty()
+            ? L"(No catalog opened)" : data->settings.lastCatalogPath.c_str());
         return TRUE;
     case WM_COMMAND:
         if(LOWORD(wparam) == IDOK) {
@@ -238,6 +240,7 @@ LRESULT MainFrame::HandleMessage(UINT message, WPARAM wparam, LPARAM lparam){
 
 bool MainFrame::OnCreate(){
     settings_ = wit::platform::LoadAppSettings();
+    RefreshOpenRecentMenu();
     DWORD statusStyle = WS_CHILD;
     if(settings_.showStatusBar) statusStyle |= WS_VISIBLE;
     status_ = CreateWindowExW(0, STATUSCLASSNAMEW, nullptr, statusStyle,
@@ -298,6 +301,7 @@ void MainFrame::OnAbout(){ MessageBoxW(hwnd_, L"Where Is That?\nNative Win32 bui
 void MainFrame::OnCommand(int id){
     if(id == ID_FILE_NEWCATALOG) OnNewCatalog();
     else if(id == ID_FILE_OPEN) OnOpenCatalog();
+    else if(id >= ID_FILE_RECENT_FIRST && id <= ID_FILE_RECENT_LAST) OnOpenRecentCatalog(id);
     else if(id == ID_EDIT_ADDDISKIMAGE) OnAddOrUpdateDiskImage();
     else if(id == ID_OPTIONS_GENERAL_SETTINGS) OnGeneralSettings();
     else if(id == ID_FILE_EXIT) OnExit();
@@ -319,10 +323,12 @@ bool MainFrame::ActivateCatalog(const std::wstring& path, bool createNew, bool p
     if(!catalogs_.catalogs.empty()) SelectCatalog(catalogs_.catalogs.front().id);
     if(persistPath) {
         settings_.lastCatalogPath = path;
+        wit::platform::RememberRecentCatalog(settings_, path);
         if(!wit::platform::SaveAppSettings(settings_)) {
             MessageBoxW(hwnd_, L"The catalog opened, but its path could not be saved in settings.ini.",
                 L"Catalog Settings", MB_OK | MB_ICONWARNING);
         }
+        RefreshOpenRecentMenu();
     }
     return true;
 }
@@ -354,6 +360,44 @@ void MainFrame::OnOpenCatalog(){
         return;
     }
     SendMessageW(status_, SB_SETTEXTW, 0, reinterpret_cast<LPARAM>(L"Catalog opened"));
+}
+
+void MainFrame::OnOpenRecentCatalog(int commandId){
+    if(worker_.joinable()){
+        MessageBoxW(hwnd_, L"A scan is already running.", L"Scan in progress", MB_OK | MB_ICONINFORMATION);
+        return;
+    }
+    const auto index = static_cast<std::size_t>(commandId - ID_FILE_RECENT_FIRST);
+    if(index >= settings_.recentCatalogPaths.size()) return;
+    const auto path = settings_.recentCatalogPaths[index];
+    if(!ActivateCatalog(path, false, true)) {
+        MessageBoxW(hwnd_, L"The recent catalog is no longer available or is not a usable catalog database.",
+            L"Open Recent Catalog", MB_OK | MB_ICONERROR);
+        return;
+    }
+    SendMessageW(status_, SB_SETTEXTW, 0, reinterpret_cast<LPARAM>(L"Recent catalog opened"));
+}
+
+void MainFrame::RefreshOpenRecentMenu(){
+    auto fileMenu = GetSubMenu(GetMenu(hwnd_), 0);
+    auto recentMenu = fileMenu ? GetSubMenu(fileMenu, 2) : nullptr;
+    if(!recentMenu) return;
+    while(GetMenuItemCount(recentMenu) > 0) DeleteMenu(recentMenu, 0, MF_BYPOSITION);
+    if(settings_.recentCatalogPaths.empty()) {
+        AppendMenuW(recentMenu, MF_STRING | MF_GRAYED, ID_FILE_RECENT_FIRST, L"(No recent catalogs)");
+    } else {
+        const auto limit = (std::min)(settings_.recentCatalogPaths.size(),
+            static_cast<std::size_t>(ID_FILE_RECENT_LAST - ID_FILE_RECENT_FIRST + 1));
+        for(std::size_t index = 0; index < limit; ++index) {
+            auto label = L"&" + std::to_wstring(index + 1) + L" " + settings_.recentCatalogPaths[index];
+            for(std::size_t pos = label.find(L'&', 2); pos != std::wstring::npos;
+                pos = label.find(L'&', pos + 2)) {
+                label.insert(pos, 1, L'&');
+            }
+            AppendMenuW(recentMenu, MF_STRING, ID_FILE_RECENT_FIRST + static_cast<UINT>(index), label.c_str());
+        }
+    }
+    DrawMenuBar(hwnd_);
 }
 
 void MainFrame::OnGeneralSettings(){

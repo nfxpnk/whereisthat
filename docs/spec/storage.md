@@ -13,6 +13,7 @@ Application preferences are separate from catalog data and must not be added to 
 - General Settings persists implemented preferences in `settings.ini` beside `WhereIsThat.exe`.
 - The initial preference is `[General] ShowStatusBar`, which defaults to enabled when the file or key is absent.
 - The optional `[General] LastCatalogPath` value records the most recently activated catalog database for startup restoration; an absent, empty, or unavailable path produces an empty startup state.
+- The optional `[RecentCatalogs] Path1` through `Path10` values record successfully activated catalog database paths in most-recent-first order for `File > Open Recent`; entries are deduplicated without storing catalog data in the preferences file.
 - UI preference reads and writes use a focused native platform helper; `src/storage` remains responsible for SQLite catalog persistence only.
 
 ## SQLite Packaging Decision

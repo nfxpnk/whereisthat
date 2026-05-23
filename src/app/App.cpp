@@ -10,11 +10,14 @@ int App::Run(){
     MainFrame wnd;
     if(!wnd.Create()) return 1;
     wnd.Show(SW_SHOW);
+    HACCEL accelerators = LoadAcceleratorsW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDR_MAINACCEL));
 
     MSG msg{};
-    while(GetMessage(&msg,nullptr,0,0)){
-        TranslateMessage(&msg);
-        DispatchMessage(&msg);
+    while(GetMessageW(&msg,nullptr,0,0)){
+        if(!accelerators || !TranslateAcceleratorW(wnd.WindowHandle(), accelerators, &msg)){
+            TranslateMessage(&msg);
+            DispatchMessageW(&msg);
+        }
     }
     return (int)msg.wParam;
 }

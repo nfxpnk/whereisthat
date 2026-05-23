@@ -1,4 +1,5 @@
 #include "MainFrame.h"
+#include <cwctype>
 #include <shobjidl.h>
 #include <string>
 #include "../platform/Win32Helpers.h"
@@ -12,12 +13,57 @@ struct ScanProgressMessage {
     std::uint64_t folders{};
 };
 
+struct NewCatalogDialogData {
+    std::wstring name;
+};
+
 std::wstring NameForCatalogRoot(const std::wstring& root) {
     if (root.size() == 3 && root[1] == L':' && (root[2] == L'\\' || root[2] == L'/')) return root;
     auto end = root.find_last_not_of(L"\\/");
     if (end == std::wstring::npos) return root;
     auto pos = root.find_last_of(L"\\/", end);
     return pos == std::wstring::npos ? root.substr(0, end + 1) : root.substr(pos + 1, end - pos);
+}
+
+std::wstring TrimWhitespace(const std::wstring& value) {
+    std::size_t first = 0;
+    while(first < value.size() && std::iswspace(value[first])) ++first;
+    std::size_t last = value.size();
+    while(last > first && std::iswspace(value[last - 1])) --last;
+    return value.substr(first, last - first);
+}
+
+INT_PTR CALLBACK NewCatalogDialogProc(HWND dialog, UINT message, WPARAM wparam, LPARAM lparam) {
+    auto* data = reinterpret_cast<NewCatalogDialogData*>(GetWindowLongPtrW(dialog, GWLP_USERDATA));
+    switch(message) {
+    case WM_INITDIALOG:
+        data = reinterpret_cast<NewCatalogDialogData*>(lparam);
+        SetWindowLongPtrW(dialog, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(data));
+        SendDlgItemMessageW(dialog, IDC_CATALOG_NAME, EM_SETLIMITTEXT, 255, 0);
+        SetFocus(GetDlgItem(dialog, IDC_CATALOG_NAME));
+        return FALSE;
+    case WM_COMMAND:
+        if(LOWORD(wparam) == IDOK) {
+            const int length = GetWindowTextLengthW(GetDlgItem(dialog, IDC_CATALOG_NAME));
+            std::wstring name(static_cast<std::size_t>(length) + 1, L'\0');
+            GetDlgItemTextW(dialog, IDC_CATALOG_NAME, name.data(), length + 1);
+            name.resize(static_cast<std::size_t>(length));
+            data->name = TrimWhitespace(name);
+            if(data->name.empty()) {
+                MessageBoxW(dialog, L"Enter a catalog name.", L"New Catalog", MB_OK | MB_ICONINFORMATION);
+                SetFocus(GetDlgItem(dialog, IDC_CATALOG_NAME));
+                return TRUE;
+            }
+            EndDialog(dialog, IDOK);
+            return TRUE;
+        }
+        if(LOWORD(wparam) == IDCANCEL) {
+            EndDialog(dialog, IDCANCEL);
+            return TRUE;
+        }
+        break;
+    }
+    return FALSE;
 }
 }
 
@@ -131,10 +177,75 @@ void MainFrame::OnSize(int width, int height){
 void MainFrame::OnDestroy(){ if(worker_.joinable()) worker_.join(); PostQuitMessage(0);}
 void MainFrame::OnExit(){ PostMessageW(hwnd_, WM_CLOSE, 0, 0);}
 void MainFrame::OnAbout(){ MessageBoxW(hwnd_, L"Where Is That?\nNative Win32 build.", L"About", MB_OK);}
-void MainFrame::OnRefresh(){ ReloadCatalogs(); }
-void MainFrame::OnCommand(int id){ if(id==ID_FILE_NEWCATALOG) OnNewCatalog(); else if(id==ID_FILE_REFRESH) OnRefresh(); else if(id==ID_FILE_EXIT) OnExit(); else if(id==ID_HELP_ABOUT) OnAbout(); }
+void MainFrame::OnCommand(int id){
+    if(id == ID_FILE_NEWCATALOG) OnNewCatalog();
+    else if(id == ID_EDIT_ADDDISKIMAGE) OnAddOrUpdateDiskImage();
+    else if(id == ID_FILE_EXIT) OnExit();
+    else if(id == ID_HELP_ABOUT) OnAbout();
+}
 void MainFrame::ReloadCatalogs(){ catalogs_.catalogs=db_.GetCatalogs(); catalogs_.Reload(); }
 void MainFrame::SelectCatalog(std::int64_t catalogId){ for(int i=0;i<ListView_GetItemCount(catalogsCtl_);++i){ LVITEMW item{}; item.mask=LVIF_PARAM; item.iItem=i; if(ListView_GetItem(catalogsCtl_, &item) && item.lParam==catalogId){ ListView_SetItemState(catalogsCtl_, i, LVIS_SELECTED|LVIS_FOCUSED, LVIS_SELECTED|LVIS_FOCUSED); ListView_EnsureVisible(catalogsCtl_, i, FALSE); files_.SetCatalog(catalogId,&db_); break; } } }
 LRESULT MainFrame::OnCatalogChanged(LPNMHDR hdr){ auto* n=(NMLISTVIEW*)hdr; if((n->uChanged&LVIF_STATE)&& (n->uNewState&LVIS_SELECTED)){ LVITEMW item{}; item.mask=LVIF_PARAM; item.iItem=n->iItem; if(ListView_GetItem(catalogsCtl_, &item)) files_.SetCatalog((std::int64_t)item.lParam,&db_);} return 0; }
 LRESULT MainFrame::OnFileGetDispInfo(LPNMHDR hdr){ auto* di=(NMLVDISPINFOW*)hdr; if(di->item.mask&LVIF_TEXT){ auto t=files_.TextFor(di->item.iItem,di->item.iSubItem); lstrcpynW(di->item.pszText,t.c_str(),di->item.cchTextMax);} return 0; }
-void MainFrame::OnNewCatalog(){ if(worker_.joinable()){ MessageBoxW(hwnd_, L"A scan is already running.", L"Scan in progress", MB_OK | MB_ICONINFORMATION); return; } IFileOpenDialog* dlg{}; if(FAILED(CoCreateInstance(CLSID_FileOpenDialog,nullptr,CLSCTX_INPROC_SERVER,IID_PPV_ARGS(&dlg)))) return; DWORD opt{}; dlg->GetOptions(&opt); dlg->SetOptions(opt|FOS_PICKFOLDERS|FOS_FORCEFILESYSTEM); dlg->SetTitle(L"Choose a folder or disk to scan"); if(SUCCEEDED(dlg->Show(hwnd_))){ IShellItem* item{}; if(SUCCEEDED(dlg->GetResult(&item))){ PWSTR path{}; if(SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH,&path))){ std::wstring root(path); CoTaskMemFree(path); wit::core::Catalog c{}; c.name=NameForCatalogRoot(root); c.rootPath=root; c.createdAt=wit::platform::NowIso8601(); auto id=db_.AddCatalog(c); ReloadCatalogs(); SelectCatalog(id); SendMessageW(status_,SB_SETTEXTW,0,reinterpret_cast<LPARAM>(L"Starting scan...")); auto dbPath=dbPath_; worker_=std::thread([this,root,id,dbPath](){ wit::storage::Database scanDb; scanDb.Open(dbPath); wit::core::FileScanner s; s.ScanFolder(root,id,scanDb,[this](const wit::core::FileScanner::Progress& p){ PostMessageW(hwnd_,WM_SCAN_PROGRESS,0,reinterpret_cast<LPARAM>(new ScanProgressMessage{p.scannedFiles,p.scannedFolders})); }); PostMessageW(hwnd_,WM_SCAN_COMPLETE,static_cast<WPARAM>(id),0);}); } item->Release(); }} dlg->Release(); }
+void MainFrame::OnNewCatalog(){
+    if(worker_.joinable()){
+        MessageBoxW(hwnd_, L"A scan is already running.", L"Scan in progress", MB_OK | MB_ICONINFORMATION);
+        return;
+    }
+    NewCatalogDialogData data{};
+    const auto result = DialogBoxParamW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDD_NEW_CATALOG),
+        hwnd_, NewCatalogDialogProc, reinterpret_cast<LPARAM>(&data));
+    if(result != IDOK) return;
+
+    wit::core::Catalog catalog{};
+    catalog.name = data.name;
+    catalog.createdAt = wit::platform::NowIso8601();
+    const auto id = db_.AddCatalog(catalog);
+    ReloadCatalogs();
+    SelectCatalog(id);
+    SendMessageW(status_, SB_SETTEXTW, 0, reinterpret_cast<LPARAM>(L"Catalog created"));
+}
+
+void MainFrame::OnAddOrUpdateDiskImage(){
+    if(worker_.joinable()){
+        MessageBoxW(hwnd_, L"A scan is already running.", L"Scan in progress", MB_OK | MB_ICONINFORMATION);
+        return;
+    }
+    IFileOpenDialog* dialog{};
+    if(FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dialog)))) return;
+    DWORD options{};
+    dialog->GetOptions(&options);
+    dialog->SetOptions(options | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM);
+    dialog->SetTitle(L"Choose a folder or disk to scan");
+    if(SUCCEEDED(dialog->Show(hwnd_))){
+        IShellItem* item{};
+        if(SUCCEEDED(dialog->GetResult(&item))){
+            PWSTR path{};
+            if(SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &path))){
+                std::wstring root(path);
+                CoTaskMemFree(path);
+                wit::core::Catalog catalog{};
+                catalog.name = NameForCatalogRoot(root);
+                catalog.rootPath = root;
+                catalog.createdAt = wit::platform::NowIso8601();
+                const auto id = db_.AddCatalog(catalog);
+                ReloadCatalogs();
+                SelectCatalog(id);
+                SendMessageW(status_, SB_SETTEXTW, 0, reinterpret_cast<LPARAM>(L"Starting scan..."));
+                const auto dbPath = dbPath_;
+                worker_ = std::thread([this, root, id, dbPath](){
+                    wit::storage::Database scanDb;
+                    scanDb.Open(dbPath);
+                    wit::core::FileScanner scanner;
+                    scanner.ScanFolder(root, id, scanDb, [this](const wit::core::FileScanner::Progress& progress){
+                        PostMessageW(hwnd_, WM_SCAN_PROGRESS, 0, reinterpret_cast<LPARAM>(
+                            new ScanProgressMessage{progress.scannedFiles, progress.scannedFolders}));
+                    });
+                    PostMessageW(hwnd_, WM_SCAN_COMPLETE, static_cast<WPARAM>(id), 0);
+                });
+            }
+            item->Release();
+        }
+    }
+    dialog->Release();
+}

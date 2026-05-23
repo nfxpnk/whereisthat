@@ -16,6 +16,14 @@ The app must provide a direct desktop workflow:
 
 The catalog remains useful when its original storage is disconnected; the UI displays persisted data rather than relying on live filesystem access for browsing.
 
+## Main Menu Workflow
+
+- The File menu exposes catalog lifecycle commands: New Catalog, Open, Save, Save As, Rebuild catalog database, Close, Catalog Info, Report Generator, and Exit.
+- The Edit menu follows File and exposes Add/Update Disk Image, Catalog Manager, and Catalog Setup.
+- New Catalog prompts for a nonblank catalog name and creates a selectable empty catalog in the local catalog database without starting a scan.
+- Add/Update Disk Image is the entry point for choosing a folder or disk and starting the existing scan workflow.
+- Commands introduced as placeholders have no storage or catalog effect until their feature behavior is specified and implemented.
+
 ## Win32 Interaction Rules
 
 - Window lifetime, message routing, menu commands, and dialogs use Win32 primitives.

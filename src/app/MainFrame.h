@@ -14,6 +14,7 @@ class MainFrame {
 public:
     bool Create();
     void Show(int command);
+    HWND WindowHandle() const { return hwnd_; }
 private:
     static constexpr wchar_t kClassName[] = L"WhereIsThatMainFrame";
     HWND hwnd_{};
@@ -33,7 +34,7 @@ private:
     void OnDestroy();
     void OnCommand(int id);
     void OnNewCatalog();
-    void OnRefresh();
+    void OnAddOrUpdateDiskImage();
     void OnExit();
     void OnAbout();
     LRESULT OnCatalogChanged(LPNMHDR hdr);

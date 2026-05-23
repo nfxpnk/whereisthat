@@ -32,6 +32,8 @@ public:
     std::vector<wit::core::Catalog> GetCatalogs();
     int GetFileCountForCatalog(std::int64_t catalogId);
     std::vector<wit::core::FileEntry> GetFilesPageForCatalog(std::int64_t catalogId, int offset, int limit);
+    int GetItemSearchCount(const std::wstring& nameTerm);
+    std::vector<wit::core::FileEntry> GetItemSearchPage(const std::wstring& nameTerm, int offset, int limit);
 private:
     bool OpenInternal(const std::wstring& path, bool requireExistingSchema);
     bool HasCatalogSchema();

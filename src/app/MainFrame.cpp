@@ -5,6 +5,7 @@
 #include <utility>
 #include <vector>
 #include "../platform/Win32Helpers.h"
+#include "../ui/SearchDialog.h"
 
 namespace {
 constexpr UINT WM_SCAN_PROGRESS = WM_APP + 1;
@@ -335,6 +336,7 @@ void MainFrame::OnCommand(int id) {
     else if (id == ID_FILE_OPEN) OnOpenCatalog();
     else if (id >= ID_FILE_RECENT_FIRST && id <= ID_FILE_RECENT_LAST) OnOpenRecentCatalog(id);
     else if (id == ID_EDIT_ADDDISKIMAGE) OnAddOrUpdateDiskImage();
+    else if (id == ID_SEARCH_FOR_ITEMS) OnSearchForItems();
     else if (id == ID_OPTIONS_GENERAL_SETTINGS) OnGeneralSettings();
     else if (id == ID_FILE_EXIT) OnExit();
     else if (id == ID_HELP_ABOUT) OnAbout();
@@ -489,6 +491,16 @@ void MainFrame::OnGeneralSettings() {
     }
     settings_ = data.settings;
     ApplyDisplaySettings();
+}
+
+void MainFrame::OnSearchForItems() {
+    if (!db_.IsOpen() || activeCatalogPath_.empty()) {
+        MessageBoxW(hwnd_, L"Create or open a catalog before searching for items.", L"No Active Catalog",
+            MB_OK | MB_ICONINFORMATION);
+        return;
+    }
+    wit::ui::SearchDialog dialog;
+    dialog.Show(hwnd_, GetModuleHandleW(nullptr), &db_);
 }
 
 void MainFrame::ApplyDisplaySettings() {

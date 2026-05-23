@@ -30,8 +30,9 @@ The active catalog remains useful when its indexed original storage is disconnec
 - Open Recent lists up to ten successfully activated catalog database paths in most-recent-first order and uses the same validated activation behavior as Open.
 - On startup the available last-used catalog path from settings is reopened; when it is absent or unavailable the application remains empty without creating or opening `catalog.db` implicitly.
 - Add/Update Disk Image requires an active catalog and scans the chosen folder or disk into that database only; selecting an already indexed source refreshes it without duplicate source contents.
+- Search for Items (`Ctrl+F`) requires an active catalog and opens a native search window with a file/folder name input and Search action; matching indexed items from all media sources in that database appear below the controls with name, type, size, path, and modified metadata.
 - General Settings opens a native settings dialog; its initial `Show status bar` preference immediately controls status-bar visibility and defaults to enabled, and it displays the stored last-opened catalog path as read-only information.
-- Commands introduced as placeholders have no storage, settings, catalog, file, or display effect until their feature behavior is specified and implemented.
+- Commands still introduced as placeholders, including the remaining Search commands, have no storage, settings, catalog, file, or display effect until their feature behavior is specified and implemented.
 
 ## Win32 Interaction Rules
 
@@ -46,6 +47,7 @@ The active catalog remains useful when its indexed original storage is disconnec
 
 - Catalog contents must be viable for large scans.
 - The file result view uses virtual/owner-data ListView behavior with database-backed paging.
+- The Search for Items result list uses virtual/owner-data ListView behavior with database-backed paging.
 - UI changes must not require loading all rows in a catalog into memory merely to display them.
 
 ## Consistency Rule

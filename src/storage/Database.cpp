@@ -24,6 +24,17 @@ bool TableHasColumn(sqlite3* db, const char* table, const char* expectedColumn) 
     sqlite3_finalize(stmt);
     return found;
 }
+
+std::string ItemNameLikePattern(const std::wstring& term) {
+    const auto utf8 = wit::platform::ToUtf8(term);
+    std::string pattern{"%"};
+    for (const auto character : utf8) {
+        if (character == '%' || character == '_' || character == '\\') pattern.push_back('\\');
+        pattern.push_back(character);
+    }
+    pattern.push_back('%');
+    return pattern;
+}
 }
 
 Database::~Database() {
@@ -206,6 +217,36 @@ std::vector<wit::core::FileEntry> Database::GetFilesPageForCatalog(std::int64_t 
         file.modifiedAt = wit::platform::ToUtf16(reinterpret_cast<const char*>(sqlite3_column_text(statement.Raw(), 5)));
         file.attributes = static_cast<std::uint32_t>(sqlite3_column_int(statement.Raw(), 6));
         file.isDirectory = sqlite3_column_int(statement.Raw(), 7) != 0;
+        files.push_back(file);
+    }
+    return files;
+}
+
+int Database::GetItemSearchCount(const std::wstring& nameTerm) {
+    SQLiteStatement statement(db_, "SELECT COUNT(*) FROM files WHERE name LIKE ? ESCAPE '\\';");
+    statement.BindText(1, ItemNameLikePattern(nameTerm));
+    return sqlite3_step(statement.Raw()) == SQLITE_ROW ? sqlite3_column_int(statement.Raw(), 0) : 0;
+}
+
+std::vector<wit::core::FileEntry> Database::GetItemSearchPage(const std::wstring& nameTerm, int offset, int limit) {
+    std::vector<wit::core::FileEntry> files;
+    SQLiteStatement statement(db_,
+        "SELECT id,catalog_id,parent_path,name,extension,size,modified_at,attributes,is_directory "
+        "FROM files WHERE name LIKE ? ESCAPE '\\' ORDER BY is_directory DESC,name,parent_path LIMIT ? OFFSET ?;");
+    statement.BindText(1, ItemNameLikePattern(nameTerm));
+    statement.BindInt64(2, limit);
+    statement.BindInt64(3, offset);
+    while (sqlite3_step(statement.Raw()) == SQLITE_ROW) {
+        wit::core::FileEntry file;
+        file.id = sqlite3_column_int64(statement.Raw(), 0);
+        file.catalogId = sqlite3_column_int64(statement.Raw(), 1);
+        file.parentPath = wit::platform::ToUtf16(reinterpret_cast<const char*>(sqlite3_column_text(statement.Raw(), 2)));
+        file.name = wit::platform::ToUtf16(reinterpret_cast<const char*>(sqlite3_column_text(statement.Raw(), 3)));
+        file.extension = wit::platform::ToUtf16(reinterpret_cast<const char*>(sqlite3_column_text(statement.Raw(), 4)));
+        file.size = sqlite3_column_int64(statement.Raw(), 5);
+        file.modifiedAt = wit::platform::ToUtf16(reinterpret_cast<const char*>(sqlite3_column_text(statement.Raw(), 6)));
+        file.attributes = static_cast<std::uint32_t>(sqlite3_column_int(statement.Raw(), 7));
+        file.isDirectory = sqlite3_column_int(statement.Raw(), 8) != 0;
         files.push_back(file);
     }
     return files;

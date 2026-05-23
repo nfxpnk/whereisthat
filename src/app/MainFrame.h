@@ -46,6 +46,7 @@ private:
     void OnOpenCatalog();
     void OnOpenRecentCatalog(int commandId);
     void OnAddOrUpdateDiskImage();
+    void OnSearchForItems();
     void OnGeneralSettings();
     void ApplyDisplaySettings();
     void OnExit();

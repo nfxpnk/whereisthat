@@ -32,6 +32,7 @@ SQLite must not be replaced with a managed data layer, a framework database abst
 - A catalog database contains indexed media-source records with name, root path, creation timestamp, and item count.
 - File rows record their media-source ownership, parent path, name, extension, size, modification timestamp, attributes, and whether the row represents a directory.
 - File listing queries are scoped to a selected media source within the active catalog database and paged for the virtual ListView.
+- Item-name search queries match literal text across all file and folder rows in the active catalog database and page results for the virtual search ListView.
 - Useful media-source lookup paths remain indexed as the data set grows.
 - Existing databases that use the established `catalogs` and `files` schema remain valid catalog files; the table name is retained for data compatibility.
 
@@ -48,4 +49,5 @@ SQLite must not be replaced with a managed data layer, a framework database abst
 - Creating a catalog initializes a new SQLite database only at the user-selected new file path.
 - Opening an existing catalog validates and initializes the supported schema without replacing an active catalog when opening fails.
 - Scanning adds a new media source or replaces contents for the same source path in the active catalog only, and updates aggregate item count when scanning completes.
+- Searching reads indexed file and folder metadata from the active catalog only and does not require the original scanned media to be available.
 - The last-used available catalog can be loaded at application start without requiring any scanned source path to be online; otherwise startup has no active catalog.

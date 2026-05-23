@@ -16,6 +16,7 @@ The delivered application and supported build must not depend on .NET, WPF, C#, 
 - `whereisthat.sln` builds in `Release|x64` using MSBuild and the v143 toolset.
 - The executable output is `WhereIsThat.exe`.
 - `sqlite3.dll` is copied to the same output directory as `WhereIsThat.exe`.
+- A published Windows release is an installer-free portable app folder/zip whose included PE binaries are directly SHA-256 Authenticode signed with timestamps and successfully verified from the final zip.
 - The project links `sqlite3.lib` and compilation uses `sqlite3.h`.
 - The supported build does not require CMake, vcpkg, or Python.
 

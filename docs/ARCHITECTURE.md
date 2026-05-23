@@ -1,9 +1,9 @@
 # Architecture
 
 ## Stack choice
-Where Is That? uses C++20 + Win32 and the SQLite C API. This keeps the app small, native, and direct.
+Where Is That? uses C++20 + the Win32 API + SQLite + MSVC. The UI is direct Win32 API code, storage goes through the SQLite C API, and builds are driven by the MSVC v143 toolset with MSBuild. This keeps the app small, native, and direct.
 
-## Why not Qt/Electron/.NET
+## Why pure Win32
 Those options increase runtime/dependency footprint and abstraction layers. The project goal is simple native Windows utility behavior and predictable memory/performance.
 
 ## Structure

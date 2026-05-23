@@ -1,5 +1,6 @@
 #pragma once
 #include <Windows.h>
+#include <cstdint>
 #include <vector>
 #include "../core/FileEntry.h"
 #include "../storage/Database.h"

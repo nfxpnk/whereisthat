@@ -2,6 +2,7 @@
 /.vs/
 /x64/
 /WhereIsThat/
+/artifacts/
 
 # Local database created by the app
 /catalog.db

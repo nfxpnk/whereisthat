@@ -1,5 +1,6 @@
 #pragma once
 #define IDR_MAINMENU 101
+#define IDI_APPICON 102
 #define ID_FILE_NEWCATALOG 40001
 #define ID_FILE_REFRESH 40002
 #define ID_FILE_EXIT 40003

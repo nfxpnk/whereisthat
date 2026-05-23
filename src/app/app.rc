@@ -1,4 +1,6 @@
 #include "resource.h"
+IDI_APPICON ICON "app.ico"
+
 IDR_MAINMENU MENU
 BEGIN
     POPUP "&File"

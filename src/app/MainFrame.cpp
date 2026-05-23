@@ -1,4 +1,5 @@
 #include "MainFrame.h"
+#include <algorithm>
 #include <shobjidl.h>
 #include <string>
 #include <utility>
@@ -161,7 +162,51 @@ LRESULT CALLBACK MainFrame::WndProc(HWND hwnd, UINT message, WPARAM wparam, LPAR
 LRESULT MainFrame::HandleMessage(UINT message, WPARAM wparam, LPARAM lparam){
     switch(message){
     case WM_CREATE: return OnCreate() ? 0 : -1;
-    case WM_SIZE: OnSize(LOWORD(lparam), HIWORD(lparam)); return 0;
+    case WM_SIZE:
+        if(wparam != SIZE_MINIMIZED) OnSize(LOWORD(lparam), HIWORD(lparam));
+        return 0;
+    case WM_LBUTTONDOWN: {
+        const int x = static_cast<short>(LOWORD(lparam));
+        const int y = static_cast<short>(HIWORD(lparam));
+        if(IsOverSplitter(x, y)) {
+            splitterDragging_ = true;
+            splitterDragOffset_ = x - splitterPosition_;
+            SetCapture(hwnd_);
+            SetCursor(LoadCursorW(nullptr, IDC_SIZEWE));
+            return 0;
+        }
+        break;
+    }
+    case WM_MOUSEMOVE:
+        if(splitterDragging_) {
+            RECT client{};
+            GetClientRect(hwnd_, &client);
+            splitterPosition_ = static_cast<short>(LOWORD(lparam)) - splitterDragOffset_;
+            OnSize(client.right - client.left, client.bottom - client.top);
+            return 0;
+        }
+        break;
+    case WM_LBUTTONUP:
+        if(splitterDragging_) {
+            splitterDragging_ = false;
+            if(GetCapture() == hwnd_) ReleaseCapture();
+            return 0;
+        }
+        break;
+    case WM_CAPTURECHANGED:
+        splitterDragging_ = false;
+        break;
+    case WM_SETCURSOR: {
+        POINT point{};
+        GetCursorPos(&point);
+        ScreenToClient(hwnd_, &point);
+        if(splitterDragging_ ||
+            (LOWORD(lparam) == HTCLIENT && IsOverSplitter(point.x, point.y))) {
+            SetCursor(LoadCursorW(nullptr, IDC_SIZEWE));
+            return TRUE;
+        }
+        break;
+    }
     case WM_COMMAND: OnCommand(LOWORD(wparam)); return 0;
     case WM_NOTIFY: {
         auto* hdr = reinterpret_cast<LPNMHDR>(lparam);
@@ -232,10 +277,19 @@ void MainFrame::OnSize(int width, int height){
         GetWindowRect(status_, &sr);
         statusHeight = sr.bottom - sr.top;
     }
-    int contentHeight = height - statusHeight;
-    int left = width / 3;
-    MoveWindow(catalogsCtl_, 0, 0, left, contentHeight, TRUE);
-    MoveWindow(filesCtl_, left + 4, 0, width - left - 4, contentHeight, TRUE);
+    contentHeight_ = (std::max)(0, height - statusHeight);
+    const int availableWidth = (std::max)(0, width - kSplitterWidth);
+    const int minimumWidth = (std::min)(kMinPaneWidth, availableWidth / 2);
+    if(splitterPosition_ < 0) splitterPosition_ = width / 3;
+    splitterPosition_ = std::clamp(splitterPosition_, minimumWidth, availableWidth - minimumWidth);
+    MoveWindow(catalogsCtl_, 0, 0, splitterPosition_, contentHeight_, TRUE);
+    MoveWindow(filesCtl_, splitterPosition_ + kSplitterWidth, 0,
+        availableWidth - splitterPosition_, contentHeight_, TRUE);
+}
+
+bool MainFrame::IsOverSplitter(int x, int y) const {
+    return x >= splitterPosition_ && x < splitterPosition_ + kSplitterWidth &&
+        y >= 0 && y < contentHeight_;
 }
 
 void MainFrame::OnDestroy(){ if(worker_.joinable()) worker_.join(); PostQuitMessage(0);}

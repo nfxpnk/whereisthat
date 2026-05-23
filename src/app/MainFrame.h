@@ -18,10 +18,16 @@ public:
     HWND WindowHandle() const { return hwnd_; }
 private:
     static constexpr wchar_t kClassName[] = L"WhereIsThatMainFrame";
+    static constexpr int kSplitterWidth = 4;
+    static constexpr int kMinPaneWidth = 80;
     HWND hwnd_{};
     HWND catalogsCtl_{};
     HWND filesCtl_{};
     HWND status_{};
+    int splitterPosition_{-1};
+    int splitterDragOffset_{};
+    int contentHeight_{};
+    bool splitterDragging_{};
     std::wstring activeCatalogPath_;
     wit::storage::Database db_;
     wit::ui::CatalogListView catalogs_;
@@ -33,6 +39,7 @@ private:
     LRESULT HandleMessage(UINT message, WPARAM wparam, LPARAM lparam);
     bool OnCreate();
     void OnSize(int width, int height);
+    bool IsOverSplitter(int x, int y) const;
     void OnDestroy();
     void OnCommand(int id);
     void OnNewCatalog();

@@ -99,6 +99,8 @@ const wchar_t* ToolbarTooltipText(int commandId) {
         return L"Save current catalog";
     case ID_FILE_REPORT_GENERATOR:
         return L"Generate Report";
+    case ID_EDIT_ADDDISKIMAGE:
+        return L"Add/Update Disk Image in Catalog";
     case ID_SEARCH_FOR_ITEMS:
         return L"Search";
     case ID_ACTIONS_EDIT_DESCRIPTION:
@@ -436,15 +438,15 @@ bool MainFrame::CreateToolbar() {
     SendMessageW(toolbar_, TB_SETBITMAPSIZE, 0, MAKELONG(kToolbarIconSize, kToolbarIconSize));
     SendMessageW(toolbar_, TB_SETBUTTONSIZE, 0, MAKELONG(kToolbarButtonSize, kToolbarButtonSize));
 
-    toolbarImages_ = ImageList_Create(kToolbarIconSize, kToolbarIconSize, ILC_COLOR32, 15, 0);
+    toolbarImages_ = ImageList_Create(kToolbarIconSize, kToolbarIconSize, ILC_COLOR32, 16, 0);
     if (!toolbarImages_) return false;
 
     IWICImagingFactory* factory{};
     if (FAILED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
         IID_PPV_ARGS(&factory)))) return false;
-    constexpr std::array<UINT, 15> imageIds = {
+    constexpr std::array<UINT, 16> imageIds = {
         IDB_TOOLBAR_NEW_CATALOG, IDB_TOOLBAR_OPEN, IDB_TOOLBAR_SAVE, IDB_TOOLBAR_REPORT,
-        IDB_TOOLBAR_SEARCH, IDB_TOOLBAR_EDIT_DESCRIPTION, IDB_TOOLBAR_PROPERTIES,
+        IDB_TOOLBAR_ADD_DISK_IMAGE, IDB_TOOLBAR_SEARCH, IDB_TOOLBAR_EDIT_DESCRIPTION, IDB_TOOLBAR_PROPERTIES,
         IDB_TOOLBAR_OPEN_EXPLORER, IDB_TOOLBAR_VIEW_FILE, IDB_TOOLBAR_VIEW_DETAILS,
         IDB_TOOLBAR_SORT_NAME, IDB_TOOLBAR_SORT_EXTENSION, IDB_TOOLBAR_SORT_SIZE,
         IDB_TOOLBAR_SORT_DATE, IDB_TOOLBAR_SORT_REVERSE
@@ -483,20 +485,21 @@ bool MainFrame::CreateToolbar() {
     addButton(2, ID_FILE_SAVE, BTNS_BUTTON);
     addButton(3, ID_FILE_REPORT_GENERATOR, BTNS_BUTTON);
     addSeparator();
-    addButton(4, ID_SEARCH_FOR_ITEMS, BTNS_BUTTON);
+    addButton(4, ID_EDIT_ADDDISKIMAGE, BTNS_BUTTON);
+    addButton(5, ID_SEARCH_FOR_ITEMS, BTNS_BUTTON);
     addSeparator();
-    addButton(5, ID_ACTIONS_EDIT_DESCRIPTION, BTNS_BUTTON);
-    addButton(6, ID_ACTIONS_PROPERTIES, BTNS_BUTTON);
-    addButton(7, ID_ACTIONS_OPEN_EXPLORER, BTNS_BUTTON);
-    addButton(8, ID_ACTIONS_VIEW_FILE, BTNS_BUTTON);
+    addButton(6, ID_ACTIONS_EDIT_DESCRIPTION, BTNS_BUTTON);
+    addButton(7, ID_ACTIONS_PROPERTIES, BTNS_BUTTON);
+    addButton(8, ID_ACTIONS_OPEN_EXPLORER, BTNS_BUTTON);
+    addButton(9, ID_ACTIONS_VIEW_FILE, BTNS_BUTTON);
     addSeparator();
-    addButton(9, ID_VIEW_DETAILS, BTNS_DROPDOWN);
+    addButton(10, ID_VIEW_DETAILS, BTNS_DROPDOWN);
     addSeparator();
-    addButton(10, ID_TOOLBAR_SORT_NAME, BTNS_CHECK);
-    addButton(11, ID_TOOLBAR_SORT_EXTENSION, BTNS_CHECK);
-    addButton(12, ID_TOOLBAR_SORT_SIZE, BTNS_CHECK);
-    addButton(13, ID_TOOLBAR_SORT_DATE, BTNS_CHECK);
-    addButton(14, ID_TOOLBAR_SORT_REVERSE, BTNS_CHECK);
+    addButton(11, ID_TOOLBAR_SORT_NAME, BTNS_CHECK);
+    addButton(12, ID_TOOLBAR_SORT_EXTENSION, BTNS_CHECK);
+    addButton(13, ID_TOOLBAR_SORT_SIZE, BTNS_CHECK);
+    addButton(14, ID_TOOLBAR_SORT_DATE, BTNS_CHECK);
+    addButton(15, ID_TOOLBAR_SORT_REVERSE, BTNS_CHECK);
     if (!SendMessageW(toolbar_, TB_ADDBUTTONSW, static_cast<WPARAM>(buttons.size()),
         reinterpret_cast<LPARAM>(buttons.data()))) {
         return false;

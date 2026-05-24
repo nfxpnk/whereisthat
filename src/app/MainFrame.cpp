@@ -96,7 +96,7 @@ const wchar_t* ToolbarTooltipText(int commandId) {
     case ID_FILE_OPEN:
         return L"Catalog";
     case ID_FILE_SAVE:
-        return L"Save current catalog";
+        return L"Save Current Catalog";
     case ID_FILE_REPORT_GENERATOR:
         return L"Generate Report";
     case ID_EDIT_ADDDISKIMAGE:

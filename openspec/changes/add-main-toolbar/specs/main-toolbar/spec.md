@@ -37,7 +37,7 @@ Toolbar controls that correspond to existing menu commands SHALL dispatch the sa
 - **THEN** activating that toolbar button reaches the same command handler without requiring duplicated business logic
 
 ### Requirement: Toolbar tooltips and shortcuts
-The system SHALL expose action tooltips for toolbar buttons, including `Catalog` for Create New and Open and `Save current catalog` for Save, and SHALL route requested shortcuts through the same command identifiers as corresponding toolbar and menu actions while retaining established existing accelerator behavior.
+The system SHALL expose action tooltips for toolbar buttons, including `Catalog` for Create New and Open and `Save Current Catalog` for Save, and SHALL route requested shortcuts through the same command identifiers as corresponding toolbar and menu actions while retaining established existing accelerator behavior.
 
 #### Scenario: User hovers catalog buttons
 - **WHEN** the user hovers Create New or Open
@@ -45,7 +45,7 @@ The system SHALL expose action tooltips for toolbar buttons, including `Catalog`
 
 #### Scenario: User hovers Save
 - **WHEN** the user hovers Save
-- **THEN** the toolbar tooltip displays `Save current catalog`
+- **THEN** the toolbar tooltip displays `Save Current Catalog`
 
 #### Scenario: User uses existing functional shortcuts
 - **WHEN** the user invokes `Ctrl+N`, `Ctrl+O`, or `Ctrl+F`

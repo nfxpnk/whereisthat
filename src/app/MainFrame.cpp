@@ -23,20 +23,6 @@ std::wstring JoinStoredPath(const std::wstring& parent, const std::wstring& name
     return last == L'\\' || last == L'/' ? parent + name : parent + L"\\" + name;
 }
 
-void CompositeToolbarBackground(BYTE* pixels) {
-    const COLORREF face = GetSysColor(COLOR_BTNFACE);
-    const BYTE background[] = {GetBValue(face), GetGValue(face), GetRValue(face)};
-    for (int index = 0; index < kToolbarIconSize * kToolbarIconSize; ++index) {
-        auto* pixel = pixels + index * 4;
-        const int remainingAlpha = 255 - pixel[3];
-        for (int component = 0; component < 3; ++component) {
-            pixel[component] = static_cast<BYTE>(pixel[component] +
-                background[component] * remainingAlpha / 255);
-        }
-        pixel[3] = 255;
-    }
-}
-
 template<typename T>
 void ReleaseIfPresent(T*& value) {
     if (value) {
@@ -94,8 +80,6 @@ HBITMAP LoadToolbarBitmap(IWICImagingFactory* factory, UINT resourceId) {
                 kToolbarIconSize * kToolbarIconSize * 4, static_cast<BYTE*>(pixels)))) {
                 if (bitmap) DeleteObject(bitmap);
                 bitmap = nullptr;
-            } else {
-                CompositeToolbarBackground(static_cast<BYTE*>(pixels));
             }
         }
     }

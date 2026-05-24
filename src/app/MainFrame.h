@@ -1,7 +1,9 @@
 #pragma once
 #include <Windows.h>
 #include <CommCtrl.h>
+#include <array>
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <thread>
 #include <vector>
@@ -12,6 +14,12 @@
 #include "../ui/CatalogTreeView.h"
 #include "../ui/FileListView.h"
 #include "resource.h"
+
+enum class AppStatus {
+    Idle,
+    Busy,
+    Searching
+};
 
 class MainFrame {
 public:
@@ -38,6 +46,10 @@ private:
     bool splitterDragging_{};
     std::wstring activeCatalogPath_;
     wit::storage::Database db_;
+    std::unique_ptr<wit::storage::Database> pendingDb_;
+    bool catalogDirty_{};
+    AppStatus appStatus_{AppStatus::Idle};
+    std::array<std::wstring, 5> statusText_{};
     wit::ui::CatalogTreeView tree_;
     wit::ui::FileListView files_;
     wit::platform::AppSettings settings_;
@@ -53,12 +65,14 @@ private:
     bool CreateToolbar();
     void OnSize(int width, int height);
     bool IsOverSplitter(int x, int y) const;
+    void OnClose();
     void OnDestroy();
     void OnCommand(int id);
     void OnNewCatalog();
     void OnOpenCatalog();
     void OnOpenRecentCatalog(int commandId);
     void OnAddOrUpdateDiskImage();
+    bool OnSaveCatalog();
     void OnSearchForItems();
     void OnGeneralSettings();
     void ApplyDisplaySettings();
@@ -68,8 +82,13 @@ private:
     LRESULT OnTreeExpanding(LPNMHDR hdr);
     LRESULT OnFileGetDispInfo(LPNMHDR hdr);
     LRESULT OnFileActivate(LPNMHDR hdr);
+    LRESULT OnFileItemChanged(LPNMHDR hdr);
     LRESULT OnToolbarDropDown(LPNMTOOLBAR notification);
+    void DrawStatusPart(LPDRAWITEMSTRUCT drawItem);
     bool ActivateCatalog(const std::wstring& path, bool createNew, bool persistPath);
+    bool ConfirmPendingChanges();
+    void DiscardPendingChanges();
+    wit::storage::Database* WorkingDatabase();
     void RefreshOpenRecentMenu();
     void ClearCatalogViews();
     void ReloadBrowser();
@@ -79,4 +98,11 @@ private:
     std::wstring CatalogLabel() const;
     std::wstring AddressFor(const wit::core::BrowserLocation& location) const;
     void UpdateNavigationControls();
+    void SetStatusText(int part, const std::wstring& text);
+    void UpdateCatalogStatus();
+    void UpdateCatalogLockStatus();
+    void UpdateFocusedItemStatus();
+    void UpdateSelectionSummaryStatus();
+    void UpdateProgramStatusLights();
+    void SetAppStatus(AppStatus status);
 };

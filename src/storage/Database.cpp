@@ -41,12 +41,14 @@ Database::~Database() {
     Close();
 }
 
-Database::Database(Database&& other) noexcept : db_(std::exchange(other.db_, nullptr)) {}
+Database::Database(Database&& other) noexcept
+    : db_(std::exchange(other.db_, nullptr)), editable_(std::exchange(other.editable_, false)) {}
 
 Database& Database::operator=(Database&& other) noexcept {
     if (this != &other) {
         Close();
         db_ = std::exchange(other.db_, nullptr);
+        editable_ = std::exchange(other.editable_, false);
     }
     return *this;
 }
@@ -56,6 +58,7 @@ void Database::Close() {
         sqlite3_close(db_);
         db_ = nullptr;
     }
+    editable_ = false;
 }
 
 bool Database::CreateNew(const std::wstring& path) {
@@ -68,21 +71,90 @@ bool Database::CreateNew(const std::wstring& path) {
 }
 
 bool Database::OpenExisting(const std::wstring& path) {
-    return OpenInternal(path, true);
+    return OpenInternal(path, true) || OpenInternal(path, true, true);
 }
 
-bool Database::OpenInternal(const std::wstring& path, bool requireExistingSchema) {
+bool Database::OpenInternal(const std::wstring& path, bool requireExistingSchema, bool readOnly) {
     Close();
-    if (sqlite3_open_v2(wit::platform::ToUtf8(path).c_str(), &db_, SQLITE_OPEN_READWRITE, nullptr) != SQLITE_OK) {
+    const int flags = readOnly ? SQLITE_OPEN_READONLY : SQLITE_OPEN_READWRITE;
+    if (sqlite3_open_v2(wit::platform::ToUtf8(path).c_str(), &db_, flags, nullptr) != SQLITE_OK) {
         Close();
         return false;
     }
+    editable_ = !readOnly;
     if (requireExistingSchema && !HasCatalogSchema()) {
         Close();
         return false;
     }
+    if (readOnly) return Exec("PRAGMA foreign_keys=ON;");
     if (InitializeSchema()) return true;
     Close();
+    return false;
+}
+
+bool Database::CreateWorkingCopy(const Database& source) {
+    if (!source.db_) return false;
+    Close();
+    if (sqlite3_open_v2(":memory:", &db_, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr) != SQLITE_OK) {
+        Close();
+        return false;
+    }
+    editable_ = true;
+    auto* backup = sqlite3_backup_init(db_, "main", source.db_, "main");
+    if (!backup) {
+        Close();
+        return false;
+    }
+    const int stepResult = sqlite3_backup_step(backup, -1);
+    const int finishResult = sqlite3_backup_finish(backup);
+    const bool success = stepResult == SQLITE_DONE && finishResult == SQLITE_OK;
+    if (!success) Close();
+    return success;
+}
+
+bool Database::ReplaceCatalogDataFrom(const Database& source) {
+    if (!db_ || !editable_ || !source.db_) return false;
+    if (!BeginTransaction()) return false;
+    bool success = Exec("DELETE FROM files;") && Exec("DELETE FROM catalogs;");
+    if (success) {
+        SQLiteStatement readCatalogs(source.db_,
+            "SELECT id,name,root_path,created_at,item_count FROM catalogs ORDER BY id;");
+        SQLiteStatement writeCatalogs(db_,
+            "INSERT INTO catalogs(id,name,root_path,created_at,item_count) VALUES(?,?,?,?,?);");
+        while (success && sqlite3_step(readCatalogs.Raw()) == SQLITE_ROW) {
+            writeCatalogs.BindInt64(1, sqlite3_column_int64(readCatalogs.Raw(), 0));
+            writeCatalogs.BindText(2, reinterpret_cast<const char*>(sqlite3_column_text(readCatalogs.Raw(), 1)));
+            writeCatalogs.BindText(3, reinterpret_cast<const char*>(sqlite3_column_text(readCatalogs.Raw(), 2)));
+            writeCatalogs.BindText(4, reinterpret_cast<const char*>(sqlite3_column_text(readCatalogs.Raw(), 3)));
+            writeCatalogs.BindInt64(5, sqlite3_column_int64(readCatalogs.Raw(), 4));
+            success = sqlite3_step(writeCatalogs.Raw()) == SQLITE_DONE;
+            sqlite3_reset(writeCatalogs.Raw());
+            sqlite3_clear_bindings(writeCatalogs.Raw());
+        }
+    }
+    if (success) {
+        SQLiteStatement readFiles(source.db_,
+            "SELECT id,catalog_id,parent_path,name,extension,size,modified_at,attributes,is_directory FROM files ORDER BY id;");
+        SQLiteStatement writeFiles(db_,
+            "INSERT INTO files(id,catalog_id,parent_path,name,extension,size,modified_at,attributes,is_directory) "
+            "VALUES(?,?,?,?,?,?,?,?,?);");
+        while (success && sqlite3_step(readFiles.Raw()) == SQLITE_ROW) {
+            writeFiles.BindInt64(1, sqlite3_column_int64(readFiles.Raw(), 0));
+            writeFiles.BindInt64(2, sqlite3_column_int64(readFiles.Raw(), 1));
+            writeFiles.BindText(3, reinterpret_cast<const char*>(sqlite3_column_text(readFiles.Raw(), 2)));
+            writeFiles.BindText(4, reinterpret_cast<const char*>(sqlite3_column_text(readFiles.Raw(), 3)));
+            writeFiles.BindText(5, reinterpret_cast<const char*>(sqlite3_column_text(readFiles.Raw(), 4)));
+            writeFiles.BindInt64(6, sqlite3_column_int64(readFiles.Raw(), 5));
+            writeFiles.BindText(7, reinterpret_cast<const char*>(sqlite3_column_text(readFiles.Raw(), 6)));
+            writeFiles.BindInt64(8, sqlite3_column_int64(readFiles.Raw(), 7));
+            writeFiles.BindInt64(9, sqlite3_column_int64(readFiles.Raw(), 8));
+            success = sqlite3_step(writeFiles.Raw()) == SQLITE_DONE;
+            sqlite3_reset(writeFiles.Raw());
+            sqlite3_clear_bindings(writeFiles.Raw());
+        }
+    }
+    if (success && Commit()) return true;
+    Rollback();
     return false;
 }
 
@@ -107,6 +179,7 @@ bool Database::Exec(const char* sql) {
 }
 
 bool Database::InitializeSchema() {
+    if (!editable_) return false;
     return Exec("PRAGMA foreign_keys=ON;") && Exec("PRAGMA journal_mode=WAL;") && Exec("PRAGMA synchronous=NORMAL;") &&
         Exec("CREATE TABLE IF NOT EXISTS catalogs (id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,root_path TEXT NOT NULL,created_at TEXT NOT NULL,item_count INTEGER NOT NULL DEFAULT 0);") &&
         Exec("CREATE TABLE IF NOT EXISTS files (id INTEGER PRIMARY KEY AUTOINCREMENT,catalog_id INTEGER NOT NULL,parent_path TEXT NOT NULL,name TEXT NOT NULL,extension TEXT NOT NULL,size INTEGER NOT NULL,modified_at TEXT NOT NULL,attributes INTEGER NOT NULL DEFAULT 0,is_directory INTEGER NOT NULL DEFAULT 0,FOREIGN KEY (catalog_id) REFERENCES catalogs(id) ON DELETE CASCADE);") &&
@@ -119,18 +192,19 @@ bool Database::InitializeSchema() {
 }
 
 bool Database::BeginTransaction() {
-    return Exec("BEGIN TRANSACTION;");
+    return editable_ && Exec("BEGIN TRANSACTION;");
 }
 
 bool Database::Commit() {
-    return Exec("COMMIT;");
+    return editable_ && Exec("COMMIT;");
 }
 
 bool Database::Rollback() {
-    return Exec("ROLLBACK;");
+    return editable_ && Exec("ROLLBACK;");
 }
 
 std::int64_t Database::AddCatalog(const wit::core::Catalog& catalog) {
+    if (!editable_) return 0;
     SQLiteStatement statement(db_, "INSERT INTO catalogs(name,root_path,created_at,item_count) VALUES(?,?,?,0);");
     statement.BindText(1, wit::platform::ToUtf8(catalog.name));
     statement.BindText(2, wit::platform::ToUtf8(catalog.rootPath));
@@ -145,6 +219,7 @@ std::int64_t Database::FindCatalogByRootPath(const std::wstring& rootPath) {
 }
 
 bool Database::DeleteDuplicateCatalogsForRootPath(const std::wstring& rootPath, std::int64_t id) {
+    if (!editable_) return false;
     SQLiteStatement statement(db_, "DELETE FROM catalogs WHERE root_path=? COLLATE NOCASE AND id<>?;");
     statement.BindText(1, wit::platform::ToUtf8(rootPath));
     statement.BindInt64(2, id);
@@ -152,12 +227,14 @@ bool Database::DeleteDuplicateCatalogsForRootPath(const std::wstring& rootPath, 
 }
 
 bool Database::DeleteFilesForCatalog(std::int64_t id) {
+    if (!editable_) return false;
     SQLiteStatement statement(db_, "DELETE FROM files WHERE catalog_id=?;");
     statement.BindInt64(1, id);
     return sqlite3_step(statement.Raw()) == SQLITE_DONE;
 }
 
 bool Database::UpdateCatalogItemCount(std::int64_t id, std::int64_t count) {
+    if (!editable_) return false;
     SQLiteStatement statement(db_, "UPDATE catalogs SET item_count=? WHERE id=?;");
     statement.BindInt64(1, count);
     statement.BindInt64(2, id);
@@ -165,6 +242,7 @@ bool Database::UpdateCatalogItemCount(std::int64_t id, std::int64_t count) {
 }
 
 bool Database::InsertFile(const wit::core::FileEntry& file) {
+    if (!editable_) return false;
     SQLiteStatement statement(db_,
         "INSERT INTO files(catalog_id,parent_path,name,extension,size,modified_at,attributes,is_directory) VALUES(?,?,?,?,?,?,?,?);");
     statement.BindInt64(1, file.catalogId);

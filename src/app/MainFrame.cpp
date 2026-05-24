@@ -7,6 +7,7 @@
 #include <utility>
 #include <vector>
 #include <wincodec.h>
+#include "../core/SizeFormat.h"
 #include "../platform/Win32Helpers.h"
 #include "../ui/SearchDialog.h"
 
@@ -132,6 +133,23 @@ struct ScanProgressMessage {
     std::uint64_t files{};
     std::uint64_t folders{};
 };
+
+struct ScanCompleteMessage {
+    wit::storage::Database* pending{};
+    bool success{};
+};
+
+std::wstring CompactSize(std::uint64_t bytes) {
+    auto result = wit::core::FormatSize(bytes);
+    const auto decimal = result.find(L'.');
+    const auto space = result.find(L' ');
+    if (decimal != std::wstring::npos && space != std::wstring::npos) {
+        auto end = space;
+        while (end > decimal + 1 && result[end - 1] == L'0') result.erase(--end, 1);
+        if (end == decimal + 1) result.erase(decimal, 1);
+    }
+    return result;
+}
 
 struct GeneralSettingsDialogData {
     wit::platform::AppSettings settings;
@@ -289,6 +307,9 @@ LRESULT MainFrame::HandleMessage(UINT message, WPARAM wparam, LPARAM lparam) {
     case WM_SIZE:
         if (wparam != SIZE_MINIMIZED) OnSize(LOWORD(lparam), HIWORD(lparam));
         return 0;
+    case WM_CLOSE:
+        OnClose();
+        return 0;
     case WM_LBUTTONDOWN: {
         const int x = static_cast<short>(LOWORD(lparam));
         const int y = static_cast<short>(HIWORD(lparam));
@@ -334,12 +355,21 @@ LRESULT MainFrame::HandleMessage(UINT message, WPARAM wparam, LPARAM lparam) {
     case WM_COMMAND:
         OnCommand(LOWORD(wparam));
         return 0;
+    case WM_DRAWITEM: {
+        auto* drawItem = reinterpret_cast<LPDRAWITEMSTRUCT>(lparam);
+        if (drawItem->hwndItem == status_) {
+            DrawStatusPart(drawItem);
+            return TRUE;
+        }
+        break;
+    }
     case WM_NOTIFY: {
         auto* hdr = reinterpret_cast<LPNMHDR>(lparam);
         if (hdr->idFrom == IDC_BROWSER_TREE && hdr->code == TVN_SELCHANGEDW) return OnTreeSelectionChanged(hdr);
         if (hdr->idFrom == IDC_BROWSER_TREE && hdr->code == TVN_ITEMEXPANDINGW) return OnTreeExpanding(hdr);
         if (hdr->idFrom == IDC_FILES && hdr->code == LVN_GETDISPINFOW) return OnFileGetDispInfo(hdr);
         if (hdr->idFrom == IDC_FILES && hdr->code == LVN_ITEMACTIVATE) return OnFileActivate(hdr);
+        if (hdr->idFrom == IDC_FILES && hdr->code == LVN_ITEMCHANGED) return OnFileItemChanged(hdr);
         if (hdr->idFrom == IDC_TOOLBAR && hdr->code == TBN_DROPDOWN) {
             return OnToolbarDropDown(reinterpret_cast<LPNMTOOLBAR>(hdr));
         }
@@ -352,20 +382,26 @@ LRESULT MainFrame::HandleMessage(UINT message, WPARAM wparam, LPARAM lparam) {
     }
     case WM_SCAN_PROGRESS: {
         auto* progress = reinterpret_cast<ScanProgressMessage*>(lparam);
-        auto text = L"Scanning: " + std::to_wstring(progress->folders) + L" folders, " + std::to_wstring(progress->files) + L" files";
-        SendMessageW(status_, SB_SETTEXTW, 0, reinterpret_cast<LPARAM>(text.c_str()));
         delete progress;
         return 0;
     }
-    case WM_SCAN_COMPLETE:
+    case WM_SCAN_COMPLETE: {
+        auto* result = reinterpret_cast<ScanCompleteMessage*>(lparam);
         if (worker_.joinable()) worker_.join();
-        if (lparam != 0) {
+        SetAppStatus(AppStatus::Idle);
+        if (result && result->success) {
+            pendingDb_.reset(result->pending);
+            catalogDirty_ = true;
             ReloadBrowser();
-            SendMessageW(status_, SB_SETTEXTW, 0, reinterpret_cast<LPARAM>(L"Scan complete"));
         } else {
-            SendMessageW(status_, SB_SETTEXTW, 0, reinterpret_cast<LPARAM>(L"Scan failed; catalog unchanged"));
+            if (result) delete result->pending;
+            MessageBoxW(hwnd_, L"The scan could not be staged. The saved catalog was not changed.",
+                L"Add/Update Disk Image", MB_OK | MB_ICONERROR);
         }
+        delete result;
+        UpdateCatalogStatus();
         return 0;
+    }
     case WM_DESTROY:
         OnDestroy();
         return 0;
@@ -393,7 +429,7 @@ bool MainFrame::OnCreate() {
         WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL | ES_READONLY, 0, 0, 0, 0,
         hwnd_, reinterpret_cast<HMENU>(IDC_BROWSER_ADDRESS), GetModuleHandle(nullptr), nullptr);
     filesCtl_ = CreateWindowExW(WS_EX_CLIENTEDGE, WC_LISTVIEWW, nullptr,
-        WS_CHILD | WS_VISIBLE | LVS_REPORT | LVS_OWNERDATA | LVS_SINGLESEL, 0, 0, 0, 0,
+        WS_CHILD | WS_VISIBLE | LVS_REPORT | LVS_OWNERDATA, 0, 0, 0, 0,
         hwnd_, reinterpret_cast<HMENU>(IDC_FILES), GetModuleHandle(nullptr), nullptr);
     if (!status_ || !treeCtl_ || !backCtl_ || !forwardCtl_ || !addressCtl_ || !filesCtl_) return false;
 
@@ -422,8 +458,12 @@ bool MainFrame::OnCreate() {
 
     ClearCatalogViews();
     if (!settings_.lastCatalogPath.empty() && !ActivateCatalog(settings_.lastCatalogPath, false, false)) {
-        SendMessageW(status_, SB_SETTEXTW, 0, reinterpret_cast<LPARAM>(L"Last used catalog is unavailable"));
+        MessageBoxW(hwnd_, L"The last used catalog is unavailable.", L"Open Catalog",
+            MB_OK | MB_ICONINFORMATION);
     }
+    UpdateCatalogStatus();
+    UpdateCatalogLockStatus();
+    UpdateProgramStatusLights();
     return true;
 }
 
@@ -516,11 +556,24 @@ void MainFrame::OnSize(int width, int height) {
         toolbarHeight_ = toolbarRect.bottom - toolbarRect.top;
     }
     int statusHeight = 0;
-    if (settings_.showStatusBar) {
+    if (status_) {
         SendMessageW(status_, WM_SIZE, 0, 0);
-        RECT sr{};
-        GetWindowRect(status_, &sr);
-        statusHeight = sr.bottom - sr.top;
+        const int stateEnd = (std::min)(90, width);
+        const int lockEnd = (std::min)(stateEnd + 34, width);
+        const int lightsStart = (std::max)(lockEnd, width - 76);
+        const int selectionStart = (std::max)(lockEnd, lightsStart - 260);
+        const int parts[] = {stateEnd, lockEnd, selectionStart, lightsStart, -1};
+        SendMessageW(status_, SB_SETPARTS, 5, reinterpret_cast<LPARAM>(parts));
+        SendMessageW(status_, SB_SETTEXTW, 0, reinterpret_cast<LPARAM>(statusText_[0].c_str()));
+        SendMessageW(status_, SB_SETTEXTW, 1 | SBT_OWNERDRAW, 1);
+        SendMessageW(status_, SB_SETTEXTW, 2, reinterpret_cast<LPARAM>(statusText_[2].c_str()));
+        SendMessageW(status_, SB_SETTEXTW, 3 | SBT_OWNERDRAW, 3);
+        SendMessageW(status_, SB_SETTEXTW, 4 | SBT_OWNERDRAW, 4);
+        if (settings_.showStatusBar) {
+            RECT sr{};
+            GetWindowRect(status_, &sr);
+            statusHeight = sr.bottom - sr.top;
+        }
     }
     contentHeight_ = (std::max)(0, height - toolbarHeight_ - statusHeight);
     const int availableWidth = (std::max)(0, width - kSplitterWidth);
@@ -544,6 +597,15 @@ bool MainFrame::IsOverSplitter(int x, int y) const {
         y >= toolbarHeight_ && y < toolbarHeight_ + contentHeight_;
 }
 
+void MainFrame::OnClose() {
+    if (worker_.joinable()) {
+        MessageBoxW(hwnd_, L"A scan is still being prepared. Wait for it to complete before closing.",
+            L"Scan in progress", MB_OK | MB_ICONINFORMATION);
+        return;
+    }
+    if (ConfirmPendingChanges()) DestroyWindow(hwnd_);
+}
+
 void MainFrame::OnDestroy() {
     if (worker_.joinable()) worker_.join();
     if (toolbarImages_) {
@@ -565,6 +627,7 @@ void MainFrame::OnCommand(int id) {
     if (id == ID_FILE_NEWCATALOG) OnNewCatalog();
     else if (id == ID_FILE_OPEN) OnOpenCatalog();
     else if (id >= ID_FILE_RECENT_FIRST && id <= ID_FILE_RECENT_LAST) OnOpenRecentCatalog(id);
+    else if (id == ID_FILE_SAVE) OnSaveCatalog();
     else if (id == ID_EDIT_ADDDISKIMAGE) OnAddOrUpdateDiskImage();
     else if (id == ID_SEARCH_FOR_ITEMS) OnSearchForItems();
     else if (id == IDC_BROWSER_BACK) NavigateBack();
@@ -582,6 +645,8 @@ void MainFrame::ClearCatalogViews() {
     files_.SetLocation(currentLocation_, nullptr);
     SetWindowTextW(addressCtl_, L"");
     UpdateNavigationControls();
+    UpdateFocusedItemStatus();
+    UpdateSelectionSummaryStatus();
 }
 
 std::wstring MainFrame::CatalogLabel() const {
@@ -609,7 +674,8 @@ void MainFrame::UpdateNavigationControls() {
 }
 
 void MainFrame::NavigateTo(const wit::core::BrowserLocation& location, bool addToHistory) {
-    if (!db_.IsOpen()) return;
+    auto* database = WorkingDatabase();
+    if (!database || !database->IsOpen()) return;
     if (addToHistory) {
         if (historyIndex_ >= 0 && currentLocation_ == location) return;
         history_.resize(static_cast<std::size_t>(historyIndex_ + 1));
@@ -617,23 +683,26 @@ void MainFrame::NavigateTo(const wit::core::BrowserLocation& location, bool addT
         historyIndex_ = static_cast<int>(history_.size()) - 1;
     }
     currentLocation_ = location;
-    files_.SetLocation(currentLocation_, &db_);
+    files_.SetLocation(currentLocation_, database);
     const auto address = AddressFor(currentLocation_);
     SetWindowTextW(addressCtl_, address.c_str());
     selectingTree_ = true;
     tree_.SelectLocation(currentLocation_);
     selectingTree_ = false;
     UpdateNavigationControls();
+    UpdateFocusedItemStatus();
+    UpdateSelectionSummaryStatus();
 }
 
 void MainFrame::ReloadBrowser() {
-    if (!db_.IsOpen()) {
+    auto* database = WorkingDatabase();
+    if (!database || !database->IsOpen()) {
         ClearCatalogViews();
         return;
     }
-    const auto sources = db_.GetCatalogs();
+    const auto sources = database->GetCatalogs();
     selectingTree_ = true;
-    tree_.Reload(CatalogLabel(), sources, &db_);
+    tree_.Reload(CatalogLabel(), sources, database);
     selectingTree_ = false;
     history_.clear();
     historyIndex_ = -1;
@@ -696,6 +765,16 @@ LRESULT MainFrame::OnFileActivate(LPNMHDR hdr) {
     return 0;
 }
 
+LRESULT MainFrame::OnFileItemChanged(LPNMHDR hdr) {
+    const auto* changed = reinterpret_cast<NMLISTVIEW*>(hdr);
+    if ((changed->uChanged & LVIF_STATE) &&
+        ((changed->uOldState ^ changed->uNewState) & (LVIS_FOCUSED | LVIS_SELECTED))) {
+        UpdateFocusedItemStatus();
+        UpdateSelectionSummaryStatus();
+    }
+    return 0;
+}
+
 LRESULT MainFrame::OnToolbarDropDown(LPNMTOOLBAR notification) {
     if (notification->iItem != ID_VIEW_DETAILS) return TBDDRET_NODEFAULT;
     RECT buttonRect{};
@@ -719,9 +798,13 @@ bool MainFrame::ActivateCatalog(const std::wstring& path, bool createNew, bool p
     const bool opened = createNew ? candidate.CreateNew(path) : candidate.OpenExisting(path);
     if (!opened) return false;
     db_ = std::move(candidate);
+    pendingDb_.reset();
+    catalogDirty_ = false;
     activeCatalogPath_ = path;
     ClearCatalogViews();
     ReloadBrowser();
+    UpdateCatalogStatus();
+    UpdateCatalogLockStatus();
     if (persistPath) {
         settings_.lastCatalogPath = path;
         wit::platform::RememberRecentCatalog(settings_, path);
@@ -741,12 +824,12 @@ void MainFrame::OnNewCatalog() {
     }
     std::wstring path;
     if (!ChooseNewCatalogPath(hwnd_, path)) return;
+    if (!ConfirmPendingChanges()) return;
     if (!ActivateCatalog(path, true, true)) {
         MessageBoxW(hwnd_, L"Unable to create the new catalog. Choose a filename that does not already exist.",
             L"New Catalog", MB_OK | MB_ICONERROR);
         return;
     }
-    SendMessageW(status_, SB_SETTEXTW, 0, reinterpret_cast<LPARAM>(L"Catalog created"));
 }
 
 void MainFrame::OnOpenCatalog() {
@@ -756,12 +839,12 @@ void MainFrame::OnOpenCatalog() {
     }
     std::wstring path;
     if (!ChooseCatalogToOpen(hwnd_, path)) return;
+    if (!ConfirmPendingChanges()) return;
     if (!ActivateCatalog(path, false, true)) {
         MessageBoxW(hwnd_, L"The selected file is not an available catalog database.", L"Open Catalog",
             MB_OK | MB_ICONERROR);
         return;
     }
-    SendMessageW(status_, SB_SETTEXTW, 0, reinterpret_cast<LPARAM>(L"Catalog opened"));
 }
 
 void MainFrame::OnOpenRecentCatalog(int commandId) {
@@ -772,12 +855,12 @@ void MainFrame::OnOpenRecentCatalog(int commandId) {
     const auto index = static_cast<std::size_t>(commandId - ID_FILE_RECENT_FIRST);
     if (index >= settings_.recentCatalogPaths.size()) return;
     const auto path = settings_.recentCatalogPaths[index];
+    if (!ConfirmPendingChanges()) return;
     if (!ActivateCatalog(path, false, true)) {
         MessageBoxW(hwnd_, L"The recent catalog is no longer available or is not a usable catalog database.",
             L"Open Recent Catalog", MB_OK | MB_ICONERROR);
         return;
     }
-    SendMessageW(status_, SB_SETTEXTW, 0, reinterpret_cast<LPARAM>(L"Recent catalog opened"));
 }
 
 void MainFrame::RefreshOpenRecentMenu() {
@@ -816,13 +899,16 @@ void MainFrame::OnGeneralSettings() {
 }
 
 void MainFrame::OnSearchForItems() {
-    if (!db_.IsOpen() || activeCatalogPath_.empty()) {
+    auto* database = WorkingDatabase();
+    if (!database || !database->IsOpen() || activeCatalogPath_.empty()) {
         MessageBoxW(hwnd_, L"Create or open a catalog before searching for items.", L"No Active Catalog",
             MB_OK | MB_ICONINFORMATION);
         return;
     }
+    SetAppStatus(AppStatus::Searching);
     wit::ui::SearchDialog dialog;
-    dialog.Show(hwnd_, GetModuleHandleW(nullptr), &db_);
+    dialog.Show(hwnd_, GetModuleHandleW(nullptr), database);
+    SetAppStatus(AppStatus::Idle);
 }
 
 void MainFrame::ApplyDisplaySettings() {
@@ -830,6 +916,146 @@ void MainFrame::ApplyDisplaySettings() {
     RECT client{};
     GetClientRect(hwnd_, &client);
     OnSize(client.right - client.left, client.bottom - client.top);
+}
+
+wit::storage::Database* MainFrame::WorkingDatabase() {
+    return pendingDb_ ? pendingDb_.get() : &db_;
+}
+
+bool MainFrame::OnSaveCatalog() {
+    if (!db_.IsOpen() || activeCatalogPath_.empty()) return true;
+    if (!db_.IsEditable()) {
+        MessageBoxW(hwnd_, L"This catalog is protected or read-only and cannot be saved.",
+            L"Protected Catalog", MB_OK | MB_ICONINFORMATION);
+        return false;
+    }
+    if (!catalogDirty_ || !pendingDb_) {
+        UpdateCatalogStatus();
+        return true;
+    }
+    if (!db_.ReplaceCatalogDataFrom(*pendingDb_)) {
+        MessageBoxW(hwnd_, L"Unable to save the pending catalog changes. They remain available to retry.",
+            L"Save Catalog", MB_OK | MB_ICONERROR);
+        UpdateCatalogStatus();
+        return false;
+    }
+    pendingDb_.reset();
+    catalogDirty_ = false;
+    ReloadBrowser();
+    UpdateCatalogStatus();
+    return true;
+}
+
+void MainFrame::DiscardPendingChanges() {
+    pendingDb_.reset();
+    catalogDirty_ = false;
+    ReloadBrowser();
+    UpdateCatalogStatus();
+}
+
+bool MainFrame::ConfirmPendingChanges() {
+    if (!catalogDirty_) return true;
+    const auto choice = MessageBoxW(hwnd_,
+        L"The current catalog has unsaved changes.\n\nYes: Save changes\nNo: Discard changes\nCancel: Stay here",
+        L"Unsaved Catalog Changes", MB_YESNOCANCEL | MB_ICONWARNING);
+    if (choice == IDCANCEL) return false;
+    if (choice == IDYES) return OnSaveCatalog();
+    DiscardPendingChanges();
+    return true;
+}
+
+void MainFrame::SetStatusText(int part, const std::wstring& text) {
+    if (!status_ || part < 0 || part >= static_cast<int>(statusText_.size()) || statusText_[part] == text) return;
+    statusText_[part] = text;
+    if (part == 3) {
+        InvalidateRect(status_, nullptr, FALSE);
+        return;
+    }
+    SendMessageW(status_, SB_SETTEXTW, part, reinterpret_cast<LPARAM>(statusText_[part].c_str()));
+}
+
+void MainFrame::UpdateCatalogStatus() {
+    SetStatusText(0, !db_.IsOpen() ? L"No catalog" : (catalogDirty_ ? L"Modified" : L"Loaded"));
+}
+
+void MainFrame::UpdateCatalogLockStatus() {
+    if (status_) InvalidateRect(status_, nullptr, FALSE);
+}
+
+void MainFrame::UpdateFocusedItemStatus() {
+    std::wstring text;
+    if (filesCtl_) {
+        const int index = ListView_GetNextItem(filesCtl_, -1, LVNI_FOCUSED);
+        const auto* entry = index >= 0 ? files_.EntryAt(index) : nullptr;
+        if (entry) {
+            text = entry->name;
+            if (!entry->isDirectory) text += L" | " + CompactSize(entry->size);
+            if (!entry->modifiedAt.empty()) text += L" | " + entry->modifiedAt;
+        }
+    }
+    SetStatusText(2, text);
+}
+
+void MainFrame::UpdateSelectionSummaryStatus() {
+    std::uint64_t totalSize{};
+    int selected{};
+    if (filesCtl_) {
+        for (int index = ListView_GetNextItem(filesCtl_, -1, LVNI_SELECTED); index >= 0;
+            index = ListView_GetNextItem(filesCtl_, index, LVNI_SELECTED)) {
+            const auto* entry = files_.EntryAt(index);
+            if (entry) {
+                ++selected;
+                if (!entry->isDirectory) totalSize += entry->size;
+            }
+        }
+    }
+    SetStatusText(3, L"Selected item(s): " + std::to_wstring(selected) +
+        L" (total: " + CompactSize(totalSize) + L")");
+}
+
+void MainFrame::SetAppStatus(AppStatus status) {
+    if (appStatus_ == status) return;
+    appStatus_ = status;
+    UpdateProgramStatusLights();
+}
+
+void MainFrame::UpdateProgramStatusLights() {
+    if (status_) InvalidateRect(status_, nullptr, FALSE);
+}
+
+void MainFrame::DrawStatusPart(LPDRAWITEMSTRUCT drawItem) {
+    FillRect(drawItem->hDC, &drawItem->rcItem, GetSysColorBrush(COLOR_BTNFACE));
+    if (drawItem->itemData == 1 && db_.IsOpen() && !db_.IsEditable()) {
+        RECT body{drawItem->rcItem.left + 12, drawItem->rcItem.top + 9,
+            drawItem->rcItem.left + 22, drawItem->rcItem.top + 17};
+        Rectangle(drawItem->hDC, body.left, body.top, body.right, body.bottom);
+        Arc(drawItem->hDC, body.left + 2, drawItem->rcItem.top + 4, body.right - 2, body.top + 5,
+            body.left + 2, body.top, body.right - 2, body.top);
+        return;
+    }
+    if (drawItem->itemData == 4) {
+        const int top = drawItem->rcItem.top + 5;
+        const int left = drawItem->rcItem.left + 18;
+        auto grey = CreateSolidBrush(RGB(150, 150, 150));
+        auto green = CreateSolidBrush(RGB(47, 164, 73));
+        const auto oldBrush = SelectObject(drawItem->hDC, grey);
+        Ellipse(drawItem->hDC, left, top, left + 11, top + 11);
+        SelectObject(drawItem->hDC, green);
+        Ellipse(drawItem->hDC, left + 20, top, left + 31, top + 11);
+        SelectObject(drawItem->hDC, oldBrush);
+        DeleteObject(grey);
+        DeleteObject(green);
+        return;
+    }
+    if (drawItem->itemData == 3) {
+        RECT textRect = drawItem->rcItem;
+        textRect.left += 6;
+        textRect.right -= 6;
+        SetBkMode(drawItem->hDC, TRANSPARENT);
+        SetTextColor(drawItem->hDC, GetSysColor(COLOR_BTNTEXT));
+        DrawTextW(drawItem->hDC, statusText_[3].c_str(), -1, &textRect,
+            DT_SINGLELINE | DT_VCENTER | DT_RIGHT | DT_END_ELLIPSIS);
+    }
 }
 
 void MainFrame::OnAddOrUpdateDiskImage() {
@@ -840,6 +1066,11 @@ void MainFrame::OnAddOrUpdateDiskImage() {
     if (!db_.IsOpen() || activeCatalogPath_.empty()) {
         MessageBoxW(hwnd_, L"Create or open a catalog before adding a disk image.", L"No Active Catalog",
             MB_OK | MB_ICONINFORMATION);
+        return;
+    }
+    if (!db_.IsEditable()) {
+        MessageBoxW(hwnd_, L"This catalog is protected or read-only and cannot be edited.",
+            L"Protected Catalog", MB_OK | MB_ICONINFORMATION);
         return;
     }
     IFileOpenDialog* dialog{};
@@ -855,43 +1086,54 @@ void MainFrame::OnAddOrUpdateDiskImage() {
             if (SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &path))) {
                 std::wstring root = NormalizedSourcePath(path);
                 CoTaskMemFree(path);
-                SendMessageW(status_, SB_SETTEXTW, 0, reinterpret_cast<LPARAM>(L"Starting scan..."));
-                const auto dbPath = activeCatalogPath_;
-                worker_ = std::thread([this, root, dbPath]() {
-                    wit::storage::Database scanDb;
+                auto candidate = std::make_unique<wit::storage::Database>();
+                auto* working = WorkingDatabase();
+                SetAppStatus(AppStatus::Busy);
+                UpdateWindow(status_);
+                if (!working || !candidate->CreateWorkingCopy(*working)) {
+                    SetAppStatus(AppStatus::Idle);
+                    MessageBoxW(hwnd_, L"Unable to prepare pending catalog changes.",
+                        L"Add/Update Disk Image", MB_OK | MB_ICONERROR);
+                    item->Release();
+                    dialog->Release();
+                    return;
+                }
+                auto* staged = candidate.release();
+                worker_ = std::thread([this, root, staged]() {
                     std::int64_t id{};
-                    bool success = scanDb.OpenExisting(dbPath) && scanDb.BeginTransaction();
+                    bool success = staged->BeginTransaction();
                     if (success) {
-                        id = scanDb.FindCatalogByRootPath(root);
+                        id = staged->FindCatalogByRootPath(root);
                         if (id != 0) {
-                            success = scanDb.DeleteDuplicateCatalogsForRootPath(root, id) &&
-                                scanDb.DeleteFilesForCatalog(id);
+                            success = staged->DeleteDuplicateCatalogsForRootPath(root, id) &&
+                                staged->DeleteFilesForCatalog(id);
                         } else {
                             wit::core::Catalog catalog{};
                             catalog.name = NameForCatalogRoot(root);
                             catalog.rootPath = root;
                             catalog.createdAt = wit::platform::NowIso8601();
-                            id = scanDb.AddCatalog(catalog);
+                            id = staged->AddCatalog(catalog);
                             success = id != 0;
                         }
                     }
                     if (success) {
                         wit::core::FileScanner scanner;
-                        success = scanner.ScanFolder(root, id, scanDb,
+                        success = scanner.ScanFolder(root, id, *staged,
                             [this](const wit::core::FileScanner::Progress& progress) {
                                 PostMessageW(hwnd_, WM_SCAN_PROGRESS, 0, reinterpret_cast<LPARAM>(
                                     new ScanProgressMessage{progress.scannedFiles, progress.scannedFolders}));
                             }, false);
                     }
                     if (success) {
-                        if (!scanDb.Commit()) {
-                            scanDb.Rollback();
+                        if (!staged->Commit()) {
+                            staged->Rollback();
                             success = false;
                         }
-                    } else if (scanDb.IsOpen()) {
-                        scanDb.Rollback();
+                    } else if (staged->IsOpen()) {
+                        staged->Rollback();
                     }
-                    PostMessageW(hwnd_, WM_SCAN_COMPLETE, static_cast<WPARAM>(id), success ? 1 : 0);
+                    PostMessageW(hwnd_, WM_SCAN_COMPLETE, 0, reinterpret_cast<LPARAM>(
+                        new ScanCompleteMessage{staged, success}));
                 });
             }
             item->Release();

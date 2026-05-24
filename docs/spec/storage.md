@@ -48,7 +48,10 @@ SQLite must not be replaced with a managed data layer, a framework database abst
 ## Operational Expectations
 
 - Creating a catalog initializes a new SQLite database only at the user-selected new file path.
-- Opening an existing catalog validates and initializes the supported schema without replacing an active catalog when opening fails.
-- Scanning adds a new media source or replaces contents for the same source path in the active catalog only, and updates aggregate item count when scanning completes.
+- Opening an existing catalog validates the supported schema without replacing an active catalog when opening fails; a readable protected catalog may be opened for browsing without mutation.
+- Scanning stages a new media source or source replacement in a session-local working catalog only, and updates the working aggregate item count when scanning completes.
+- Pending catalog changes are visible to browser reads but SHALL NOT alter the selected real catalog database until explicit Save succeeds.
+- Save commits all pending source/content changes to an editable active database atomically; a failed save rolls back persisted work and preserves pending state for retry or discard.
+- Pending content is not durable across application sessions, so switching catalogs or exiting with pending changes requires Save, Discard, or Cancel resolution.
 - Searching reads indexed file and folder metadata from the active catalog only and does not require the original scanned media to be available.
 - The last-used available catalog can be loaded at application start without requiring any scanned source path to be online; otherwise startup has no active catalog.

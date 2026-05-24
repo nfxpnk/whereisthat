@@ -25,10 +25,12 @@ Dependencies should flow from application/UI orchestration into core, storage, a
 - `WhereIsThat.exe` is a Unicode Win32 GUI executable.
 - The main window uses Common Controls for catalog browsing, file browsing, status display, and related native interactions.
 - A scan is initiated from the UI and performs filesystem enumeration without blocking interactive window message handling.
-- Scanned metadata is persisted to the currently active user-selected SQLite catalog database; `catalog.db` is not implicitly preferred over other filenames.
+- Scanned metadata is first staged in a working catalog session and is persisted to the currently active user-selected SQLite catalog database only by explicit Save; `catalog.db` is not implicitly preferred over other filenames.
 - The main frame can have no active catalog at startup, or can restore the available catalog identified by `settings.ini`.
 - A catalog database can contain several indexed media-source records; browsing them remains possible after the original source drive is unavailable.
 - The main catalog browser presents a native TreeView rooted at the active database catalog and an owner-data ListView for the current folder's immediate persisted contents, with Back/Forward and catalog-relative location display.
+- The main frame owns active-catalog editable/protected and pending/dirty state, exposes staged data to browsing, and guards catalog replacement or shutdown when edits remain unsaved.
+- The native status bar contains five independently updated sections for catalog state, protection, focus, selection totals, and extensible application-status lights.
 - Large location lists are presented through an owner-data ListView backed by paged database access rather than loading an entire catalog into memory.
 
 ## Dependency Boundaries

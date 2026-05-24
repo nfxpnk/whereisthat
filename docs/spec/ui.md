@@ -15,7 +15,7 @@ The app must provide a direct desktop workflow:
 - A command to choose a folder or disk image for adding to or updating in the active catalog.
 - A media-source view for selecting prior scans in the active catalog.
 - A file view showing metadata from the selected indexed source.
-- Scan progress and completion state in the status bar when that bar is enabled.
+- A five-section status bar, when enabled, showing catalog state, protected status, focused-item metadata, selected-item totals, and program status lights.
 
 The active catalog remains useful when its indexed original storage is disconnected; the UI displays persisted data rather than relying on live filesystem access for browsing. When no database is active, the UI displays an empty catalog state and permits New Catalog and Open.
 
@@ -31,10 +31,14 @@ The active catalog remains useful when its indexed original storage is disconnec
 - Open prompts for an existing SQLite catalog database, switches the active catalog after a successful open, and stores its path in settings.
 - Open Recent lists up to ten successfully activated catalog database paths in most-recent-first order and uses the same validated activation behavior as Open.
 - On startup the available last-used catalog path from settings is reopened; when it is absent or unavailable the application remains empty without creating or opening `catalog.db` implicitly.
-- Add/Update Disk Image requires an active catalog and scans the chosen folder or disk into that database only; selecting an already indexed source refreshes it without duplicate source contents.
+- Add/Update Disk Image requires an editable active catalog and stages the chosen folder or disk scan as pending catalog content; selecting an already indexed source stages a replacement without duplicate source contents.
+- Save (`Ctrl+S`) commits pending catalog content to the active SQLite file; until Save succeeds, the status bar reports `Modified` and the saved catalog file retains its prior content.
+- Opening or creating another catalog, or exiting the application, prompts the user to Save, Discard, or Cancel when pending catalog changes exist.
 - Search for Items (`Ctrl+F`) requires an active catalog and opens a native search window with a file/folder name input and Search action; matching indexed items from all media sources in that database appear below the controls with name, type, size, path, and modified metadata.
 - The main folder tree uses a native TreeView: its top-level node is the active catalog database label, its children are indexed source roots, and expanding a node loads only stored descendant folders.
 - The main contents area uses a native owner-data ListView showing immediate folders and files for the current catalog location; activating a folder navigates into it and updates the tree selection, address display, and Back/Forward history.
+- The main contents area supports multi-selection so the status bar can report selected item count and aggregate stored size; focused item status includes filename, size, and stored date.
+- An active read-only or otherwise protected catalog remains browseable and shows a compact lock indicator, but does not accept Add/Update or Save mutations.
 - General Settings opens a native settings dialog; its initial `Show status bar` preference immediately controls status-bar visibility and defaults to enabled, and it displays the stored last-opened catalog path as read-only information.
 - Commands still introduced as placeholders, including the remaining Search commands, have no storage, settings, catalog, file, or display effect until their feature behavior is specified and implemented.
 
@@ -45,7 +49,7 @@ The active catalog remains useful when its indexed original storage is disconnec
 - Common Controls should provide standard list and status presentation.
 - Expensive filesystem scanning or database operations triggered by the UI must not block the main window message pump.
 - Updates from background activity must be safely marshaled to the UI thread through Win32 messaging or equivalent native synchronization.
-- Catalog switching must not occur while an asynchronous scan is mutating the active database.
+- Catalog switching must not occur while an asynchronous scan is preparing pending catalog changes.
 
 ## Large Result Sets
 

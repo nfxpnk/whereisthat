@@ -9,6 +9,7 @@
 #include <wincodec.h>
 #include "../core/SizeFormat.h"
 #include "../platform/Win32Helpers.h"
+#include "../ui/AddNewDiskMediaDialog.h"
 #include "../ui/SearchDialog.h"
 
 namespace {
@@ -1073,71 +1074,57 @@ void MainFrame::OnAddOrUpdateDiskImage() {
             L"Protected Catalog", MB_OK | MB_ICONINFORMATION);
         return;
     }
-    IFileOpenDialog* dialog{};
-    if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dialog)))) return;
-    DWORD options{};
-    dialog->GetOptions(&options);
-    dialog->SetOptions(options | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM);
-    dialog->SetTitle(L"Choose a folder or disk to scan");
-    if (SUCCEEDED(dialog->Show(hwnd_))) {
-        IShellItem* item{};
-        if (SUCCEEDED(dialog->GetResult(&item))) {
-            PWSTR path{};
-            if (SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &path))) {
-                std::wstring root = NormalizedSourcePath(path);
-                CoTaskMemFree(path);
-                auto candidate = std::make_unique<wit::storage::Database>();
-                auto* working = WorkingDatabase();
-                SetAppStatus(AppStatus::Busy);
-                UpdateWindow(status_);
-                if (!working || !candidate->CreateWorkingCopy(*working)) {
-                    SetAppStatus(AppStatus::Idle);
-                    MessageBoxW(hwnd_, L"Unable to prepare pending catalog changes.",
-                        L"Add/Update Disk Image", MB_OK | MB_ICONERROR);
-                    item->Release();
-                    dialog->Release();
-                    return;
-                }
-                auto* staged = candidate.release();
-                worker_ = std::thread([this, root, staged]() {
-                    std::int64_t id{};
-                    bool success = staged->BeginTransaction();
-                    if (success) {
-                        id = staged->FindCatalogByRootPath(root);
-                        if (id != 0) {
-                            success = staged->DeleteDuplicateCatalogsForRootPath(root, id) &&
-                                staged->DeleteFilesForCatalog(id);
-                        } else {
-                            wit::core::Catalog catalog{};
-                            catalog.name = NameForCatalogRoot(root);
-                            catalog.rootPath = root;
-                            catalog.createdAt = wit::platform::NowIso8601();
-                            id = staged->AddCatalog(catalog);
-                            success = id != 0;
-                        }
-                    }
-                    if (success) {
-                        wit::core::FileScanner scanner;
-                        success = scanner.ScanFolder(root, id, *staged,
-                            [this](const wit::core::FileScanner::Progress& progress) {
-                                PostMessageW(hwnd_, WM_SCAN_PROGRESS, 0, reinterpret_cast<LPARAM>(
-                                    new ScanProgressMessage{progress.scannedFiles, progress.scannedFolders}));
-                            }, false);
-                    }
-                    if (success) {
-                        if (!staged->Commit()) {
-                            staged->Rollback();
-                            success = false;
-                        }
-                    } else if (staged->IsOpen()) {
-                        staged->Rollback();
-                    }
-                    PostMessageW(hwnd_, WM_SCAN_COMPLETE, 0, reinterpret_cast<LPARAM>(
-                        new ScanCompleteMessage{staged, success}));
-                });
-            }
-            item->Release();
-        }
+    wit::ui::AddNewDiskMediaResult media;
+    wit::ui::AddNewDiskMediaDialog dialog;
+    if (!dialog.Show(hwnd_, GetModuleHandleW(nullptr), media)) return;
+
+    const std::wstring root = NormalizedSourcePath(media.scanRoot);
+    const std::wstring diskName = media.diskName.empty() ? NameForCatalogRoot(root) : media.diskName;
+    auto candidate = std::make_unique<wit::storage::Database>();
+    auto* working = WorkingDatabase();
+    SetAppStatus(AppStatus::Busy);
+    UpdateWindow(status_);
+    if (!working || !candidate->CreateWorkingCopy(*working)) {
+        SetAppStatus(AppStatus::Idle);
+        MessageBoxW(hwnd_, L"Unable to prepare pending catalog changes.",
+            L"Add/Update Disk Image", MB_OK | MB_ICONERROR);
+        return;
     }
-    dialog->Release();
+    auto* staged = candidate.release();
+    worker_ = std::thread([this, root, diskName, staged]() {
+        std::int64_t id{};
+        bool success = staged->BeginTransaction();
+        if (success) {
+            id = staged->FindCatalogByRootPath(root);
+            if (id != 0) {
+                success = staged->DeleteDuplicateCatalogsForRootPath(root, id) &&
+                    staged->DeleteFilesForCatalog(id);
+            } else {
+                wit::core::Catalog catalog{};
+                catalog.name = diskName;
+                catalog.rootPath = root;
+                catalog.createdAt = wit::platform::NowIso8601();
+                id = staged->AddCatalog(catalog);
+                success = id != 0;
+            }
+        }
+        if (success) {
+            wit::core::FileScanner scanner;
+            success = scanner.ScanFolder(root, id, *staged,
+                [this](const wit::core::FileScanner::Progress& progress) {
+                    PostMessageW(hwnd_, WM_SCAN_PROGRESS, 0, reinterpret_cast<LPARAM>(
+                        new ScanProgressMessage{progress.scannedFiles, progress.scannedFolders}));
+                }, false);
+        }
+        if (success) {
+            if (!staged->Commit()) {
+                staged->Rollback();
+                success = false;
+            }
+        } else if (staged->IsOpen()) {
+            staged->Rollback();
+        }
+        PostMessageW(hwnd_, WM_SCAN_COMPLETE, 0, reinterpret_cast<LPARAM>(
+            new ScanCompleteMessage{staged, success}));
+    });
 }

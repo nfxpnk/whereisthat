@@ -26,7 +26,8 @@ The delivered application and supported build must not depend on .NET, WPF, C#, 
 - Without a usable saved last-used database path, the application starts with no active catalog and does not create or open `catalog.db` implicitly.
 - A user can create a fresh SQLite catalog file and open an existing SQLite catalog file, and activating either stores it as the last-used catalog for startup.
 - Creating a catalog never modifies the previously active catalog or overwrites an existing file selected as a destination.
-- A user can select a folder or disk image and stage an addition or refresh in an editable active catalog only, without duplicate contents for the same indexed source.
+- Selecting Add/Update Disk Image from the menu, shared toolbar route, or `Ctrl+D` opens a modal `Add New Disk/Media` dialog with requested media-source, identity, option, action, and status controls; `OK` is disabled while no readable source is selected and Cancel starts no scan.
+- A user can select a drive, network/computer folder, or natively resolvable ISO media source in that dialog and stage an addition or refresh in an editable active catalog only, without duplicate contents for the same indexed source.
 - Staged catalog changes are browseable but do not change the real active database until Save succeeds; failed saves retain pending work and `Modified` state.
 - Switching catalogs or closing with pending changes offers Save, Discard, or Cancel, and protected/read-only catalogs remain browseable while rejecting edits.
 - Scan work does not freeze the primary UI message loop, and program activity is surfaced through the status area.

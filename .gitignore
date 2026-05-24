@@ -12,3 +12,5 @@
 *.user
 *.suo
 Thumbs.db
+
+node_modules

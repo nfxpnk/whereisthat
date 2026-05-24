@@ -1,10 +1,10 @@
 #include "resource.h"
 #include <windows.h>
 IDI_APPICON ICON "app.ico"
-IDB_TOOLBAR_NEW_CATALOG RCDATA "toolbar\\fugue\\database--plus.png"
-IDB_TOOLBAR_OPEN RCDATA "toolbar\\fugue\\folder-open.png"
+IDB_TOOLBAR_NEW_CATALOG RCDATA "toolbar\\fugue\\document.png"
+IDB_TOOLBAR_OPEN RCDATA "toolbar\\fugue\\folder-horizontal-open.png"
 IDB_TOOLBAR_SAVE RCDATA "toolbar\\fugue\\disk.png"
-IDB_TOOLBAR_REPORT RCDATA "toolbar\\fugue\\report.png"
+IDB_TOOLBAR_REPORT RCDATA "toolbar\\fugue\\printer.png"
 IDB_TOOLBAR_SEARCH RCDATA "toolbar\\fugue\\magnifier.png"
 IDB_TOOLBAR_EDIT_DESCRIPTION RCDATA "toolbar\\fugue\\document--pencil.png"
 IDB_TOOLBAR_PROPERTIES RCDATA "toolbar\\fugue\\application-detail.png"

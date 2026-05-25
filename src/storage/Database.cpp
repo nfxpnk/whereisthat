@@ -412,6 +412,15 @@ std::vector<wit::core::FileEntry> Database::GetBrowserItemsPage(
     return files;
 }
 
+bool Database::HasChildFolders(std::int64_t sourceId, const std::wstring& parentPath) {
+    SQLiteStatement statement(db_,
+        "SELECT EXISTS(SELECT 1 FROM folders c JOIN folders p ON c.parent_folder_id=p.id "
+        "WHERE c.disk_id=? AND p.path=? COLLATE NOCASE);");
+    statement.BindInt64(1, sourceId);
+    statement.BindText(2, wit::platform::ToUtf8(parentPath));
+    return sqlite3_step(statement.Raw()) == SQLITE_ROW && sqlite3_column_int(statement.Raw(), 0) != 0;
+}
+
 std::vector<wit::core::FileEntry> Database::GetChildFolders(
     std::int64_t sourceId, const std::wstring& parentPath) {
     std::vector<wit::core::FileEntry> folders;

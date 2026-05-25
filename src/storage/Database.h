@@ -44,6 +44,7 @@ public:
     int GetBrowserItemCount(const wit::core::BrowserLocation& location);
     std::vector<wit::core::FileEntry> GetBrowserItemsPage(const wit::core::BrowserLocation& location,
         int offset, int limit);
+    bool HasChildFolders(std::int64_t sourceId, const std::wstring& parentPath);
     std::vector<wit::core::FileEntry> GetChildFolders(std::int64_t sourceId, const std::wstring& parentPath);
     int GetItemSearchCount(const std::wstring& nameTerm);
     std::vector<wit::core::FileEntry> GetItemSearchPage(const std::wstring& nameTerm, int offset, int limit);

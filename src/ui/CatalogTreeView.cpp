@@ -59,7 +59,8 @@ void CatalogTreeView::Reload(const std::wstring& catalogLabel,
         location.sourceName = source.name;
         location.sourceRoot = source.rootPath;
         location.path = source.rootPath;
-        InsertNode(root_, source.name, location, true);
+        InsertNode(root_, source.name, location,
+            db_ && db_->HasChildFolders(location.sourceId, location.path));
     }
     TreeView_Expand(hwnd_, root_, TVE_EXPAND);
     TreeView_SelectItem(hwnd_, root_);
@@ -88,7 +89,8 @@ void CatalogTreeView::Expand(HTREEITEM item) {
     for (const auto& folder : folders) {
         auto child = node->location;
         child.path = JoinPath(node->location.path, folder.name);
-        InsertNode(item, folder.name, child, true);
+        InsertNode(item, folder.name, child,
+            db_->HasChildFolders(child.sourceId, child.path));
     }
     node->populated = true;
     treeItem.mask = TVIF_CHILDREN;

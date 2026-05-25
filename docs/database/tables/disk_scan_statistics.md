@@ -13,8 +13,8 @@ Stores only the latest successful scan statistics for one disk. It is inserted o
 
 | Field | Type | Nullable | Default | Key/Index | Description | Used in code | Confidence |
 |---|---|---:|---|---|---|---|---|
-| `disk_id` | `INTEGER` | No | none | `PRIMARY KEY`, foreign key | Disk whose latest scan is recorded. | `Database::UpdateDiskScanStatistics`; `MainFrame::OnAddOrUpdateDiskImage` | Explicit |
-| `last_scanned_at` | `INTEGER` | No | none | none | Unix timestamp of latest successful scan completion. | `MainFrame`; statistics upsert | Explicit |
+| `disk_id` | `INTEGER` | No | none | `PRIMARY KEY`, foreign key | Disk whose latest scan is recorded. | `Database::UpdateDiskScanStatistics`; `ScanCoordinator::Start` | Explicit |
+| `last_scanned_at` | `INTEGER` | No | none | none | Unix timestamp of latest successful scan completion. | `ScanCoordinator`; statistics upsert | Explicit |
 | `image_scanning_time_ms` | `INTEGER` | No | `0` | none | Elapsed scan duration in milliseconds. | `FileScanner::Result`; statistics upsert | Explicit |
 | `imported_descriptions_count` | `INTEGER` | No | `0` | none | Count of descriptions imported during scan; currently zero because no importer is implemented. | Statistics upsert | Explicit |
 | `calculated_file_crcs` | `INTEGER` | No | `0` | `CHECK (0,1)` | Whether CRC calculation was enabled for the scan. | Add New Disk/Media result; scanner; statistics upsert | Explicit |

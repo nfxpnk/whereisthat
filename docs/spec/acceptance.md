@@ -19,6 +19,7 @@ The delivered application and supported build must not depend on .NET, WPF, C#, 
 - A published Windows release is an installer-free portable app folder/zip whose included PE binaries are directly SHA-256 Authenticode signed with timestamps and successfully verified from the final zip.
 - The project links `sqlite3.lib` and compilation uses `sqlite3.h`.
 - The project compiles vendored WTL headers with the required MSVC v143 ATL component and deploys no additional WTL runtime DLL.
+- The application uses its WTL 10.01 message loop and WTL-hosted main frame without adding a UI runtime dependency.
 - The supported build does not require CMake, vcpkg, or Python.
 
 ## Functional Acceptance Checklist
@@ -35,6 +36,7 @@ The delivered application and supported build must not depend on .NET, WPF, C#, 
 - Staged catalog changes are browseable but do not change the real active database until Save succeeds; failed saves retain pending work and `Modified` state.
 - Switching catalogs or closing with pending changes offers Save, Discard, or Cancel, and protected/read-only catalogs remain browseable while rejecting edits.
 - Scan work does not freeze the primary UI message loop, and program activity is surfaced through the status area.
+- Menu, toolbar, accelerator, notification, splitter, status rendering, and scan completion routes remain functional through the WTL-hosted main-frame dispatch path.
 - After restart, an available last-used catalog can be browsed from persisted data even when an indexed source is unavailable.
 - The main browser displays an active-catalog root with folder-only TreeView expansion, a root disk inventory whose columns are `Disk Name`, `Media Type`, `Capacity`, `Free Space`, `Last Updated`, `Disk #`, `Description`, `Category`, and `Disk Location`, immediate file/folder contents below selected disks or folders, a catalog-relative address display, and synchronized Back/Forward navigation.
 - Catalog-root disk inventory and file browsing remain database-backed and paged for large catalog locations, including when indexed media is unavailable.

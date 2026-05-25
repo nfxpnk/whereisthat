@@ -25,8 +25,9 @@ For a development build, substitute `Debug` for `Release`.
 
 ## WTL And ATL Rule
 
-- Include vendored WTL 10.0 headers from `third_party/wtl/Include`.
+- Include vendored WTL 10.01 headers from `third_party/wtl/Include`.
 - Use ATL supplied by the installed MSVC v143 ATL component.
+- Compile the application entry/message-loop and main-frame implementation against WTL 10.01 `CAppModule`, `CMessageLoop`, and `CFrameWindowImpl` support.
 - Keep WTL/ATL as native compile-time support; no additional WTL runtime DLL is deployed.
 
 ## SQLite Link And Deployment Rule

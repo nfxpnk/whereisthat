@@ -1,5 +1,6 @@
 #include "App.h"
 #include "MainFrame.h"
+#include "WtlSupport.h"
 #include <Windows.h>
 #include <CommCtrl.h>
 
@@ -9,17 +10,23 @@ int App::Run() {
     INITCOMMONCONTROLSEX icc{sizeof(icc), ICC_LISTVIEW_CLASSES | ICC_BAR_CLASSES};
     InitCommonControlsEx(&icc);
 
-    MainFrame wnd;
-    if (!wnd.Create()) return 1;
-    wnd.Show(SW_SHOW);
-    HACCEL accelerators = LoadAcceleratorsW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDR_MAINACCEL));
+    WTL::CMessageLoop loop;
+    if (!_Module.AddMessageLoop(&loop)) return 1;
 
-    MSG msg{};
-    while (GetMessageW(&msg, nullptr, 0, 0)) {
-        if (!accelerators || !TranslateAcceleratorW(wnd.WindowHandle(), accelerators, &msg)) {
-            TranslateMessage(&msg);
-            DispatchMessageW(&msg);
-        }
+    MainFrame wnd;
+    if (!wnd.Create()) {
+        _Module.RemoveMessageLoop();
+        return 1;
     }
-    return static_cast<int>(msg.wParam);
+    if (!loop.AddMessageFilter(&wnd)) {
+        wnd.DestroyWindow();
+        _Module.RemoveMessageLoop();
+        return 1;
+    }
+
+    wnd.Show(SW_SHOW);
+    const int result = loop.Run();
+    loop.RemoveMessageFilter(&wnd);
+    _Module.RemoveMessageLoop();
+    return result;
 }

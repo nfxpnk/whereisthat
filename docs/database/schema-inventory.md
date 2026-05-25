@@ -2,7 +2,7 @@
 
 ## Authority And Compatibility
 
-The application schema is created and validated in `src/storage/Database.cpp`; values are populated primarily through `src/app/MainFrame.cpp`, `src/core/FileScanner.cpp`, and `src/platform/VolumeInfo.cpp`. This inventory documents only the replacement catalog format. Old `catalogs`/mixed `files` files are unsupported and no migration SQL exists.
+The application schema is created and validated in `src/storage/Database.cpp`; values are populated primarily through `src/app/ScanCoordinator.cpp`, `src/core/FileScanner.cpp`, and `src/platform/VolumeInfo.cpp`. This inventory documents only the replacement catalog format. Old `catalogs`/mixed `files` files are unsupported and no migration SQL exists.
 
 ## Tables And Columns
 
@@ -58,7 +58,7 @@ No CRC index is defined because no CRC lookup query is implemented.
 |---|---|---|
 | Initialization / validation | `Database::InitializeSchema`, `Database::HasCatalogSchema` | All tables, indexes, metadata singleton. |
 | Staged save | `Database::CreateWorkingCopy`, `Database::ReplaceCatalogDataFrom` | Whole replacement-format database through SQLite backup. |
-| Disk add/rescan | `MainFrame::OnAddOrUpdateDiskImage`, `Database::AddDisk`, `FindDiskBySourcePath`, `DeleteContentForDisk`, `UpdateDisk` | `disks`, folder/file replacement. |
+| Disk add/rescan | `ScanCoordinator::Start`, `Database::AddDisk`, `FindDiskBySourcePath`, `DeleteContentForDisk`, `UpdateDisk` | `disks`, folder/file replacement. |
 | Latest statistics | `FileScanner::ScanFolder`, `Database::UpdateDiskScanStatistics` | `disk_scan_statistics`. |
 | File/folder capture | `FileScanner::ScanFolder`, `Database::InsertFolder`, `InsertFile` | `folders`, `files`. |
 | Disk native metadata | `src/platform/VolumeInfo.cpp` | Volume, capacity, cluster and filesystem fields on `disks`. |

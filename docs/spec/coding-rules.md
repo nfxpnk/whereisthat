@@ -5,7 +5,7 @@
 - Write application code in C++20.
 - Target Windows 10/11 x64 only.
 - Use the Unicode Win32 API and Windows Common Controls for the desktop application.
-- Use vendored WTL/ATL native wrappers where they clarify dialog or window message routing without changing the native UI platform.
+- Use vendored WTL 10.01/ATL native wrappers for the application message loop, main frame, migrated controls, and dialogs without changing the native UI platform.
 - Build with MSVC v143 from Visual Studio/MSBuild project files.
 - Use SQLite through `sqlite3.h` and the import-library/DLL deployment described in `storage.md` and `build.md`.
 
@@ -22,12 +22,22 @@ A proposal that would require any forbidden technology must first revise the can
 
 ## Module Ownership
 
-- Put Windows application startup, main frame routing, resources, and top-level lifetime in `src/app`.
+- Put Windows application startup, main frame composition/routing, main-window collaborators, resources, and top-level lifetime in `src/app`.
 - Put native view adapters and dialog UI behavior in `src/ui`.
 - Put reusable application models and scanning/domain operations in `src/core`.
 - Put SQLite schema, connection, statements, and queries in `src/storage`.
 - Put focused Windows platform conversion or filesystem helpers in `src/platform`.
 - Do not bypass these ownership boundaries by placing SQL in UI code or control presentation inside storage code.
+
+## Main Frame Rule
+
+- Keep `MainFrame` limited to WTL-hosted top-level window lifetime, message-map command/message entry points, dialog launches, and explicit coordination across main-window components.
+- Put child-control creation, toolbar, splitter/layout, status rendering, and presentation plumbing in `MainWindowChrome`.
+- Put tree/list browsing, current location, and Back/Forward navigation state in `BrowserController`.
+- Put active and pending catalog databases, dirty/protected state, settings/recent paths, and Save/discard transitions in `CatalogSession`.
+- Put scan worker lifetime, scan-in-progress state, staging work, and UI-thread completion payload ownership in `ScanCoordinator`.
+- Add new main-window behavior to its owning component or justify a new focused component; do not grow unrelated responsibilities back into `MainFrame`.
+- Keep WTL hosting and control-wrapper work within these existing component boundaries; WTL adoption is not a reason to merge their ownership.
 
 ## Native C++ Practices
 

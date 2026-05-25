@@ -44,6 +44,8 @@ private:
     wit::app::BrowserController browser_;
     wit::app::CatalogSession session_;
     wit::app::ScanCoordinator scans_;
+    wit::app::ScanId activeScanId_{};
+    bool closePending_{};
 
     LRESULT OnFrameMessage(UINT message, WPARAM wparam, LPARAM lparam, BOOL& handled);
     LRESULT HandleMessage(UINT message, WPARAM wparam, LPARAM lparam, BOOL& handled);
@@ -67,4 +69,5 @@ private:
     void RefreshOpenRecentMenu();
     void RefreshCatalogStatus();
     void RefreshBrowserStatus();
+    void SetScanControlsEnabled(bool enabled);
 };

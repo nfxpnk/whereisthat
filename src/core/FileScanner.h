@@ -1,6 +1,7 @@
 #pragma once
 #include <cstdint>
 #include <functional>
+#include <stop_token>
 #include <string>
 #include "../storage/Database.h"
 
@@ -19,6 +20,7 @@ public:
     };
     using ProgressCallback = std::function<void(const Progress&)>;
     bool ScanFolder(const std::wstring& rootPath, std::int64_t diskId, wit::storage::Database& db,
-        const ProgressCallback& onProgress, Result& result, bool calculateCrc, bool manageTransaction = true);
+        const ProgressCallback& onProgress, Result& result, bool calculateCrc, bool manageTransaction = true,
+        std::stop_token stopToken = {});
 };
 }

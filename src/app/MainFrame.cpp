@@ -161,22 +161,41 @@ LRESULT MainFrame::HandleMessage(UINT message, WPARAM wparam, LPARAM lparam, BOO
         break;
     }
     case wit::app::WM_SCAN_PROGRESS:
-        delete reinterpret_cast<wit::app::ScanProgressMessage*>(lparam);
+        scans_.TakeProgress(static_cast<wit::app::ScanId>(wparam));
         return 0;
     case wit::app::WM_SCAN_COMPLETE: {
-        auto* result = reinterpret_cast<wit::app::ScanCompleteMessage*>(lparam);
-        scans_.Join();
+        const auto scanId = static_cast<wit::app::ScanId>(wparam);
+        auto result = scans_.TakeResult(scanId);
+        if (!result || scanId == 0 || scanId != activeScanId_) return 0;
+        const bool cancellationRequested = scans_.IsCancelling();
+        scans_.RetireWorker(scanId);
+        activeScanId_ = 0;
         chrome_.SetAppStatus(wit::app::AppStatus::Idle);
-        if (result && result->success) {
-            session_.AcceptPending(std::unique_ptr<wit::storage::Database>(result->pending));
+        if (closePending_) {
+            if (ConfirmPendingChanges()) {
+                DestroyWindow();
+            } else {
+                closePending_ = false;
+                SetScanControlsEnabled(true);
+                RefreshCatalogStatus();
+            }
+            return 0;
+        }
+        SetScanControlsEnabled(true);
+        if (cancellationRequested) {
+            RefreshCatalogStatus();
+            return 0;
+        }
+        if (result->outcome == wit::app::ScanOutcome::Completed && result->pending) {
+            session_.AcceptPending(std::move(result->pending));
             browser_.Reload(session_.CatalogLabel(), session_.WorkingDatabase());
             RefreshBrowserStatus();
-        } else {
-            if (result) delete result->pending;
-            ::MessageBoxW(m_hWnd, L"The scan could not be staged. The saved catalog was not changed.",
-                L"Add/Update Disk Image", MB_OK | MB_ICONERROR);
+        } else if (result->outcome == wit::app::ScanOutcome::Failed ||
+            (result->outcome == wit::app::ScanOutcome::Completed && !result->pending)) {
+            const auto message = result->error.empty()
+                ? L"The scan could not be staged. The saved catalog was not changed." : result->error.c_str();
+            ::MessageBoxW(m_hWnd, message, L"Add/Update Disk Image", MB_OK | MB_ICONERROR);
         }
-        delete result;
         RefreshCatalogStatus();
         return 0;
     }
@@ -189,6 +208,7 @@ LRESULT MainFrame::HandleMessage(UINT message, WPARAM wparam, LPARAM lparam, BOO
 }
 
 bool MainFrame::OnCreate() {
+    if (!scans_.AttachTarget(m_hWnd)) return false;
     session_.LoadSettings();
     RefreshOpenRecentMenu();
     if (!chrome_.Create(m_hWnd, session_.Settings().showStatusBar, [this]() {
@@ -210,15 +230,19 @@ bool MainFrame::OnCreate() {
 
 void MainFrame::OnClose() {
     if (scans_.IsRunning()) {
-        ::MessageBoxW(m_hWnd, L"A scan is still being prepared. Wait for it to complete before closing.",
-            L"Scan in progress", MB_OK | MB_ICONINFORMATION);
+        if (!closePending_) {
+            closePending_ = true;
+            scans_.RequestCancel();
+            SetScanControlsEnabled(false);
+        }
         return;
     }
     if (ConfirmPendingChanges()) DestroyWindow();
 }
 
 void MainFrame::OnDestroy() {
-    scans_.Join();
+    scans_.DetachTarget();
+    scans_.RequestCancel();
     chrome_.Destroy();
     PostQuitMessage(0);
 }
@@ -438,9 +462,26 @@ void MainFrame::RefreshBrowserStatus() {
     chrome_.SetStatusText(3, browser_.SelectionSummaryStatus());
 }
 
+void MainFrame::SetScanControlsEnabled(bool enabled) {
+    chrome_.SetScanCommandEnabled(enabled);
+    const auto menu = ::GetMenu(m_hWnd);
+    if (menu) {
+        ::EnableMenuItem(menu, ID_EDIT_ADDDISKIMAGE,
+            MF_BYCOMMAND | (enabled ? MF_ENABLED : MF_GRAYED));
+        ::DrawMenuBar(m_hWnd);
+    }
+}
+
 void MainFrame::OnAddOrUpdateDiskImage() {
     if (scans_.IsRunning()) {
-        ::MessageBoxW(m_hWnd, L"A scan is already running.", L"Scan in progress", MB_OK | MB_ICONINFORMATION);
+        if (!scans_.IsCancelling()) {
+            scans_.RequestCancel();
+            ::MessageBoxW(m_hWnd, L"The active scan is being cancelled. Start the new scan after cancellation completes.",
+                L"Cancelling scan", MB_OK | MB_ICONINFORMATION);
+        } else {
+            ::MessageBoxW(m_hWnd, L"Scan cancellation is still pending.",
+                L"Cancelling scan", MB_OK | MB_ICONINFORMATION);
+        }
         return;
     }
     if (!session_.IsOpen() || session_.ActivePath().empty()) {
@@ -458,9 +499,13 @@ void MainFrame::OnAddOrUpdateDiskImage() {
     if (!dialog.Show(m_hWnd, GetModuleHandleW(nullptr), media)) return;
     chrome_.SetAppStatus(wit::app::AppStatus::Busy);
     ::UpdateWindow(chrome_.StatusHandle());
-    if (!scans_.Start(m_hWnd, session_.WorkingDatabase(), media)) {
+    wit::app::ScanId scanId{};
+    if (!scans_.Start(session_.WorkingDatabase(), media, scanId)) {
         chrome_.SetAppStatus(wit::app::AppStatus::Idle);
         ::MessageBoxW(m_hWnd, L"Unable to prepare pending catalog changes.",
             L"Add/Update Disk Image", MB_OK | MB_ICONERROR);
+    } else {
+        activeScanId_ = scanId;
+        SetScanControlsEnabled(false);
     }
 }

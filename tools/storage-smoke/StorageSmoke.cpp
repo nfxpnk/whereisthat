@@ -1,3 +1,4 @@
+#include "../../src/app/ScanCoordinator.h"
 #include "../../src/core/FileScanner.h"
 #include "../../src/platform/Win32Helpers.h"
 #include "../../src/storage/Database.h"
@@ -7,9 +8,45 @@
 #include <fstream>
 #include <iostream>
 #include <string>
+#include <vector>
 
 namespace {
 int failures{};
+std::vector<wit::app::ScanId> completedScans;
+
+LRESULT CALLBACK ScanTargetProc(HWND window, UINT message, WPARAM wparam, LPARAM lparam) {
+    if (message == wit::app::WM_SCAN_COMPLETE) {
+        completedScans.push_back(static_cast<wit::app::ScanId>(wparam));
+        return 0;
+    }
+    return DefWindowProcW(window, message, wparam, lparam);
+}
+
+bool WaitForCompletion(wit::app::ScanId scanId) {
+    const auto deadline = GetTickCount64() + 5000;
+    while (GetTickCount64() < deadline) {
+        MSG message{};
+        while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) {
+            TranslateMessage(&message);
+            DispatchMessageW(&message);
+        }
+        for (const auto completed : completedScans) {
+            if (completed == scanId) return true;
+        }
+        Sleep(1);
+    }
+    return false;
+}
+
+std::optional<wit::app::ScanResult> WaitForResult(wit::app::ScanCoordinator& coordinator, wit::app::ScanId scanId) {
+    const auto deadline = GetTickCount64() + 5000;
+    while (GetTickCount64() < deadline) {
+        auto result = coordinator.TakeResult(scanId);
+        if (result) return result;
+        Sleep(1);
+    }
+    return std::nullopt;
+}
 
 void Check(bool condition, const char* message) {
     if (!condition) {
@@ -97,6 +134,16 @@ int wmain() {
     Check(staged.FindDiskBySourcePath(L"Q:\\", first.location) == first.id,
         "stable original location identifies a remounted image");
     wit::core::FileScanner scanner;
+    std::stop_source cancelledScan;
+    cancelledScan.request_stop();
+    wit::core::FileScanner::Result cancelledResult{};
+    Check(!scanner.ScanFolder(first.sourcePath, first.id, staged, {}, cancelledResult, false, true,
+        cancelledScan.get_token()), "pre-cancelled scan aborts cooperatively");
+    wit::core::BrowserLocation cancelledLocation{};
+    cancelledLocation.isRoot = false;
+    cancelledLocation.sourceId = first.id;
+    cancelledLocation.path = first.sourcePath;
+    Check(staged.GetBrowserItemCount(cancelledLocation) == 0, "cancelled scan rolls back staged contents");
     wit::core::FileScanner::Result firstResult{};
     Check(scanner.ScanFolder(first.sourcePath, first.id, staged, {}, firstResult, true), "CRC-enabled scan");
     first.totalFiles = firstResult.totalFiles;
@@ -146,6 +193,91 @@ int wmain() {
         "discard candidate preparation");
     discarded.Close();
     Check(db.GetCatalogMetadata().description == L"Smoke catalog", "discard leaves active catalog unchanged");
+
+    WNDCLASSW targetClass{};
+    targetClass.lpfnWndProc = ScanTargetProc;
+    targetClass.hInstance = GetModuleHandleW(nullptr);
+    targetClass.lpszClassName = L"WhereIsThatScanSmokeTarget";
+    RegisterClassW(&targetClass);
+    const auto target = CreateWindowExW(0, targetClass.lpszClassName, L"", 0, 0, 0, 0, 0, HWND_MESSAGE,
+        nullptr, targetClass.hInstance, nullptr);
+    Check(target != nullptr, "scan lifecycle test target creation");
+    if (target) {
+        wit::app::ScanCoordinator coordinator;
+        Check(coordinator.AttachTarget(target), "scan lifecycle notification target attachment");
+        wit::ui::AddNewDiskMediaResult media;
+        media.kind = wit::ui::MediaSourceKind::Folder;
+        media.originalPath = mediaWithoutCrc.wstring();
+        media.scanRoot = media.originalPath;
+        media.diskName = L"Coordinator";
+
+        wit::app::ScanId completedId{};
+        Check(coordinator.Start(&db, media, completedId), "coordinator completed scan start");
+        Check(WaitForCompletion(completedId), "coordinator completed result notification");
+        auto completed = coordinator.TakeResult(completedId);
+        Check(completed && completed->outcome == wit::app::ScanOutcome::Completed && completed->pending,
+            "coordinator completed result owns staged database");
+        Check(!coordinator.TakeResult(completedId), "coordinator result consumption is exactly once");
+        coordinator.RetireWorker(completedId);
+        Check(!coordinator.TakeResult(0), "invalid completion id has no consumable result");
+        Check(!coordinator.TakeResult(completedId + 1000), "unknown scan id has no consumable result");
+
+        {
+            std::ofstream slowFile(mediaWithoutCrc / L"cancel-check.bin", std::ios::binary);
+            const std::string block(1024 * 1024, 'x');
+            for (int blockIndex = 0; blockIndex < 16; ++blockIndex) slowFile.write(block.data(), block.size());
+        }
+        wit::app::ScanId cancelledId{};
+        media.calculateCrc = true;
+        Check(coordinator.Start(&db, media, cancelledId), "coordinator cancelled scan start");
+        Check(coordinator.RequestCancel(), "coordinator cancellation request");
+        Check(WaitForCompletion(cancelledId), "coordinator cancelled result notification");
+        auto cancelled = coordinator.TakeResult(cancelledId);
+        Check(cancelled && cancelled->outcome == wit::app::ScanOutcome::Cancelled && !cancelled->pending,
+            "coordinator cancellation does not publish pending state");
+        coordinator.RetireWorker(cancelledId);
+
+        wit::app::ScanId failedId{};
+        media.calculateCrc = false;
+        media.scanRoot = (testRoot / L"missing-media").wstring();
+        Check(coordinator.Start(&db, media, failedId), "coordinator failed scan start");
+        Check(WaitForCompletion(failedId), "coordinator failed result notification");
+        auto failed = coordinator.TakeResult(failedId);
+        Check(failed && failed->outcome == wit::app::ScanOutcome::Failed && !failed->pending,
+            "coordinator failure does not publish pending state");
+        coordinator.RetireWorker(failedId);
+
+        const auto deliveredBeforeDetach = completedScans.size();
+        coordinator.DetachTarget();
+        media.scanRoot = mediaWithoutCrc.wstring();
+        wit::app::ScanId detachedId{};
+        Check(coordinator.Start(&db, media, detachedId), "detached target scan start");
+        auto detached = WaitForResult(coordinator, detachedId);
+        Check(detached && detached->outcome == wit::app::ScanOutcome::Completed,
+            "detached target result remains safely owned for reclamation");
+        coordinator.RetireWorker(detachedId);
+        MSG message{};
+        while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) DispatchMessageW(&message);
+        Check(completedScans.size() == deliveredBeforeDetach,
+            "completion after target detach does not reach destroyed UI state");
+
+        media.calculateCrc = true;
+        for (int iteration = 0; iteration < 3; ++iteration) {
+            Check(coordinator.AttachTarget(target), "rapid close target reattachment");
+            wit::app::ScanId rapidCloseId{};
+            Check(coordinator.Start(&db, media, rapidCloseId), "rapid close scan start");
+            Check(coordinator.RequestCancel(), "rapid close cancellation request");
+            coordinator.DetachTarget();
+            auto rapidClose = WaitForResult(coordinator, rapidCloseId);
+            Check(rapidClose && rapidClose->outcome == wit::app::ScanOutcome::Cancelled && !rapidClose->pending,
+                "rapid start/close cancellation publishes no pending state");
+            coordinator.RetireWorker(rapidCloseId);
+        }
+        while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) DispatchMessageW(&message);
+        Check(completedScans.size() == deliveredBeforeDetach,
+            "rapid close completions remain detached from UI state");
+        DestroyWindow(target);
+    }
     db.Close();
 
     Check(ScalarText(catalogPath, "SELECT extension FROM files WHERE name='example.txt';") == "txt",

@@ -2,6 +2,7 @@
 
 #include <memory>
 #include <string>
+#include <thread>
 #include "../platform/AppSettings.h"
 #include "../storage/Database.h"
 
@@ -26,11 +27,15 @@ public:
     void DiscardPending();
 
 private:
+    void AssertOwnerThread() const;
+
     std::wstring activePath_;
     wit::storage::Database database_;
+    // Pending scan state is adopted and accessed only by the UI thread.
     std::unique_ptr<wit::storage::Database> pendingDatabase_;
     bool dirty_{};
     wit::platform::AppSettings settings_;
+    const std::thread::id ownerThreadId_{std::this_thread::get_id()};
 };
 
 }

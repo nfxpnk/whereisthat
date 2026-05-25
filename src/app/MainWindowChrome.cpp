@@ -332,6 +332,12 @@ void MainWindowChrome::SetAppStatus(AppStatus status) {
     UpdateProgramStatusLights();
 }
 
+void MainWindowChrome::SetScanCommandEnabled(bool enabled) {
+    if (toolbarHandle_) {
+        SendMessageW(toolbarHandle_, TB_ENABLEBUTTON, ID_EDIT_ADDDISKIMAGE, MAKELPARAM(enabled, 0));
+    }
+}
+
 void MainWindowChrome::UpdateProgramStatusLights() {
     InvalidateStatusPart(4);
 }

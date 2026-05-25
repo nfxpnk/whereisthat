@@ -7,6 +7,7 @@
 #include <iomanip>
 #include <optional>
 #include <sstream>
+#include <stop_token>
 #include <utility>
 #include <vector>
 
@@ -31,7 +32,7 @@ std::wstring DisplayNameForRoot(const std::wstring& rootPath) {
     return pos == std::wstring::npos ? rootPath.substr(0, end + 1) : rootPath.substr(pos + 1, end - pos);
 }
 
-std::optional<std::wstring> FileCrc32(const std::wstring& path) {
+std::optional<std::wstring> FileCrc32(const std::wstring& path, std::stop_token stopToken, bool& cancelled) {
     const auto file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
         FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
     if (file == INVALID_HANDLE_VALUE) return std::nullopt;
@@ -40,6 +41,11 @@ std::optional<std::wstring> FileCrc32(const std::wstring& path) {
     DWORD count{};
     bool success = true;
     for (;;) {
+        if (stopToken.stop_requested()) {
+            cancelled = true;
+            success = false;
+            break;
+        }
         if (!ReadFile(file, buffer.data(), static_cast<DWORD>(buffer.size()), &count, nullptr)) {
             success = false;
             break;
@@ -76,7 +82,8 @@ FolderEntry FolderFromData(std::int64_t diskId, std::int64_t parentId, bool hasP
 }
 
 bool FileScanner::ScanFolder(const std::wstring& rootPath, std::int64_t diskId, wit::storage::Database& db,
-    const ProgressCallback& onProgress, Result& result, bool calculateCrc, bool manageTransaction) {
+    const ProgressCallback& onProgress, Result& result, bool calculateCrc, bool manageTransaction,
+    std::stop_token stopToken) {
     const auto start = std::chrono::steady_clock::now();
     std::uint64_t fileCount = 0;
     std::uint64_t folderCount = 0;
@@ -85,7 +92,13 @@ bool FileScanner::ScanFolder(const std::wstring& rootPath, std::int64_t diskId, 
         if (manageTransaction) db.Rollback();
         return false;
     };
+    const auto cancelled = [&stopToken, &fail]() {
+        if (!stopToken.stop_requested()) return false;
+        fail();
+        return true;
+    };
 
+    if (cancelled()) return false;
     WIN32_FILE_ATTRIBUTE_DATA rootAttrs{};
     if (!GetFileAttributesExW(rootPath.c_str(), GetFileExInfoStandard, &rootAttrs)) return fail();
     WIN32_FIND_DATAW rootData{};
@@ -100,6 +113,7 @@ bool FileScanner::ScanFolder(const std::wstring& rootPath, std::int64_t diskId, 
 
     std::vector<std::pair<std::wstring, std::int64_t>> stack{{rootPath, rootId}};
     while (!stack.empty()) {
+        if (cancelled()) return false;
         const auto [directory, folderId] = stack.back();
         stack.pop_back();
         WIN32_FIND_DATAW findData{};
@@ -107,6 +121,10 @@ bool FileScanner::ScanFolder(const std::wstring& rootPath, std::int64_t diskId, 
         HANDLE findHandle = FindFirstFileW(query.c_str(), &findData);
         if (findHandle == INVALID_HANDLE_VALUE) continue;
         do {
+            if (stopToken.stop_requested()) {
+                FindClose(findHandle);
+                return fail();
+            }
             if (wcscmp(findData.cFileName, L".") == 0 || wcscmp(findData.cFileName, L"..") == 0) continue;
             const std::wstring fullPath = JoinPath(directory, findData.cFileName);
             const bool isDirectory = (findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
@@ -132,7 +150,12 @@ bool FileScanner::ScanFolder(const std::wstring& rootPath, std::int64_t diskId, 
                 entry.modifiedAtValue = wit::platform::FileTimeToUnixSeconds(findData.ftLastWriteTime);
                 entry.accessedAt = wit::platform::FileTimeToUnixSeconds(findData.ftLastAccessTime);
                 entry.attributes = findData.dwFileAttributes;
-                if (calculateCrc) entry.crc = FileCrc32(fullPath);
+                bool crcCancelled{};
+                if (calculateCrc) entry.crc = FileCrc32(fullPath, stopToken, crcCancelled);
+                if (crcCancelled || stopToken.stop_requested()) {
+                    FindClose(findHandle);
+                    return fail();
+                }
                 if (!db.InsertFile(entry)) {
                     FindClose(findHandle);
                     return fail();
@@ -144,6 +167,7 @@ bool FileScanner::ScanFolder(const std::wstring& rootPath, std::int64_t diskId, 
         } while (FindNextFileW(findHandle, &findData));
         FindClose(findHandle);
     }
+    if (cancelled()) return false;
     if (manageTransaction && !db.Commit()) return fail();
     result.totalFiles = fileCount;
     result.totalFolders = folderCount;

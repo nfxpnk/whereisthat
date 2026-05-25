@@ -1,4 +1,5 @@
 #include "CatalogSession.h"
+#include <cassert>
 
 namespace wit::app {
 namespace {
@@ -14,17 +15,24 @@ std::wstring NameForCatalogPath(const std::wstring& path) {
 
 }
 
+void CatalogSession::AssertOwnerThread() const {
+    assert(std::this_thread::get_id() == ownerThreadId_);
+}
+
 void CatalogSession::LoadSettings() {
+    AssertOwnerThread();
     settings_ = wit::platform::LoadAppSettings();
 }
 
 bool CatalogSession::SaveSettings(const wit::platform::AppSettings& settings) {
+    AssertOwnerThread();
     if (!wit::platform::SaveAppSettings(settings)) return false;
     settings_ = settings;
     return true;
 }
 
 bool CatalogSession::Activate(const std::wstring& path, bool createNew, bool persistPath, bool& settingsSaved) {
+    AssertOwnerThread();
     wit::storage::Database candidate;
     const bool opened = createNew ? candidate.CreateNew(path) : candidate.OpenExisting(path);
     if (!opened) return false;
@@ -47,15 +55,18 @@ std::wstring CatalogSession::CatalogLabel() const {
 }
 
 wit::storage::Database* CatalogSession::WorkingDatabase() {
+    AssertOwnerThread();
     return pendingDatabase_ ? pendingDatabase_.get() : &database_;
 }
 
 void CatalogSession::AcceptPending(std::unique_ptr<wit::storage::Database> pending) {
+    AssertOwnerThread();
     pendingDatabase_ = std::move(pending);
     dirty_ = pendingDatabase_ != nullptr;
 }
 
 bool CatalogSession::SavePending() {
+    AssertOwnerThread();
     if (!database_.IsOpen() || activePath_.empty()) return true;
     if (!database_.IsEditable()) return false;
     if (!dirty_ || !pendingDatabase_) return true;
@@ -66,6 +77,7 @@ bool CatalogSession::SavePending() {
 }
 
 void CatalogSession::DiscardPending() {
+    AssertOwnerThread();
     pendingDatabase_.reset();
     dirty_ = false;
 }

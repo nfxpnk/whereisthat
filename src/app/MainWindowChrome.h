@@ -38,6 +38,7 @@ public:
     void SetStatusText(int part, const std::wstring& text);
     void UpdateCatalogLockStatus();
     void SetAppStatus(AppStatus status);
+    void SetScanCommandEnabled(bool enabled);
     void UpdateProgramStatusLights();
     bool DrawStatusPart(LPDRAWITEMSTRUCT drawItem, bool protectedCatalog);
     LRESULT OnToolbarDropDown(LPNMTOOLBAR notification);

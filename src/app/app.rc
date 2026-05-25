@@ -30,7 +30,7 @@ BEGIN
         END
         MENUITEM "&Save\tCtrl+S", ID_FILE_SAVE
         MENUITEM "Save &As...", ID_FILE_SAVEAS
-        MENUITEM "Rebuild catalog &database", ID_FILE_REBUILD_DATABASE
+        MENUITEM "Rebuild Catalog &Database", ID_FILE_REBUILD_DATABASE
         MENUITEM "&Close", ID_FILE_CLOSE
         MENUITEM "Catalog &Info", ID_FILE_CATALOG_INFO
         MENUITEM "&Report Generator\tCtrl+R", ID_FILE_REPORT_GENERATOR

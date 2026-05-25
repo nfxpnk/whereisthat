@@ -4,7 +4,7 @@ Where Is That? currently exposes its initial scan command as the primary File ac
 
 ## What Changes
 
-- Replace the current File menu layout with `New Catalog`, `Open`, `Save`, `Save As...`, `Rebuild catalog database`, `Close`, `Catalog Info`, `Report Generator`, and `Exit`, displaying the requested keyboard shortcuts beside applicable commands.
+- Replace the current File menu layout with `New Catalog`, `Open`, `Save`, `Save As...`, `Rebuild Catalog Database`, `Close`, `Catalog Info`, `Report Generator`, and `Exit`, displaying the requested keyboard shortcuts beside applicable commands.
 - Add an Edit menu immediately after File containing `Add/Update Disk Image`, `Catalog Manager`, and `Catalog Setup`, displaying `Ctrl+D` for the first command.
 - Relocate the existing `Scan Folder or Disk...` action to `Edit > Add/Update Disk Image` without changing its scan/progress workflow.
 - Make `File > New Catalog` (`Ctrl+N`) open a native prompt where the user enters a catalog name, then persist an empty named catalog in the existing catalog database and expose it in the catalog list.

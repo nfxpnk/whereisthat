@@ -11,7 +11,7 @@ The main frame menu is currently defined in `src/app/app.rc` with `File > Scan F
 - Preserve the single `catalog.db` persistence model, background scan behavior, and paged browsing behavior.
 
 **Non-Goals:**
-- Implement Open, Save, Save As, Rebuild catalog database, Close, Catalog Info, Report Generator, Catalog Manager, or Catalog Setup behavior.
+- Implement Open, Save, Save As, Rebuild Catalog Database, Close, Catalog Info, Report Generator, Catalog Manager, or Catalog Setup behavior.
 - Define how an empty catalog later receives one or more disk images or how an existing scanned catalog is updated.
 - Add a database-file chooser, change the schema, or introduce a new dependency or UI framework.
 

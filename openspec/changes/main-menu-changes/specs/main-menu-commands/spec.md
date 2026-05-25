@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: File menu command surface
-The system SHALL present a File menu containing, in order, `New Catalog`, `Open`, `Save`, `Save As...`, `Rebuild catalog database`, `Close`, `Catalog Info`, `Report Generator`, and `Exit`.
+The system SHALL present a File menu containing, in order, `New Catalog`, `Open`, `Save`, `Save As...`, `Rebuild Catalog Database`, `Close`, `Catalog Info`, `Report Generator`, and `Exit`.
 
 #### Scenario: User opens File menu
 - **WHEN** the user opens the File menu in the main window
@@ -9,7 +9,7 @@ The system SHALL present a File menu containing, in order, `New Catalog`, `Open`
 - **THEN** `New Catalog` displays `Ctrl+N`, `Open` displays `Ctrl+O`, `Save` displays `Ctrl+S`, and `Exit` displays `Alt+F4` beside their names
 
 #### Scenario: User selects an unimplemented File placeholder
-- **WHEN** the user selects `Open`, `Save`, `Save As...`, `Rebuild catalog database`, `Close`, `Catalog Info`, or `Report Generator` in this change
+- **WHEN** the user selects `Open`, `Save`, `Save As...`, `Rebuild Catalog Database`, `Close`, `Catalog Info`, or `Report Generator` in this change
 - **THEN** the application performs no catalog or database operation for that placeholder command
 
 #### Scenario: User selects Exit

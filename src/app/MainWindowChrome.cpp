@@ -316,14 +316,14 @@ void MainWindowChrome::SetStatusText(int part, const std::wstring& text) {
     }
     statusText_[part] = text;
     if (part == 3) {
-        InvalidateRect(statusHandle_, nullptr, FALSE);
+        InvalidateStatusPart(part);
         return;
     }
     SendMessageW(statusHandle_, SB_SETTEXTW, part, reinterpret_cast<LPARAM>(statusText_[part].c_str()));
 }
 
 void MainWindowChrome::UpdateCatalogLockStatus() {
-    if (statusHandle_) InvalidateRect(statusHandle_, nullptr, FALSE);
+    InvalidateStatusPart(1);
 }
 
 void MainWindowChrome::SetAppStatus(AppStatus status) {
@@ -333,7 +333,17 @@ void MainWindowChrome::SetAppStatus(AppStatus status) {
 }
 
 void MainWindowChrome::UpdateProgramStatusLights() {
-    if (statusHandle_) InvalidateRect(statusHandle_, nullptr, FALSE);
+    InvalidateStatusPart(4);
+}
+
+void MainWindowChrome::InvalidateStatusPart(int part) {
+    if (!statusHandle_) return;
+    RECT rect{};
+    if (SendMessageW(statusHandle_, SB_GETRECT, part, reinterpret_cast<LPARAM>(&rect))) {
+        InvalidateRect(statusHandle_, &rect, FALSE);
+        return;
+    }
+    InvalidateRect(statusHandle_, nullptr, TRUE);
 }
 
 bool MainWindowChrome::DrawStatusPart(LPDRAWITEMSTRUCT drawItem, bool protectedCatalog) {

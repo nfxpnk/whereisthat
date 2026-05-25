@@ -94,6 +94,7 @@ private:
 
     bool CreateToolbar();
     bool IsOverSplitter(int x, int y) const;
+    void InvalidateStatusPart(int part);
 };
 
 }

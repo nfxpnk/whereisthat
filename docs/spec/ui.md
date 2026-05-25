@@ -2,7 +2,7 @@
 
 ## UI Platform
 
-The user interface is a native Unicode Win32 desktop interface written with the pure Win32 API and Windows Common Controls. It must not use .NET, WPF, C#, Qt, Electron, or WTL.
+The user interface is a native Unicode Win32 desktop interface using the Win32 API, Windows Common Controls, and lightweight WTL/ATL wrappers. It must not use .NET, WPF, C#, Qt, or Electron.
 
 ## Primary Experience
 
@@ -46,7 +46,7 @@ The active catalog remains useful when its indexed original storage is disconnec
 
 ## Win32 Interaction Rules
 
-- Window lifetime, message routing, menu commands, and dialogs use Win32 primitives.
+- Window lifetime, message routing, menu commands, and dialogs use Win32 primitives directly or through WTL/ATL native wrappers.
 - Standard native dialogs should be used for filesystem selection where suitable.
 - Common Controls should provide standard list and status presentation.
 - Expensive filesystem scanning or database operations triggered by the UI must not block the main window message pump.

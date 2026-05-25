@@ -96,9 +96,9 @@ HBITMAP LoadToolbarBitmap(IWICImagingFactory* factory, UINT resourceId) {
 const wchar_t* ToolbarTooltipText(int commandId) {
     switch (commandId) {
     case ID_FILE_NEWCATALOG:
-    case ID_FILE_OPEN:
+    case ID_WIT_FILE_OPEN:
         return L"Catalog";
-    case ID_FILE_SAVE:
+    case ID_WIT_FILE_SAVE:
         return L"Save Current Catalog";
     case ID_FILE_REPORT_GENERATOR:
         return L"Generate Report";
@@ -520,8 +520,8 @@ bool MainFrame::CreateToolbar() {
     };
 
     addButton(0, ID_FILE_NEWCATALOG, BTNS_BUTTON);
-    addButton(1, ID_FILE_OPEN, BTNS_BUTTON);
-    addButton(2, ID_FILE_SAVE, BTNS_BUTTON);
+    addButton(1, ID_WIT_FILE_OPEN, BTNS_BUTTON);
+    addButton(2, ID_WIT_FILE_SAVE, BTNS_BUTTON);
     addButton(3, ID_FILE_REPORT_GENERATOR, BTNS_BUTTON);
     addSeparator();
     addButton(4, ID_EDIT_ADDDISKIMAGE, BTNS_BUTTON);
@@ -624,9 +624,9 @@ void MainFrame::OnAbout() {
 
 void MainFrame::OnCommand(int id) {
     if (id == ID_FILE_NEWCATALOG) OnNewCatalog();
-    else if (id == ID_FILE_OPEN) OnOpenCatalog();
+    else if (id == ID_WIT_FILE_OPEN) OnOpenCatalog();
     else if (id >= ID_FILE_RECENT_FIRST && id <= ID_FILE_RECENT_LAST) OnOpenRecentCatalog(id);
-    else if (id == ID_FILE_SAVE) OnSaveCatalog();
+    else if (id == ID_WIT_FILE_SAVE) OnSaveCatalog();
     else if (id == ID_EDIT_ADDDISKIMAGE) OnAddOrUpdateDiskImage();
     else if (id == ID_SEARCH_FOR_ITEMS) OnSearchForItems();
     else if (id == IDC_BROWSER_BACK) NavigateBack();
@@ -758,10 +758,10 @@ LRESULT MainFrame::OnTreeRightClick() {
     AppendMenuW(menu, MF_STRING, ID_ACTIONS_EDIT_DESCRIPTION, L"Edit Description");
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(menu, MF_STRING, ID_FILE_NEWCATALOG, L"Add New Catalog");
-    AppendMenuW(menu, MF_STRING, ID_FILE_OPEN, L"Open Catalog");
-    AppendMenuW(menu, MF_STRING, ID_FILE_SAVE, L"Save Catalog");
+    AppendMenuW(menu, MF_STRING, ID_WIT_FILE_OPEN, L"Open Catalog");
+    AppendMenuW(menu, MF_STRING, ID_WIT_FILE_SAVE, L"Save Catalog");
     AppendMenuW(menu, MF_STRING, ID_FILE_REBUILD_DATABASE, L"Rebuild Catalog File");
-    AppendMenuW(menu, MF_STRING, ID_FILE_CLOSE, L"Close Catalog");
+    AppendMenuW(menu, MF_STRING, ID_WIT_FILE_CLOSE, L"Close Catalog");
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(menu, MF_STRING, ID_EDIT_CATALOG_MANAGER, L"Catalog Manager");
     AppendMenuW(menu, MF_STRING, ID_EDIT_CATALOG_SETUP, L"Catalog Setup");
@@ -960,7 +960,7 @@ void MainFrame::OnSearchForItems() {
     }
     SetAppStatus(AppStatus::Searching);
     wit::ui::SearchDialog dialog;
-    dialog.Show(hwnd_, GetModuleHandleW(nullptr), database);
+    dialog.Show(hwnd_, database);
     SetAppStatus(AppStatus::Idle);
 }
 

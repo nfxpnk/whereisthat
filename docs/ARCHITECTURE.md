@@ -1,16 +1,16 @@
 # Architecture
 
 ## Stack choice
-Where Is That? uses C++20 + the Win32 API + SQLite + MSVC. The UI is direct Win32 API code, storage goes through the SQLite C API, and builds are driven by the MSVC v143 toolset with MSBuild. This keeps the app small, native, and direct.
+Where Is That? uses C++20 + the Win32 API + WTL/ATL + SQLite + MSVC. The UI uses native Win32/Common Controls, with WTL/ATL wrappers introduced incrementally for windows and dialogs; storage goes through the SQLite C API, and builds are driven by the MSVC v143 toolset with MSBuild. This keeps the app small and native.
 
-## Why pure Win32
-Those options increase runtime/dependency footprint and abstraction layers. The project goal is simple native Windows utility behavior and predictable memory/performance.
+## Why native Win32 with WTL
+WTL gives native message maps and lightweight wrapper classes without replacing Windows controls or adding a separately deployed UI runtime. Existing direct Win32 UI can be migrated incrementally.
 
 ## Structure
-- `src/app`: WinMain, frame window, menus, status, command routing.
+- `src/app`: WinMain, WTL application module lifetime, frame window, menus, status, command routing.
 - `src/core`: domain models, scanner, size formatting.
 - `src/storage`: SQLite access and statement RAII wrapper.
-- `src/ui`: list-view adapters for catalogs/files.
+- `src/ui`: list-view adapters and native dialogs, with WTL wrappers where migrated.
 - `src/platform`: UTF-16/UTF-8 conversion, path/time helpers.
 
 ## Scanning model

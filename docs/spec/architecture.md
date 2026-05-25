@@ -2,9 +2,9 @@
 
 ## Architectural Contract
 
-Where Is That? is a C++20, x64-only native Windows desktop application. The UI is implemented directly with the Win32 API and Common Controls; persistence is implemented with the SQLite C API loaded through a separately deployed `sqlite3.dll`. The Visual Studio/MSBuild project is the supported build definition.
+Where Is That? is a C++20, x64-only native Windows desktop application. The UI uses the Win32 API and Common Controls, with WTL/ATL native wrappers adopted incrementally for windows and dialogs; persistence is implemented with the SQLite C API loaded through a separately deployed `sqlite3.dll`. The Visual Studio/MSBuild project is the supported build definition.
 
-The following alternatives are forbidden: .NET, WPF, C#, Qt, Electron, Python, CMake, vcpkg, and WTL.
+The following alternatives are forbidden: .NET, WPF, C#, Qt, Electron, Python, CMake, and vcpkg.
 
 ## Layers
 
@@ -12,8 +12,8 @@ The source tree establishes these responsibilities:
 
 | Directory | Responsibility |
 | --- | --- |
-| `src/app` | Entry point, app lifetime, main frame window, command routing, Windows resources. |
-| `src/ui` | Win32/Common Controls view adapters and dialog presentation. |
+| `src/app` | Entry point, WTL module/app lifetime, main frame window, command routing, Windows resources. |
+| `src/ui` | Win32/Common Controls view adapters and dialog presentation, using WTL wrappers where migrated. |
 | `src/core` | Catalog, disk, folder, file and scan-statistics models, scanning behavior, domain formatting. |
 | `src/storage` | SQLite connection, schema, queries, statement/resource management. |
 | `src/platform` | Win32-specific conversion, filesystem, path, and time helpers. |
@@ -38,9 +38,10 @@ Dependencies should flow from application/UI orchestration into core, storage, a
 
 ## Dependency Boundaries
 
-- Win32 and Common Controls are the only UI platform dependencies.
+- Win32 and Common Controls remain the UI platform; vendored WTL headers and installed ATL provide lightweight native C++ wrappers.
 - SQLite is the only database engine dependency.
 - Third-party SQLite deployment consists of `sqlite3.h`, `sqlite3.lib`, and `sqlite3.dll` under `third_party/sqlite`.
+- Third-party WTL integration consists of WTL 10.0 headers under `third_party/wtl/Include`; it does not add a deployed runtime DLL.
 - New dependencies require an explicit update to this specification before adoption.
 
 ## Authority

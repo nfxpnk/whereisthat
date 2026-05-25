@@ -5,7 +5,7 @@
 - Host and target: Windows 10/11 x64.
 - Language: C++20.
 - Compiler/toolset: MSVC v143.
-- IDE: Visual Studio 2022 or Visual Studio 2026 with MSVC v143 and Desktop development with C++ installed.
+- IDE: Visual Studio 2022 or Visual Studio 2026 with MSVC v143, Desktop development with C++, and C++ ATL for latest v143 build tools (x86 & x64) installed.
 - Build system: MSBuild through `whereisthat.sln` and `WhereIsThat.vcxproj`.
 - Supported configurations: `Debug|x64` and `Release|x64`.
 
@@ -22,6 +22,12 @@ msbuild whereisthat.sln /p:Configuration=Release /p:Platform=x64 /m
 ```
 
 For a development build, substitute `Debug` for `Release`.
+
+## WTL And ATL Rule
+
+- Include vendored WTL 10.0 headers from `third_party/wtl/Include`.
+- Use ATL supplied by the installed MSVC v143 ATL component.
+- Keep WTL/ATL as native compile-time support; no additional WTL runtime DLL is deployed.
 
 ## SQLite Link And Deployment Rule
 
@@ -48,5 +54,5 @@ A build is acceptable when all of the following are true:
 - The project compiles as C++20 and targets the Windows desktop x64 platform only.
 - The output contains `WhereIsThat.exe` and a separate `sqlite3.dll` in the same directory.
 - Linking resolves SQLite through `sqlite3.lib`, and application storage compilation uses `sqlite3.h`.
-- The application starts on a supported Windows x64 system with no framework runtime such as .NET, WPF, Qt, Electron, Python, or WTL required.
+- The application starts on a supported Windows x64 system with no framework runtime such as .NET, WPF, Qt, Electron, or Python required; WTL/ATL integration adds no separate deployed UI runtime.
 - No CMake or vcpkg files or steps become required for the supported build.

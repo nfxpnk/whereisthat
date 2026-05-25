@@ -1,17 +1,27 @@
 #pragma once
-#include <Windows.h>
-#include <string>
-#include <vector>
+#include "../app/WtlSupport.h"
+#include "../app/resource.h"
 #include "../core/FileEntry.h"
 #include "../storage/Database.h"
+#include <CommCtrl.h>
+#include <string>
+#include <vector>
 
 namespace wit::ui {
-class SearchDialog {
+class SearchDialog : public ATL::CDialogImpl<SearchDialog> {
 public:
-    void Show(HWND owner, HINSTANCE instance, wit::storage::Database* database);
+    enum { IDD = IDD_SEARCH_ITEMS };
+
+    void Show(HWND owner, wit::storage::Database* database);
+
+    BEGIN_MSG_MAP(SearchDialog)
+        MESSAGE_HANDLER(WM_INITDIALOG, OnInitDialog)
+        COMMAND_ID_HANDLER(IDC_SEARCH_EXECUTE, OnExecuteSearch)
+        COMMAND_ID_HANDLER(IDCANCEL, OnClose)
+        NOTIFY_HANDLER(IDC_SEARCH_RESULTS, LVN_GETDISPINFOW, OnGetDisplayInfo)
+    END_MSG_MAP()
 
 private:
-    HWND dialog_{};
     HWND results_{};
     wit::storage::Database* db_{};
     std::wstring nameTerm_;
@@ -19,8 +29,10 @@ private:
     int pageStart_{-1};
     std::vector<wit::core::FileEntry> page_;
 
-    static INT_PTR CALLBACK DialogProc(HWND dialog, UINT message, WPARAM wparam, LPARAM lparam);
-    INT_PTR HandleMessage(UINT message, WPARAM wparam, LPARAM lparam);
+    LRESULT OnInitDialog(UINT message, WPARAM wparam, LPARAM lparam, BOOL& handled);
+    LRESULT OnExecuteSearch(WORD notifyCode, WORD id, HWND control, BOOL& handled);
+    LRESULT OnClose(WORD notifyCode, WORD id, HWND control, BOOL& handled);
+    LRESULT OnGetDisplayInfo(int id, LPNMHDR header, BOOL& handled);
     void Initialize();
     void Search();
     void EnsurePage(int row);

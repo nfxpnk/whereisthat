@@ -1,23 +1,25 @@
 # Where Is That?
 
-Where Is That? is a native Windows 10/11 file cataloging utility built with C++20, the Win32 API, SQLite, and MSVC. It scans folders or drives into user-selected SQLite catalog files, then lets you browse and search indexed items later even when the original drive is disconnected.
+Where Is That? is a native Windows 10/11 file cataloging utility built with C++20, the Win32 API, WTL/ATL, SQLite, and MSVC. It scans folders or drives into user-selected SQLite catalog files, then lets you browse and search indexed items later even when the original drive is disconnected.
 
 ## Project Specification
 The canonical product, architecture, build, storage, UI, coding, and acceptance rules are maintained in [`docs/spec/`](docs/spec/). Contributors should read and preserve these decisions when proposing or implementing changes.
 
-## Why C++ + Win32 API + SQLite + MSVC
+## Why C++ + Win32 API + WTL + SQLite + MSVC
 - Fast startup and low memory footprint.
 - Small distributable.
 - Direct control over Win32 API behavior.
+- Lightweight WTL/ATL message-map and native-window wrappers for UI code.
 - SQLite storage through the SQLite C API.
 - MSVC toolchain and MSBuild project files.
-- No .NET, WPF, C#, Qt, Electron, Python, CMake, vcpkg, WTL, or cross-platform runtime.
+- No .NET, WPF, C#, Qt, Electron, Python, CMake, vcpkg, or cross-platform runtime.
 
 ## Requirements
 - Windows 10/11 x64
 - Visual Studio Build Tools 2022, Visual Studio 2022, or Visual Studio 2026 with MSVC v143 installed
-- Desktop development with C++ workload
+- Desktop development with C++ workload and the **C++ ATL for latest v143 build tools (x86 & x64)** component
 - SQLite 3.53.1 DLL/import library/header are vendored under `third_party/sqlite`
+- WTL 10.0 headers are vendored under `third_party/wtl/Include`
 
 ## Build (Visual Studio)
 1. Open `whereisthat.sln`.
@@ -27,6 +29,7 @@ The canonical product, architecture, build, storage, UI, coding, and acceptance 
 
 The project links against the precompiled SQLite DLL in `third_party/sqlite`.
 The post-build step copies `sqlite3.dll` next to `WhereIsThat.exe`.
+WTL is header-only; it uses the ATL headers supplied by the installed MSVC ATL component.
 
 ## Build (MSBuild)
 From **Developer Command Prompt for VS 2022**:

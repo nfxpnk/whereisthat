@@ -16,7 +16,7 @@ Where Is That? is a native Windows desktop utility that creates a persistent cat
 This project is intentionally a native Windows application. It must not be migrated to, embedded in, or supplemented by:
 
 - .NET, WPF, or C#.
-- Qt, Electron, or WTL.
+- Qt or Electron.
 - Python application or build tooling.
 - CMake or vcpkg.
 - Cross-platform UI or runtime frameworks.
@@ -24,10 +24,11 @@ This project is intentionally a native Windows application. It must not be migra
 ## Canonical Technology Decisions
 
 - Language standard: C++20.
-- UI platform: pure Win32 API with Windows Common Controls.
+- UI platform: native Win32 API and Windows Common Controls, using WTL/ATL wrappers for native UI implementation.
 - Storage engine: SQLite accessed through its C API.
 - Database deployment: `sqlite3.dll` remains a separate DLL deployed beside the executable.
 - Compiler/toolset: MSVC v143.
+- UI library: vendored WTL 10.0 headers backed by the MSVC ATL component.
 - IDE support: Visual Studio 2022 and Visual Studio 2026 with the required MSVC v143 workload installed.
 - Command-line build support: MSBuild using the Visual Studio solution and project files.
 

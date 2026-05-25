@@ -5,6 +5,7 @@
 - Write application code in C++20.
 - Target Windows 10/11 x64 only.
 - Use the Unicode Win32 API and Windows Common Controls for the desktop application.
+- Use vendored WTL/ATL native wrappers where they clarify dialog or window message routing without changing the native UI platform.
 - Build with MSVC v143 from Visual Studio/MSBuild project files.
 - Use SQLite through `sqlite3.h` and the import-library/DLL deployment described in `storage.md` and `build.md`.
 
@@ -13,7 +14,7 @@
 Do not add or migrate application, UI, storage, or build functionality to:
 
 - .NET, WPF, or C#.
-- Qt, Electron, or WTL.
+- Qt or Electron.
 - Python.
 - CMake or vcpkg.
 

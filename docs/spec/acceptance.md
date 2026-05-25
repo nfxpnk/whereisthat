@@ -5,11 +5,11 @@
 A change is acceptable only when Where Is That? remains:
 
 - A native Windows desktop application for Windows 10/11 x64 only.
-- Implemented in C++20 using the pure Win32 API and Windows Common Controls.
+- Implemented in C++20 using the Win32 API, Windows Common Controls, and permitted WTL/ATL native wrappers.
 - Built with MSVC v143 through Visual Studio/MSBuild project files.
 - Backed by SQLite through the native C API and a separately deployed `sqlite3.dll`.
 
-The delivered application and supported build must not depend on .NET, WPF, C#, Qt, Electron, Python, CMake, vcpkg, or WTL.
+The delivered application and supported build must not depend on .NET, WPF, C#, Qt, Electron, Python, CMake, or vcpkg. WTL headers may be vendored and used with the MSVC ATL build component without adding a deployed UI runtime.
 
 ## Build Acceptance Checklist
 
@@ -18,6 +18,7 @@ The delivered application and supported build must not depend on .NET, WPF, C#, 
 - `sqlite3.dll` is copied to the same output directory as `WhereIsThat.exe`.
 - A published Windows release is an installer-free portable app folder/zip whose included PE binaries are directly SHA-256 Authenticode signed with timestamps and successfully verified from the final zip.
 - The project links `sqlite3.lib` and compilation uses `sqlite3.h`.
+- The project compiles vendored WTL headers with the required MSVC v143 ATL component and deploys no additional WTL runtime DLL.
 - The supported build does not require CMake, vcpkg, or Python.
 
 ## Functional Acceptance Checklist

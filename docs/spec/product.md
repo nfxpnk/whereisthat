@@ -8,7 +8,7 @@ Where Is That? is a native Windows desktop utility that creates a persistent cat
 
 - Target operating systems: Windows 10 and Windows 11, x64 only.
 - Application type: native desktop executable, `WhereIsThat.exe`.
-- Primary workflow: create or open a SQLite catalog database file, add or update scanned media sources in it, and browse its contents.
+- Primary workflow: create or open one or more SQLite catalog database files, select a catalog in the TreeView, add or update scanned media sources in a chosen open catalog, and browse each catalog's contents independently.
 - Persistence: user-selected local SQLite catalog database files using the current normalized disk/folder/file format; old-format catalog files are not upgraded or opened as valid current catalogs. `catalog.db` is one possible filename, not a required or implicit default.
 
 ## Non-Goals And Prohibited Platforms

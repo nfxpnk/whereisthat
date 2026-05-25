@@ -10,6 +10,7 @@
 #include <thread>
 #include <unordered_map>
 #include <vector>
+#include "../core/CatalogIdentity.h"
 #include "../storage/Database.h"
 #include "../ui/AddNewDiskMediaDialog.h"
 
@@ -32,6 +33,7 @@ enum class ScanOutcome {
 
 struct ScanResult {
     ScanId id{};
+    wit::core::CatalogId destinationCatalogId{};
     ScanOutcome outcome{ScanOutcome::Failed};
     std::unique_ptr<wit::storage::Database> pending;
     std::wstring error;
@@ -48,6 +50,7 @@ public:
     void DetachTarget();
     bool IsRunning() const { return activeScanId_ != 0; }
     bool IsCancelling() const { return cancellationRequested_; }
+    bool Targets(wit::core::CatalogId id) const { return IsRunning() && activeCatalogId_ == id; }
     bool Start(wit::storage::Database* source, const wit::ui::AddNewDiskMediaResult& media, ScanId& scanId);
     bool RequestCancel();
     std::optional<ScanProgress> TakeProgress(ScanId scanId);
@@ -69,6 +72,7 @@ private:
     HWND targetWindow_{};
     ScanId nextScanId_{1};
     ScanId activeScanId_{};
+    wit::core::CatalogId activeCatalogId_{};
     bool cancellationRequested_{};
     std::jthread worker_;
 

@@ -157,8 +157,11 @@ bool MountIso(const std::wstring& path, std::wstring& mountedRoot) {
 }
 }
 
-bool AddNewDiskMediaDialog::Show(HWND owner, HINSTANCE, AddNewDiskMediaResult& result) {
+bool AddNewDiskMediaDialog::Show(HWND owner, HINSTANCE, const std::vector<CatalogChoice>& catalogs,
+    wit::core::CatalogId preferredCatalogId, AddNewDiskMediaResult& result) {
     result_ = {};
+    catalogs_ = catalogs;
+    preferredCatalogId_ = preferredCatalogId;
     const auto status = DoModal(owner);
     if (status != IDOK) return false;
     result = result_;
@@ -210,6 +213,7 @@ void AddNewDiskMediaDialog::Initialize() {
     ::EnableWindow(::GetDlgItem(m_hWnd, IDOK), FALSE);
     ::SetDlgItemTextW(m_hWnd, IDC_MEDIA_STATUS, L"No drive selected");
     PopulateDriveButtons();
+    PopulateCatalogChoices();
     UpdateArchiveOptions();
 }
 
@@ -235,6 +239,22 @@ void AddNewDiskMediaDialog::PopulateDriveButtons() {
         }
     }
     LayoutSourceButtons();
+}
+
+void AddNewDiskMediaDialog::PopulateCatalogChoices() {
+    const auto combo = ::GetDlgItem(m_hWnd, IDC_MEDIA_CATALOG);
+    int selected = -1;
+    for (std::size_t index = 0; index < catalogs_.size(); ++index) {
+        auto label = catalogs_[index].label + L" - " + catalogs_[index].path;
+        const auto position = static_cast<int>(::SendMessageW(combo, CB_ADDSTRING, 0,
+            reinterpret_cast<LPARAM>(label.c_str())));
+        if (position >= 0) {
+            ::SendMessageW(combo, CB_SETITEMDATA, position, static_cast<LPARAM>(index));
+            if (catalogs_[index].id == preferredCatalogId_) selected = position;
+        }
+    }
+    if (selected < 0 && !catalogs_.empty()) selected = 0;
+    if (selected >= 0) ::SendMessageW(combo, CB_SETCURSEL, selected, 0);
 }
 
 void AddNewDiskMediaDialog::LayoutSourceButtons() {
@@ -263,7 +283,14 @@ void AddNewDiskMediaDialog::ClearSelection() {
     ::CheckRadioButton(m_hWnd, IDC_MEDIA_DRIVE_1, IDC_MEDIA_NETWORK, 0);
     ::SetDlgItemTextW(m_hWnd, IDC_MEDIA_NAME, L"");
     ::SetDlgItemTextW(m_hWnd, IDC_MEDIA_STATUS, L"No drive selected");
-    ::EnableWindow(::GetDlgItem(m_hWnd, IDOK), FALSE);
+    UpdateConfirmEnabled();
+}
+
+void AddNewDiskMediaDialog::UpdateConfirmEnabled() {
+    const auto selection = ::SendDlgItemMessageW(m_hWnd, IDC_MEDIA_CATALOG, CB_GETCURSEL, 0, 0);
+    const bool hasCatalog = selection != CB_ERR;
+    const bool hasSource = result_.kind != MediaSourceKind::None && IsDirectory(result_.scanRoot);
+    ::EnableWindow(::GetDlgItem(m_hWnd, IDOK), hasCatalog && hasSource);
 }
 
 bool AddNewDiskMediaDialog::ApplySource(MediaSourceKind kind, const std::wstring& originalPath,
@@ -277,7 +304,7 @@ bool AddNewDiskMediaDialog::ApplySource(MediaSourceKind kind, const std::wstring
     result_.scanRoot = scanRoot;
     ::SetDlgItemTextW(m_hWnd, IDC_MEDIA_NAME, SourceName(originalPath).c_str());
     ::SetDlgItemTextW(m_hWnd, IDC_MEDIA_STATUS, status.c_str());
-    ::EnableWindow(::GetDlgItem(m_hWnd, IDOK), TRUE);
+    UpdateConfirmEnabled();
     return true;
 }
 
@@ -340,6 +367,12 @@ bool AddNewDiskMediaDialog::Confirm() {
     result_.diskName = ReadText(m_hWnd, IDC_MEDIA_NAME);
     result_.calculateCrc = ::IsDlgButtonChecked(m_hWnd, IDC_MEDIA_CALCULATE_CRC) == BST_CHECKED;
     if (IsBlank(result_.diskName)) result_.diskName = SourceName(result_.originalPath);
+    const auto selected = ::SendDlgItemMessageW(m_hWnd, IDC_MEDIA_CATALOG, CB_GETCURSEL, 0, 0);
+    if (selected == CB_ERR) return false;
+    const auto index = static_cast<std::size_t>(::SendDlgItemMessageW(m_hWnd, IDC_MEDIA_CATALOG,
+        CB_GETITEMDATA, selected, 0));
+    if (index >= catalogs_.size()) return false;
+    result_.destinationCatalogId = catalogs_[index].id;
     return true;
 }
 }

@@ -39,6 +39,7 @@ public:
     void UpdateCatalogLockStatus();
     void SetAppStatus(AppStatus status);
     void SetScanCommandEnabled(bool enabled);
+    void SetSaveCommandEnabled(bool enabled);
     void UpdateProgramStatusLights();
     bool DrawStatusPart(LPDRAWITEMSTRUCT drawItem, bool protectedCatalog);
     LRESULT OnToolbarDropDown(LPNMTOOLBAR notification);

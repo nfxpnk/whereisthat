@@ -59,16 +59,17 @@ LRESULT MainFrame::HandleMessage(UINT message, WPARAM wparam, LPARAM lparam, BOO
         return 0;
     case WM_DRAWITEM:
         if (chrome_.DrawStatusPart(reinterpret_cast<LPDRAWITEMSTRUCT>(lparam),
-            session_.IsOpen() && !session_.IsEditable())) return TRUE;
+            GetActiveCatalog() && !GetActiveCatalog()->IsEditable())) return TRUE;
         break;
     case WM_NOTIFY: {
         auto* header = reinterpret_cast<LPNMHDR>(lparam);
-        auto* database = session_.WorkingDatabase();
-        const auto label = session_.CatalogLabel();
         if (header->idFrom == IDC_BROWSER_TREE && header->code == TVN_SELCHANGEDW) {
-            const auto result = browser_.OnTreeSelectionChanged(header, database, label);
+            const auto catalogId = browser_.OnTreeSelectionChanged(header);
+            if (catalogId) session_.SetActive(catalogId);
+            RefreshCatalogStatus();
+            RefreshCatalogCommands();
             RefreshBrowserStatus();
-            return result;
+            return 0;
         }
         if (header->idFrom == IDC_BROWSER_TREE && header->code == TVN_ITEMEXPANDINGW) {
             return browser_.OnTreeExpanding(header);
@@ -78,7 +79,7 @@ LRESULT MainFrame::HandleMessage(UINT message, WPARAM wparam, LPARAM lparam, BOO
             return browser_.OnFileGetDispInfo(header);
         }
         if (header->idFrom == IDC_FILES && header->code == LVN_ITEMACTIVATE) {
-            const auto result = browser_.OnFileActivate(header, database, label);
+            const auto result = browser_.OnFileActivate(header);
             RefreshBrowserStatus();
             return result;
         }
@@ -107,7 +108,7 @@ LRESULT MainFrame::HandleMessage(UINT message, WPARAM wparam, LPARAM lparam, BOO
         activeScanId_ = 0;
         chrome_.SetAppStatus(wit::app::AppStatus::Idle);
         if (closePending_) {
-            if (ConfirmPendingChanges()) {
+            if (ConfirmAllPendingChanges()) {
                 DestroyWindow();
             } else {
                 closePending_ = false;
@@ -122,8 +123,11 @@ LRESULT MainFrame::HandleMessage(UINT message, WPARAM wparam, LPARAM lparam, BOO
             return 0;
         }
         if (result->outcome == wit::app::ScanOutcome::Completed && result->pending) {
-            session_.AcceptPending(std::move(result->pending));
-            browser_.Reload(session_.CatalogLabel(), session_.WorkingDatabase());
+            if (auto* catalog = session_.Find(result->destinationCatalogId)) {
+                session_.AcceptPending(catalog->id, std::move(result->pending));
+                const bool active = GetActiveCatalog() && GetActiveCatalog()->id == catalog->id;
+                browser_.RefreshCatalog(catalog->id, catalog->label, catalog->WorkingDatabase(), active);
+            }
             RefreshBrowserStatus();
         } else if (result->outcome == wit::app::ScanOutcome::Failed ||
             (result->outcome == wit::app::ScanOutcome::Completed && !result->pending)) {
@@ -151,7 +155,15 @@ bool MainFrame::OnCreate() {
         RefreshBrowserStatus();
     })) return false;
     browser_.Attach(chrome_.TreeHandle(), chrome_.FilesHandle(), chrome_.BackHandle(),
-        chrome_.ForwardHandle(), chrome_.AddressHandle());
+        chrome_.ForwardHandle(), chrome_.AddressHandle(),
+        [this](wit::core::CatalogId id) {
+            auto* catalog = session_.Find(id);
+            return catalog ? catalog->WorkingDatabase() : nullptr;
+        },
+        [this](wit::core::CatalogId id) {
+            const auto* catalog = session_.Find(id);
+            return catalog ? catalog->label : L"";
+        });
     browser_.Clear();
     RefreshBrowserStatus();
     if (!session_.Settings().lastCatalogPath.empty() &&
@@ -159,6 +171,7 @@ bool MainFrame::OnCreate() {
         ::MessageBoxW(m_hWnd, L"The last used catalog is unavailable.", L"Open Catalog", MB_OK | MB_ICONINFORMATION);
     }
     RefreshCatalogStatus();
+    RefreshCatalogCommands();
     chrome_.UpdateProgramStatusLights();
     return true;
 }
@@ -172,7 +185,7 @@ void MainFrame::OnClose() {
         }
         return;
     }
-    if (ConfirmPendingChanges()) DestroyWindow();
+    if (ConfirmAllPendingChanges()) DestroyWindow();
 }
 
 void MainFrame::OnDestroy() {
@@ -195,13 +208,14 @@ void MainFrame::OnCommand(int id) {
     else if (id == ID_WIT_FILE_OPEN) OnOpenCatalog();
     else if (id >= ID_FILE_RECENT_FIRST && id <= ID_FILE_RECENT_LAST) OnOpenRecentCatalog(id);
     else if (id == ID_WIT_FILE_SAVE) OnSaveCatalog();
+    else if (id == ID_WIT_FILE_CLOSE) OnCloseCatalog();
     else if (id == ID_EDIT_ADDDISKIMAGE) OnAddOrUpdateDiskImage();
     else if (id == ID_SEARCH_FOR_ITEMS) OnSearchForItems();
     else if (id == IDC_BROWSER_BACK) {
-        browser_.NavigateBack(session_.WorkingDatabase(), session_.CatalogLabel());
+        browser_.NavigateBack();
         RefreshBrowserStatus();
     } else if (id == IDC_BROWSER_FORWARD) {
-        browser_.NavigateForward(session_.WorkingDatabase(), session_.CatalogLabel());
+        browser_.NavigateForward();
         RefreshBrowserStatus();
     } else if (id == ID_OPTIONS_GENERAL_SETTINGS) OnGeneralSettings();
     else if (id == ID_FILE_EXIT) OnExit();
@@ -232,7 +246,7 @@ LRESULT MainFrame::OnTreeRightClick() {
     AppendMenuW(menu, MF_STRING, ID_WIT_FILE_OPEN, L"Open Catalog");
     AppendMenuW(menu, MF_STRING, ID_WIT_FILE_SAVE, L"Save Catalog");
     AppendMenuW(menu, MF_STRING, ID_FILE_REBUILD_DATABASE, L"Rebuild Catalog File");
-    AppendMenuW(menu, MF_STRING, ID_WIT_FILE_CLOSE, L"Close Catalog");
+    if (browser_.IsCatalogRoot(item)) AppendMenuW(menu, MF_STRING, ID_WIT_FILE_CLOSE, L"Close Catalog");
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(menu, MF_STRING, ID_EDIT_CATALOG_MANAGER, L"Catalog Manager");
     AppendMenuW(menu, MF_STRING, ID_EDIT_CATALOG_SETUP, L"Catalog Setup");
@@ -246,10 +260,14 @@ LRESULT MainFrame::OnTreeRightClick() {
 
 bool MainFrame::ActivateCatalog(const std::wstring& path, bool createNew, bool persistPath) {
     bool settingsSaved{};
-    if (!session_.Activate(path, createNew, persistPath, settingsSaved)) return false;
-    browser_.Reload(session_.CatalogLabel(), session_.WorkingDatabase());
+    bool alreadyOpen{};
+    auto* catalog = session_.Open(path, createNew, persistPath, settingsSaved, alreadyOpen);
+    if (!catalog) return false;
+    if (alreadyOpen) browser_.SelectCatalogRoot(catalog->id);
+    else browser_.AddCatalog(catalog->id, catalog->label, catalog->WorkingDatabase(), true);
     RefreshBrowserStatus();
     RefreshCatalogStatus();
+    RefreshCatalogCommands();
     if (persistPath) {
         if (!settingsSaved) {
             ::MessageBoxW(m_hWnd, L"The catalog opened, but its path could not be saved in settings.ini.",
@@ -267,7 +285,7 @@ void MainFrame::OnNewCatalog() {
     }
     std::wstring path;
     const wit::ui::CatalogFileDialog dialog;
-    if (!dialog.ChooseNewCatalogPath(m_hWnd, path) || !ConfirmPendingChanges()) return;
+    if (!dialog.ChooseNewCatalogPath(m_hWnd, path)) return;
     if (!ActivateCatalog(path, true, true)) {
         ::MessageBoxW(m_hWnd, L"Unable to create the new catalog. Choose a filename that does not already exist.",
             L"New Catalog", MB_OK | MB_ICONERROR);
@@ -281,7 +299,7 @@ void MainFrame::OnOpenCatalog() {
     }
     std::wstring path;
     const wit::ui::CatalogFileDialog dialog;
-    if (!dialog.ChooseCatalogToOpen(m_hWnd, path) || !ConfirmPendingChanges()) return;
+    if (!dialog.ChooseCatalogToOpen(m_hWnd, path)) return;
     if (!ActivateCatalog(path, false, true)) {
         ::MessageBoxW(m_hWnd, L"The selected file is not an available catalog database.", L"Open Catalog",
             MB_OK | MB_ICONERROR);
@@ -296,7 +314,6 @@ void MainFrame::OnOpenRecentCatalog(int commandId) {
     const auto index = static_cast<std::size_t>(commandId - ID_FILE_RECENT_FIRST);
     if (index >= session_.Settings().recentCatalogPaths.size()) return;
     const auto path = session_.Settings().recentCatalogPaths[index];
-    if (!ConfirmPendingChanges()) return;
     if (!ActivateCatalog(path, false, true)) {
         ::MessageBoxW(m_hWnd, L"The recent catalog is no longer available or is not a usable catalog database.",
             L"Open Recent Catalog", MB_OK | MB_ICONERROR);
@@ -336,8 +353,9 @@ void MainFrame::OnGeneralSettings() {
 }
 
 void MainFrame::OnSearchForItems() {
-    auto* database = session_.WorkingDatabase();
-    if (!database || !database->IsOpen() || session_.ActivePath().empty()) {
+    auto* catalog = GetActiveCatalog();
+    auto* database = catalog ? catalog->WorkingDatabase() : nullptr;
+    if (!database || !database->IsOpen()) {
         ::MessageBoxW(m_hWnd, L"Create or open a catalog before searching for items.", L"No Active Catalog",
             MB_OK | MB_ICONINFORMATION);
         return;
@@ -349,48 +367,101 @@ void MainFrame::OnSearchForItems() {
 }
 
 bool MainFrame::OnSaveCatalog() {
-    if (!session_.IsOpen() || session_.ActivePath().empty()) return true;
-    if (!session_.IsEditable()) {
+    auto* catalog = GetActiveCatalog();
+    return !catalog || OnSaveCatalog(*catalog);
+}
+
+bool MainFrame::OnSaveCatalog(wit::app::OpenCatalog& catalog) {
+    if (!catalog.IsOpen() || catalog.path.empty()) return true;
+    if (scans_.Targets(catalog.id)) {
+        ::MessageBoxW(m_hWnd, L"A scan is still preparing changes for this catalog.",
+            L"Scan in progress", MB_OK | MB_ICONINFORMATION);
+        return false;
+    }
+    if (!catalog.IsEditable()) {
         ::MessageBoxW(m_hWnd, L"This catalog is protected or read-only and cannot be saved.",
             L"Protected Catalog", MB_OK | MB_ICONINFORMATION);
         return false;
     }
-    const bool hadPendingChanges = session_.HasPendingChanges();
-    if (!session_.SavePending()) {
+    const bool hadPendingChanges = catalog.HasPendingChanges();
+    if (!session_.SavePending(catalog.id)) {
         ::MessageBoxW(m_hWnd, L"Unable to save the pending catalog changes. They remain available to retry.",
             L"Save Catalog", MB_OK | MB_ICONERROR);
         RefreshCatalogStatus();
         return false;
     }
     if (hadPendingChanges) {
-        browser_.Reload(session_.CatalogLabel(), session_.WorkingDatabase());
+        browser_.RefreshCatalog(catalog.id, catalog.label, catalog.WorkingDatabase(),
+            GetActiveCatalog() && GetActiveCatalog()->id == catalog.id);
         RefreshBrowserStatus();
     }
     RefreshCatalogStatus();
     return true;
 }
 
-void MainFrame::DiscardPendingChanges() {
-    session_.DiscardPending();
-    browser_.Reload(session_.CatalogLabel(), session_.WorkingDatabase());
+void MainFrame::DiscardPendingChanges(wit::app::OpenCatalog& catalog) {
+    session_.DiscardPending(catalog.id);
+    browser_.RefreshCatalog(catalog.id, catalog.label, catalog.WorkingDatabase(),
+        GetActiveCatalog() && GetActiveCatalog()->id == catalog.id);
     RefreshBrowserStatus();
     RefreshCatalogStatus();
 }
 
-bool MainFrame::ConfirmPendingChanges() {
-    if (!session_.HasPendingChanges()) return true;
+bool MainFrame::ConfirmPendingChanges(wit::app::OpenCatalog& catalog) {
+    if (!catalog.HasPendingChanges()) return true;
     const auto choice = ::MessageBoxW(m_hWnd,
-        L"The current catalog has unsaved changes.\n\nYes: Save changes\nNo: Discard changes\nCancel: Stay here",
+        L"Save changes?",
         L"Unsaved Catalog Changes", MB_YESNOCANCEL | MB_ICONWARNING);
     if (choice == IDCANCEL) return false;
-    if (choice == IDYES) return OnSaveCatalog();
-    DiscardPendingChanges();
+    if (choice == IDYES) return OnSaveCatalog(catalog);
+    DiscardPendingChanges(catalog);
+    return true;
+}
+
+bool MainFrame::ConfirmAllPendingChanges() {
+    for (auto* catalog : session_.OpenCatalogs()) {
+        if (!ConfirmPendingChanges(*catalog)) return false;
+    }
+    return true;
+}
+
+wit::app::OpenCatalog* MainFrame::GetActiveCatalog() {
+    const auto selectedId = browser_.SelectedCatalogId();
+    if (selectedId) session_.SetActive(selectedId);
+    return session_.ActiveCatalog();
+}
+
+void MainFrame::OnCloseCatalog() {
+    if (auto* catalog = GetActiveCatalog()) CloseCatalog(*catalog);
+}
+
+bool MainFrame::CloseCatalog(wit::app::OpenCatalog& catalog) {
+    if (scans_.Targets(catalog.id)) {
+        ::MessageBoxW(m_hWnd, L"A scan is still preparing changes for this catalog.",
+            L"Scan in progress", MB_OK | MB_ICONINFORMATION);
+        return false;
+    }
+    const auto choice = ::MessageBoxW(m_hWnd, L"Are you sure you want to close this catalog?",
+        L"Close Catalog", MB_YESNO | MB_DEFBUTTON2 | MB_ICONQUESTION);
+    if (choice != IDYES || !ConfirmPendingChanges(catalog)) return false;
+    const auto id = catalog.id;
+    browser_.RemoveCatalog(id);
+    session_.Remove(id);
+    if (auto* next = session_.ActiveCatalog()) {
+        browser_.SelectCatalogRoot(next->id);
+    } else {
+        browser_.Clear();
+    }
+    RefreshBrowserStatus();
+    RefreshCatalogStatus();
+    RefreshCatalogCommands();
     return true;
 }
 
 void MainFrame::RefreshCatalogStatus() {
-    chrome_.SetStatusText(0, !session_.IsOpen() ? L"No catalog" :
-        (session_.HasPendingChanges() ? L"Modified" : L"Loaded"));
+    const auto* catalog = GetActiveCatalog();
+    chrome_.SetStatusText(0, !catalog ? L"No catalog" :
+        (catalog->HasPendingChanges() ? L"Modified" : L"Loaded"));
     chrome_.UpdateCatalogLockStatus();
 }
 
@@ -400,13 +471,27 @@ void MainFrame::RefreshBrowserStatus() {
 }
 
 void MainFrame::SetScanControlsEnabled(bool enabled) {
-    chrome_.SetScanCommandEnabled(enabled);
-    const auto menu = ::GetMenu(m_hWnd);
-    if (menu) {
-        ::EnableMenuItem(menu, ID_EDIT_ADDDISKIMAGE,
-            MF_BYCOMMAND | (enabled ? MF_ENABLED : MF_GRAYED));
-        ::DrawMenuBar(m_hWnd);
+    (void)enabled;
+    RefreshCatalogCommands();
+}
+
+void MainFrame::RefreshCatalogCommands() {
+    auto* active = GetActiveCatalog();
+    bool hasEditable{};
+    for (const auto* catalog : session_.OpenCatalogs()) {
+        if (catalog->IsEditable()) hasEditable = true;
     }
+    const bool canScan = hasEditable && !scans_.IsRunning();
+    const bool canSave = active && active->IsEditable() && !scans_.Targets(active->id);
+    const bool canClose = active && !scans_.Targets(active->id);
+    chrome_.SetScanCommandEnabled(canScan);
+    chrome_.SetSaveCommandEnabled(canSave);
+    const auto menu = ::GetMenu(m_hWnd);
+    if (!menu) return;
+    ::EnableMenuItem(menu, ID_EDIT_ADDDISKIMAGE, MF_BYCOMMAND | (canScan ? MF_ENABLED : MF_GRAYED));
+    ::EnableMenuItem(menu, ID_WIT_FILE_SAVE, MF_BYCOMMAND | (canSave ? MF_ENABLED : MF_GRAYED));
+    ::EnableMenuItem(menu, ID_WIT_FILE_CLOSE, MF_BYCOMMAND | (canClose ? MF_ENABLED : MF_GRAYED));
+    ::DrawMenuBar(m_hWnd);
 }
 
 void MainFrame::OnAddOrUpdateDiskImage() {
@@ -421,23 +506,30 @@ void MainFrame::OnAddOrUpdateDiskImage() {
         }
         return;
     }
-    if (!session_.IsOpen() || session_.ActivePath().empty()) {
-        ::MessageBoxW(m_hWnd, L"Create or open a catalog before adding a disk image.", L"No Active Catalog",
-            MB_OK | MB_ICONINFORMATION);
-        return;
+    std::vector<wit::ui::CatalogChoice> choices;
+    for (const auto* catalog : session_.OpenCatalogs()) {
+        if (catalog->IsEditable()) choices.push_back({catalog->id, catalog->label, catalog->path});
     }
-    if (!session_.IsEditable()) {
-        ::MessageBoxW(m_hWnd, L"This catalog is protected or read-only and cannot be edited.",
-            L"Protected Catalog", MB_OK | MB_ICONINFORMATION);
+    if (choices.empty()) {
+        ::MessageBoxW(m_hWnd, L"Open an editable catalog before adding a disk image.", L"No Editable Catalog",
+            MB_OK | MB_ICONINFORMATION);
         return;
     }
     wit::ui::AddNewDiskMediaResult media;
     wit::ui::AddNewDiskMediaDialog dialog;
-    if (!dialog.Show(m_hWnd, GetModuleHandleW(nullptr), media)) return;
+    auto* active = GetActiveCatalog();
+    const auto preferred = active && active->IsEditable() ? active->id : choices.front().id;
+    if (!dialog.Show(m_hWnd, GetModuleHandleW(nullptr), choices, preferred, media)) return;
+    auto* target = session_.Find(media.destinationCatalogId);
+    if (!target || !target->IsEditable()) {
+        ::MessageBoxW(m_hWnd, L"The selected destination catalog is no longer editable.",
+            L"Add/Update Disk Image", MB_OK | MB_ICONWARNING);
+        return;
+    }
     chrome_.SetAppStatus(wit::app::AppStatus::Busy);
     ::UpdateWindow(chrome_.StatusHandle());
     wit::app::ScanId scanId{};
-    if (!scans_.Start(session_.WorkingDatabase(), media, scanId)) {
+    if (!scans_.Start(target->WorkingDatabase(), media, scanId)) {
         chrome_.SetAppStatus(wit::app::AppStatus::Idle);
         ::MessageBoxW(m_hWnd, L"Unable to prepare pending catalog changes.",
             L"Add/Update Disk Image", MB_OK | MB_ICONERROR);

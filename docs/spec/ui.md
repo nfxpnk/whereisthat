@@ -9,15 +9,15 @@ The user interface is a native Unicode Win32 desktop interface using the Win32 A
 The app must provide a direct desktop workflow:
 
 - A main frame window for catalog browsing.
-- An Explorer-style main browser with the active catalog as the tree root, folder-only hierarchy on the left, and either root disk inventory or location contents on the right.
+- An Explorer-style main browser with one top-level tree root for each open catalog, folder-only hierarchy below each root, and either selected-root disk inventory or location contents on the right.
 - A compact navigation row above the contents list with Back, Forward, and a read-only catalog-relative address display.
 - Commands to create a new catalog database file or open an existing catalog database file.
-- A command to choose a folder or disk image for adding to or updating in the active catalog.
-- A catalog-root disk inventory view for selecting prior scans in the active catalog.
+- A command to choose a folder or disk image for adding to or updating in a selected editable open catalog.
+- A catalog-root disk inventory view for selecting prior scans in the active catalog determined by TreeView selection.
 - A file view showing metadata from the selected indexed source.
 - A five-section status bar, when enabled, showing catalog state, protected status, focused-item metadata, selected-item totals, and program status lights.
 
-The active catalog remains useful when its indexed original storage is disconnected; the UI displays persisted data rather than relying on live filesystem access for browsing. When no database is active, the UI displays an empty catalog state and permits New Catalog and Open.
+Each open catalog remains useful when its indexed original storage is disconnected; the UI displays persisted data rather than relying on live filesystem access for browsing. The selected root, or the root owning a selected descendant, is active for scoped commands. When no database is open, the UI displays an empty catalog state and permits New Catalog and Open.
 
 ## Main Menu Workflow
 
@@ -27,16 +27,17 @@ The active catalog remains useful when its indexed original storage is disconnec
 - The Search menu follows View and exposes Search for Items, Find in This Catalog, Find Selected Items, Scan for Duplicates, Compare to Media, Compare Files to Catalog, and Compare Cataloged Data.
 - The Actions menu follows Search and exposes Open in Explorer, View File, Launch File, Edit Description, User List, Rename Catalog, Remove Alias Name, File Management, Remove from Catalog, Remove Archive Contents, Remove Thumbnail, and Properties.
 - The Options menu follows Actions and exposes General Settings, User Interface Setup, File List Settings, Disk Image Settings, and Description Settings.
-- New Catalog prompts for a new database file destination, creates a fresh empty SQLite catalog at that path without overwriting an existing file, switches the active catalog, and stores its path in settings.
-- Open prompts for an existing SQLite catalog database, switches the active catalog after a successful open, and stores its path in settings.
+- New Catalog prompts for a new database file destination, creates a fresh empty SQLite catalog at that path without overwriting an existing file, adds it as a selected TreeView root without closing other roots, and stores its path in settings.
+- Open prompts for an existing SQLite catalog database, adds and selects it after a successful open without closing other roots, or selects its existing root when already open, and stores its path in settings.
 - Open Recent lists up to ten successfully activated catalog database paths in most-recent-first order and uses the same validated activation behavior as Open.
 - On startup the available last-used catalog path from settings is reopened; when it is absent or unavailable the application remains empty without creating or opening `catalog.db` implicitly.
-- Add/Update Disk Image (`Ctrl+D`) requires an editable active catalog and opens the modal native `Add New Disk/Media` dialog. The dialog presents available local/removable drives, ISO image and network/computer source selection, numeric disk-number and disk-name inputs, disk-image and completion option controls, and action buttons. Calculate CRC codes is functional for persisted file CRC metadata; controls without an implemented storage/scanning contract remain presentation-only.
-- The Add New Disk/Media dialog starts with `No drive selected` and a disabled `OK` button, enables confirmation only after a readable selected media source (including a natively mounted/resolved ISO) is available, and closes without staging changes on Cancel. A confirmed source stages the existing background add/update scan path; selecting an already indexed source stages a replacement without duplicate source contents.
+- Add/Update Disk Image (`Ctrl+D`) requires at least one editable open catalog and opens the modal native `Add New Disk/Media` dialog. The dialog presents available local/removable drives, ISO image and network/computer source selection, numeric disk-number and disk-name inputs, a destination catalog selector immediately after `Disk name:`, disk-image and completion option controls, and action buttons. Calculate CRC codes is functional for persisted file CRC metadata; controls without an implemented storage/scanning contract remain presentation-only.
+- The Add New Disk/Media dialog starts with `No drive selected` and a disabled `OK` button, enables confirmation only after a readable selected media source (including a natively mounted/resolved ISO) and editable destination catalog are available, and closes without staging changes on Cancel. A confirmed source stages the background add/update scan in the chosen catalog; selecting an already indexed source stages a replacement without duplicate source contents.
 - Save (`Ctrl+S`) commits pending catalog content to the active SQLite file; until Save succeeds, the status bar reports `Modified` and the saved catalog file retains its prior content.
-- Opening or creating another catalog, or exiting the application, prompts the user to Save, Discard, or Cancel when pending catalog changes exist.
+- File > Close closes the active TreeView catalog only after an `Are you sure you want to close this catalog?` Yes/No confirmation whose safe default is No; the context-menu Close action is available only on a top-level catalog root.
+- Closing a modified catalog asks `Save changes?` with Yes/No/Cancel, retaining that root on Cancel or save failure. Exiting the application similarly resolves pending changes for all modified open catalogs.
 - Search for Items (`Ctrl+F`) requires an active catalog and opens a native search window with a file/folder name input and Search action; matching indexed items from all media sources in that database appear below the controls with name, type, size, path, and modified metadata.
-- The main folder tree uses a native TreeView: its top-level node is the active catalog database label, its children are stored disks/media sources, and expanding a node loads only normalized persisted descendant folders.
+- The main folder tree uses a native TreeView: each top-level node is an open catalog database label, its children are stored disks/media sources, and expanding a node loads only normalized persisted descendant folders from that root's database.
 - When the catalog root is selected, the native owner-data right-pane ListView displays one row per stored disk with columns `Disk Name`, `Media Type`, `Capacity`, `Free Space`, `Last Updated`, `Disk #`, `Description`, `Category`, and `Disk Location`, in that order; activating a disk navigates into its stored root contents.
 - When a disk or descendant folder is selected, the same right-pane ListView displays immediate folders and files with content-oriented columns; activating a folder navigates into it and updates the tree selection, address display, and Back/Forward history.
 - The main contents area supports multi-selection so the status bar can report selected item count and aggregate stored size; focused item status includes filename, size, and stored date. `Ctrl+A` selects every displayed file and folder only while a file or folder row in the right-pane contents list has focus, and does not apply to the catalog-root disk inventory.
@@ -52,7 +53,7 @@ The active catalog remains useful when its indexed original storage is disconnec
 - Common Controls should provide standard list and status presentation.
 - Expensive filesystem scanning or database operations triggered by the UI must not block the main window message pump.
 - Updates from background activity must be safely marshaled to the UI thread through Win32 messaging or equivalent native synchronization.
-- Catalog switching must not occur while an asynchronous scan is preparing pending catalog changes.
+- A running scan remains bound to its selected destination catalog even if the user browses another open root; the destination cannot be saved, discarded, or closed until the scan is safely resolved, and concurrent scans are not started.
 
 ## Large Result Sets
 

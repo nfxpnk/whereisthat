@@ -338,6 +338,12 @@ void MainWindowChrome::SetScanCommandEnabled(bool enabled) {
     }
 }
 
+void MainWindowChrome::SetSaveCommandEnabled(bool enabled) {
+    if (toolbarHandle_) {
+        SendMessageW(toolbarHandle_, TB_ENABLEBUTTON, ID_WIT_FILE_SAVE, MAKELPARAM(enabled, 0));
+    }
+}
+
 void MainWindowChrome::UpdateProgramStatusLights() {
     InvalidateStatusPart(4);
 }

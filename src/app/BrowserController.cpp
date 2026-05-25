@@ -1,4 +1,5 @@
 #include "BrowserController.h"
+#include <algorithm>
 #include "../core/SizeFormat.h"
 #include "../platform/Win32Helpers.h"
 
@@ -25,36 +26,38 @@ std::wstring CompactSize(std::uint64_t bytes) {
 
 }
 
-void BrowserController::Attach(HWND tree, HWND files, HWND back, HWND forward, HWND address) {
+void BrowserController::Attach(HWND tree, HWND files, HWND back, HWND forward, HWND address,
+    DatabaseResolver databaseResolver, LabelResolver labelResolver) {
     treeHandle_ = tree;
     filesHandle_ = files;
     backHandle_ = back;
     forwardHandle_ = forward;
     addressHandle_ = address;
-    tree_.Attach(treeHandle_);
+    databaseResolver_ = std::move(databaseResolver);
+    labelResolver_ = std::move(labelResolver);
+    tree_.Attach(treeHandle_, databaseResolver_);
     files_.Attach(filesHandle_);
 }
 
 void BrowserController::Clear() {
     tree_.Clear();
-    currentLocation_ = {};
+    currentTarget_ = {};
+    hasTarget_ = false;
     history_.clear();
     historyIndex_ = -1;
-    files_.SetLocation(currentLocation_, nullptr);
+    files_.SetLocation({}, nullptr);
     SetWindowTextW(addressHandle_, L"");
     UpdateNavigationControls();
 }
 
-std::wstring BrowserController::AddressFor(const wit::core::BrowserLocation& location,
-    const std::wstring& catalogLabel) const {
-    auto address = catalogLabel;
+std::wstring BrowserController::AddressFor(const wit::core::BrowserTarget& target) const {
+    const auto& location = target.location;
+    auto address = labelResolver_ ? labelResolver_(target.catalogId) : L"";
     if (location.isRoot) return address;
     address += L"\\" + location.sourceName;
     if (location.path.size() > location.sourceRoot.size()) {
         auto relative = location.path.substr(location.sourceRoot.size());
-        if (!relative.empty() && relative.front() != L'\\' && relative.front() != L'/') {
-            address += L"\\";
-        }
+        if (!relative.empty() && relative.front() != L'\\' && relative.front() != L'/') address += L"\\";
         address += relative;
     }
     return address;
@@ -66,57 +69,84 @@ void BrowserController::UpdateNavigationControls() {
         historyIndex_ + 1 < static_cast<int>(history_.size()));
 }
 
-void BrowserController::NavigateTo(const wit::core::BrowserLocation& location, bool addToHistory,
-    wit::storage::Database* database, const std::wstring& catalogLabel) {
+void BrowserController::NavigateTo(const wit::core::BrowserTarget& target, bool addToHistory) {
+    auto* database = databaseResolver_ ? databaseResolver_(target.catalogId) : nullptr;
     if (!database || !database->IsOpen()) return;
     if (addToHistory) {
-        if (historyIndex_ >= 0 && currentLocation_ == location) return;
+        if (historyIndex_ >= 0 && hasTarget_ && currentTarget_ == target) return;
         history_.resize(static_cast<std::size_t>(historyIndex_ + 1));
-        history_.push_back(location);
+        history_.push_back(target);
         historyIndex_ = static_cast<int>(history_.size()) - 1;
     }
-    currentLocation_ = location;
-    files_.SetLocation(currentLocation_, database);
-    const auto address = AddressFor(currentLocation_, catalogLabel);
+    currentTarget_ = target;
+    hasTarget_ = true;
+    files_.SetLocation(target.location, database);
+    const auto address = AddressFor(target);
     SetWindowTextW(addressHandle_, address.c_str());
     selectingTree_ = true;
-    tree_.SelectLocation(currentLocation_);
+    tree_.SelectLocation(target);
     selectingTree_ = false;
     UpdateNavigationControls();
 }
 
-void BrowserController::Reload(const std::wstring& catalogLabel, wit::storage::Database* database) {
-    if (!database || !database->IsOpen()) {
-        Clear();
-        return;
-    }
-    selectingTree_ = true;
-    tree_.Reload(catalogLabel, database->GetCatalogs(), database);
-    selectingTree_ = false;
-    history_.clear();
-    historyIndex_ = -1;
-    NavigateTo({}, true, database, catalogLabel);
+void BrowserController::AddCatalog(wit::core::CatalogId id, const std::wstring& label,
+    wit::storage::Database* database, bool select) {
+    if (!database || !database->IsOpen()) return;
+    tree_.AddCatalog(id, label, database->GetCatalogs(), select);
+    if (select) NavigateTo({id, {}}, true);
 }
 
-void BrowserController::NavigateBack(wit::storage::Database* database, const std::wstring& catalogLabel) {
+void BrowserController::RefreshCatalog(wit::core::CatalogId id, const std::wstring& label,
+    wit::storage::Database* database, bool select) {
+    if (!database || !database->IsOpen()) return;
+    tree_.RefreshCatalog(id, label, database->GetCatalogs(), select);
+    if (select || (hasTarget_ && currentTarget_.catalogId == id)) NavigateTo({id, {}}, true);
+}
+
+void BrowserController::RemoveCatalog(wit::core::CatalogId id) {
+    tree_.RemoveCatalog(id);
+    history_.erase(std::remove_if(history_.begin(), history_.end(),
+        [id](const auto& target) { return target.catalogId == id; }), history_.end());
+    historyIndex_ = history_.empty() ? -1 : (std::min)(historyIndex_, static_cast<int>(history_.size()) - 1);
+    if (hasTarget_ && currentTarget_.catalogId == id) {
+        currentTarget_ = {};
+        hasTarget_ = false;
+        files_.SetLocation({}, nullptr);
+        SetWindowTextW(addressHandle_, L"");
+    }
+    UpdateNavigationControls();
+}
+
+bool BrowserController::SelectCatalogRoot(wit::core::CatalogId id) {
+    return tree_.SelectCatalogRoot(id);
+}
+
+bool BrowserController::SelectFirstCatalogRoot() {
+    return tree_.SelectFirstCatalogRoot();
+}
+
+wit::core::CatalogId BrowserController::SelectedCatalogId() const {
+    return tree_.CatalogIdFor(TreeView_GetSelection(treeHandle_));
+}
+
+void BrowserController::NavigateBack() {
     if (historyIndex_ <= 0) return;
     --historyIndex_;
-    NavigateTo(history_[historyIndex_], false, database, catalogLabel);
+    NavigateTo(history_[historyIndex_], false);
 }
 
-void BrowserController::NavigateForward(wit::storage::Database* database, const std::wstring& catalogLabel) {
+void BrowserController::NavigateForward() {
     if (historyIndex_ < 0 || historyIndex_ + 1 >= static_cast<int>(history_.size())) return;
     ++historyIndex_;
-    NavigateTo(history_[historyIndex_], false, database, catalogLabel);
+    NavigateTo(history_[historyIndex_], false);
 }
 
-LRESULT BrowserController::OnTreeSelectionChanged(LPNMHDR header, wit::storage::Database* database,
-    const std::wstring& catalogLabel) {
-    if (selectingTree_) return 0;
+wit::core::CatalogId BrowserController::OnTreeSelectionChanged(LPNMHDR header) {
     const auto* notification = reinterpret_cast<NMTREEVIEWW*>(header);
-    const auto* location = tree_.LocationFor(notification->itemNew.hItem);
-    if (location) NavigateTo(*location, true, database, catalogLabel);
-    return 0;
+    const auto* target = tree_.TargetFor(notification->itemNew.hItem);
+    if (!target) return 0;
+    if (!selectingTree_) NavigateTo(*target, true);
+    return target->catalogId;
 }
 
 LRESULT BrowserController::OnTreeExpanding(LPNMHDR header) {
@@ -134,26 +164,26 @@ LRESULT BrowserController::OnFileGetDispInfo(LPNMHDR header) {
     return 0;
 }
 
-LRESULT BrowserController::OnFileActivate(LPNMHDR header, wit::storage::Database* database,
-    const std::wstring& catalogLabel) {
+LRESULT BrowserController::OnFileActivate(LPNMHDR header) {
+    if (!hasTarget_) return 0;
     const auto* activation = reinterpret_cast<NMITEMACTIVATE*>(header);
     if (activation->iItem < 0) return 0;
-    wit::core::BrowserLocation next;
-    next.isRoot = false;
-    if (currentLocation_.isRoot) {
+    auto next = currentTarget_;
+    next.location.isRoot = false;
+    if (currentTarget_.location.isRoot) {
         const auto* disk = files_.DiskAt(activation->iItem);
         if (!disk) return 0;
-        next.sourceId = disk->id;
-        next.sourceName = disk->diskName;
-        next.sourceRoot = disk->sourcePath;
-        next.path = disk->sourcePath;
+        next.location.sourceId = disk->id;
+        next.location.sourceName = disk->diskName;
+        next.location.sourceRoot = disk->sourcePath;
+        next.location.path = disk->sourcePath;
     } else {
         const auto* entry = files_.EntryAt(activation->iItem);
         if (!entry || !entry->isDirectory) return 0;
-        next = currentLocation_;
-        next.path = JoinStoredPath(currentLocation_.path, entry->name);
+        next.location = currentTarget_.location;
+        next.location.path = JoinStoredPath(currentTarget_.location.path, entry->name);
     }
-    NavigateTo(next, true, database, catalogLabel);
+    NavigateTo(next, true);
     return 0;
 }
 

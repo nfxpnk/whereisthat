@@ -91,6 +91,7 @@ bool ScanCoordinator::Start(wit::storage::Database* source, const wit::ui::AddNe
     scanId = nextScanId_++;
     if (scanId == 0) scanId = nextScanId_++;
     activeScanId_ = scanId;
+    activeCatalogId_ = media.destinationCatalogId;
     cancellationRequested_ = false;
     worker_ = std::jthread([this, scanId, root, diskName, diskNumber, media,
         staged = std::move(candidate)](std::stop_token stopToken) mutable {
@@ -128,6 +129,7 @@ std::optional<ScanResult> ScanCoordinator::TakeResult(ScanId scanId) {
 void ScanCoordinator::RetireWorker(ScanId scanId) {
     if (scanId != activeScanId_) return;
     activeScanId_ = 0;
+    activeCatalogId_ = 0;
     cancellationRequested_ = false;
     if (!worker_.joinable()) return;
     {
@@ -160,6 +162,7 @@ void ScanCoordinator::RunScan(std::stop_token stopToken, ScanId scanId, std::wst
     std::unique_ptr<wit::storage::Database> staged) {
     ScanResult result;
     result.id = scanId;
+    result.destinationCatalogId = media.destinationCatalogId;
     result.outcome = ScanOutcome::Failed;
     result.error = L"The scan could not be staged. The saved catalog was not changed.";
     const auto cancelled = [&]() {

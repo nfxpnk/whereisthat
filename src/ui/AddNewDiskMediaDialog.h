@@ -4,6 +4,7 @@
 #include <Windows.h>
 #include <string>
 #include <vector>
+#include "../core/CatalogIdentity.h"
 
 namespace wit::ui {
 enum class MediaSourceKind {
@@ -20,13 +21,21 @@ struct AddNewDiskMediaResult {
     std::wstring diskNumber;
     std::wstring diskName;
     bool calculateCrc{};
+    wit::core::CatalogId destinationCatalogId{};
+};
+
+struct CatalogChoice {
+    wit::core::CatalogId id{};
+    std::wstring label;
+    std::wstring path;
 };
 
 class AddNewDiskMediaDialog : public ATL::CDialogImpl<AddNewDiskMediaDialog> {
 public:
     enum { IDD = IDD_ADD_NEW_DISK_MEDIA };
 
-    bool Show(HWND owner, HINSTANCE instance, AddNewDiskMediaResult& result);
+    bool Show(HWND owner, HINSTANCE instance, const std::vector<CatalogChoice>& catalogs,
+        wit::core::CatalogId preferredCatalogId, AddNewDiskMediaResult& result);
 
     BEGIN_MSG_MAP(AddNewDiskMediaDialog)
         MESSAGE_HANDLER(WM_INITDIALOG, OnInitDialog)
@@ -46,6 +55,8 @@ public:
 private:
     AddNewDiskMediaResult result_{};
     std::vector<std::wstring> drives_;
+    std::vector<CatalogChoice> catalogs_;
+    wit::core::CatalogId preferredCatalogId_{};
 
     LRESULT OnInitDialog(UINT message, WPARAM wparam, LPARAM lparam, BOOL& handled);
     LRESULT OnSelectDrive(WORD notifyCode, WORD id, HWND control, BOOL& handled);
@@ -56,8 +67,10 @@ private:
     LRESULT OnCancel(WORD notifyCode, WORD id, HWND control, BOOL& handled);
     void Initialize();
     void PopulateDriveButtons();
+    void PopulateCatalogChoices();
     void LayoutSourceButtons();
     void UpdateArchiveOptions();
+    void UpdateConfirmEnabled();
     void SelectDrive(int index);
     void SelectFolder();
     void SelectIso();

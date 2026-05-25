@@ -32,7 +32,7 @@ The established main-window collaborators are:
 | --- | --- |
 | `MainWindowChrome` | Child controls, toolbar, splitter/layout, status rendering, and control-level presentation support. |
 | `BrowserController` | Tree/list adapters, browser location and history, and synchronized navigation behavior. |
-| `CatalogSession` | Active/pending databases, dirty/protected state, settings/recent catalogs, Save and discard state transitions. |
+| `CatalogSession` | Collection of open catalog database sessions, selected active identity, per-catalog pending/dirty/protected state, settings/recent catalogs, Save and discard state transitions. |
 | `ScanCoordinator` | Background scan worker lifetime, staged scan preparation, and UI-thread completion payloads. |
 
 New main-window behavior SHALL extend the component that owns that responsibility, or introduce a separately justified focused component. Cross-component workflow ordering and top-level native dispatch remain appropriate `MainFrame` responsibilities.
@@ -44,14 +44,15 @@ Modal dialog presentation for General Settings belongs to a dedicated WTL/ATL-ho
 - `WhereIsThat.exe` is a Unicode Win32 GUI executable.
 - The main window uses Common Controls for catalog browsing, file browsing, status display, and related native interactions.
 - A scan is initiated from the UI and performs filesystem enumeration without blocking interactive window message handling.
-- Scanned metadata is first staged in a working catalog session and is persisted to the currently active user-selected SQLite catalog database only by explicit Save; `catalog.db` is not implicitly preferred over other filenames.
+- Scanned metadata is first staged in the selected destination open catalog session and is persisted to that user-selected SQLite catalog database only by explicit Save; `catalog.db` is not implicitly preferred over other filenames.
 - The main frame can have no active catalog at startup, or can restore the available catalog identified by `settings.ini`.
 - A catalog database stores catalog metadata, disk/media records, latest scan statistics, normalized folders, and file-only records; browsing them remains possible after the original source drive is unavailable.
 - The supported catalog format is deliberately new-format only and rejects earlier `catalogs`/mixed `files` databases rather than migrating them.
 - Persisted catalog timestamps are Unix timestamp integers; user-facing formatting is performed outside SQLite.
 - Catalog-wide totals are queried from normalized rows and catalog file size is read from the filesystem, rather than persisted as summary metadata.
-- The main catalog browser presents a native TreeView rooted at the active database catalog and an owner-data ListView for the current folder's immediate persisted contents, with Back/Forward and catalog-relative location display.
-- The catalog session component owns active-catalog editable/protected and pending/dirty state, exposes staged data to browsing through main-frame coordination, and supports guarding catalog replacement or shutdown when edits remain unsaved.
+- The main catalog browser presents a native TreeView with one top-level root per concurrently open database catalog and an owner-data ListView for the selected root or folder's immediate persisted contents, with Back/Forward and catalog-relative location display.
+- The selected TreeView root, or the owning root of a selected descendant, identifies the active catalog for scoped commands and status.
+- The catalog session component owns per-open-catalog editable/protected and pending/dirty state, exposes staged data to browsing through main-frame coordination, and supports independently closing catalogs or guarding shutdown when edits remain unsaved.
 - The native status bar contains five independently updated sections for catalog state, protection, focus, selection totals, and extensible application-status lights.
 - Large location lists are presented through an owner-data ListView backed by paged database access rather than loading an entire catalog into memory.
 

@@ -1,0 +1,1 @@
+-- No application-defined CREATE TRIGGER statement was found in src/storage or other source files.

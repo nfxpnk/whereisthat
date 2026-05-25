@@ -1,75 +1,10 @@
 #include "MainFrame.h"
 #include <algorithm>
-#include <memory>
-#include <shobjidl.h>
 #include "../ui/AddNewDiskMediaDialog.h"
+#include "../ui/CatalogFileDialog.h"
 #include "../ui/GeneralSettingsDialog.h"
 #include "../ui/SearchDialog.h"
 #include "resource.h"
-
-namespace {
-
-constexpr COMDLG_FILTERSPEC kCatalogFileTypes[] = {
-    {L"SQLite catalog database (*.db)", L"*.db"},
-    {L"All files (*.*)", L"*.*"}
-};
-
-bool ItemFileSystemPath(IShellItem* item, std::wstring& path) {
-    PWSTR selected{};
-    if (FAILED(item->GetDisplayName(SIGDN_FILESYSPATH, &selected))) return false;
-    path = selected;
-    CoTaskMemFree(selected);
-    return true;
-}
-
-bool ChooseNewCatalogPath(HWND owner, std::wstring& path) {
-    IFileSaveDialog* dialog{};
-    if (FAILED(CoCreateInstance(CLSID_FileSaveDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dialog)))) {
-        return false;
-    }
-    dialog->SetTitle(L"Create a new catalog database");
-    dialog->SetFileTypes(2, kCatalogFileTypes);
-    dialog->SetFileTypeIndex(1);
-    dialog->SetDefaultExtension(L"db");
-    DWORD options{};
-    dialog->GetOptions(&options);
-    dialog->SetOptions(options | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST | FOS_NOCHANGEDIR);
-    bool selected = false;
-    if (SUCCEEDED(dialog->Show(owner))) {
-        IShellItem* item{};
-        if (SUCCEEDED(dialog->GetResult(&item))) {
-            selected = ItemFileSystemPath(item, path);
-            item->Release();
-        }
-    }
-    dialog->Release();
-    return selected;
-}
-
-bool ChooseCatalogToOpen(HWND owner, std::wstring& path) {
-    IFileOpenDialog* dialog{};
-    if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dialog)))) {
-        return false;
-    }
-    dialog->SetTitle(L"Open a catalog database");
-    dialog->SetFileTypes(2, kCatalogFileTypes);
-    dialog->SetFileTypeIndex(1);
-    DWORD options{};
-    dialog->GetOptions(&options);
-    dialog->SetOptions(options | FOS_FORCEFILESYSTEM | FOS_FILEMUSTEXIST | FOS_NOCHANGEDIR);
-    bool selected = false;
-    if (SUCCEEDED(dialog->Show(owner))) {
-        IShellItem* item{};
-        if (SUCCEEDED(dialog->GetResult(&item))) {
-            selected = ItemFileSystemPath(item, path);
-            item->Release();
-        }
-    }
-    dialog->Release();
-    return selected;
-}
-
-}
 
 bool MainFrame::Create() {
     const HMENU menu = LoadMenuW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDR_MAINMENU));
@@ -331,7 +266,8 @@ void MainFrame::OnNewCatalog() {
         return;
     }
     std::wstring path;
-    if (!ChooseNewCatalogPath(m_hWnd, path) || !ConfirmPendingChanges()) return;
+    const wit::ui::CatalogFileDialog dialog;
+    if (!dialog.ChooseNewCatalogPath(m_hWnd, path) || !ConfirmPendingChanges()) return;
     if (!ActivateCatalog(path, true, true)) {
         ::MessageBoxW(m_hWnd, L"Unable to create the new catalog. Choose a filename that does not already exist.",
             L"New Catalog", MB_OK | MB_ICONERROR);
@@ -344,7 +280,8 @@ void MainFrame::OnOpenCatalog() {
         return;
     }
     std::wstring path;
-    if (!ChooseCatalogToOpen(m_hWnd, path) || !ConfirmPendingChanges()) return;
+    const wit::ui::CatalogFileDialog dialog;
+    if (!dialog.ChooseCatalogToOpen(m_hWnd, path) || !ConfirmPendingChanges()) return;
     if (!ActivateCatalog(path, false, true)) {
         ::MessageBoxW(m_hWnd, L"The selected file is not an available catalog database.", L"Open Catalog",
             MB_OK | MB_ICONERROR);

@@ -37,6 +37,8 @@ The established main-window collaborators are:
 
 New main-window behavior SHALL extend the component that owns that responsibility, or introduce a separately justified focused component. Cross-component workflow ordering and top-level native dispatch remain appropriate `MainFrame` responsibilities.
 
+Modal dialog presentation for General Settings belongs to a dedicated WTL/ATL-hosted component in `src/ui`; `MainFrame` launches it and retains coordination of confirmed settings persistence and resulting chrome updates.
+
 ## Runtime Shape
 
 - `WhereIsThat.exe` is a Unicode Win32 GUI executable.

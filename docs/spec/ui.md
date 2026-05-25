@@ -41,7 +41,7 @@ The active catalog remains useful when its indexed original storage is disconnec
 - When a disk or descendant folder is selected, the same right-pane ListView displays immediate folders and files with content-oriented columns; activating a folder navigates into it and updates the tree selection, address display, and Back/Forward history.
 - The main contents area supports multi-selection so the status bar can report selected item count and aggregate stored size; focused item status includes filename, size, and stored date. `Ctrl+A` selects every displayed file and folder only while a file or folder row in the right-pane contents list has focus, and does not apply to the catalog-root disk inventory.
 - An active read-only or otherwise protected catalog remains browseable and shows a compact lock indicator, but does not accept Add/Update or Save mutations.
-- General Settings opens a native settings dialog; its initial `Show status bar` preference immediately controls status-bar visibility and defaults to enabled, and it displays the stored last-opened catalog path as read-only information.
+- General Settings opens a dedicated WTL/ATL-hosted native settings dialog in `src/ui`; its initial `Show status bar` preference immediately controls status-bar visibility and defaults to enabled, and it displays the stored last-opened catalog path as read-only information.
 - Commands still introduced as placeholders, including the remaining Search commands, have no storage, settings, catalog, file, or display effect until their feature behavior is specified and implemented.
 
 ## Win32 Interaction Rules

@@ -3,14 +3,11 @@
 #include <memory>
 #include <shobjidl.h>
 #include "../ui/AddNewDiskMediaDialog.h"
+#include "../ui/GeneralSettingsDialog.h"
 #include "../ui/SearchDialog.h"
 #include "resource.h"
 
 namespace {
-
-struct GeneralSettingsDialogData {
-    wit::platform::AppSettings settings;
-};
 
 constexpr COMDLG_FILTERSPEC kCatalogFileTypes[] = {
     {L"SQLite catalog database (*.db)", L"*.db"},
@@ -70,31 +67,6 @@ bool ChooseCatalogToOpen(HWND owner, std::wstring& path) {
     }
     dialog->Release();
     return selected;
-}
-
-INT_PTR CALLBACK GeneralSettingsDialogProc(HWND dialog, UINT message, WPARAM wparam, LPARAM lparam) {
-    auto* data = reinterpret_cast<GeneralSettingsDialogData*>(GetWindowLongPtrW(dialog, GWLP_USERDATA));
-    switch (message) {
-    case WM_INITDIALOG:
-        data = reinterpret_cast<GeneralSettingsDialogData*>(lparam);
-        SetWindowLongPtrW(dialog, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(data));
-        CheckDlgButton(dialog, IDC_SHOW_STATUS_BAR, data->settings.showStatusBar ? BST_CHECKED : BST_UNCHECKED);
-        SetDlgItemTextW(dialog, IDC_LAST_OPENED_CATALOG, data->settings.lastCatalogPath.empty()
-            ? L"(No catalog opened)" : data->settings.lastCatalogPath.c_str());
-        return TRUE;
-    case WM_COMMAND:
-        if (LOWORD(wparam) == IDOK) {
-            data->settings.showStatusBar = IsDlgButtonChecked(dialog, IDC_SHOW_STATUS_BAR) == BST_CHECKED;
-            EndDialog(dialog, IDOK);
-            return TRUE;
-        }
-        if (LOWORD(wparam) == IDCANCEL) {
-            EndDialog(dialog, IDCANCEL);
-            return TRUE;
-        }
-        break;
-    }
-    return FALSE;
 }
 
 }
@@ -392,11 +364,10 @@ void MainFrame::RefreshOpenRecentMenu() {
 }
 
 void MainFrame::OnGeneralSettings() {
-    GeneralSettingsDialogData data{session_.Settings()};
-    const auto result = DialogBoxParamW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDD_GENERAL_SETTINGS),
-        m_hWnd, GeneralSettingsDialogProc, reinterpret_cast<LPARAM>(&data));
-    if (result != IDOK) return;
-    if (!session_.SaveSettings(data.settings)) {
+    wit::ui::GeneralSettingsDialog dialog;
+    wit::platform::AppSettings settings;
+    if (!dialog.Show(m_hWnd, session_.Settings(), settings)) return;
+    if (!session_.SaveSettings(settings)) {
         ::MessageBoxW(m_hWnd, L"Unable to save settings.ini.", L"General Settings", MB_OK | MB_ICONERROR);
         return;
     }

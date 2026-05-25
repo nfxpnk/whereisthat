@@ -12,6 +12,6 @@ std::wstring ParentDirectory(const std::wstring& fullPath) {
 }
 std::wstring FileExtension(const std::wstring& fileName) {
     auto pos = fileName.find_last_of(L'.');
-    return pos == std::wstring::npos ? L"" : fileName.substr(pos);
+    return pos == std::wstring::npos || pos + 1 >= fileName.size() ? L"" : fileName.substr(pos + 1);
 }
 }

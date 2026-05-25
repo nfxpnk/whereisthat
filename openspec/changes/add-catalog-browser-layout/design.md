@@ -1,3 +1,5 @@
+> Storage evolution note: `redesign-catalog-storage-schema` preserves offline hierarchical browsing while replacing mixed item rows with normalized disk, folder, and file records.
+
 ## Context
 
 The main frame already divides its client area into a left catalog-source `ListView` and a right owner-data file `ListView`. For one selected source, the right list currently retrieves every indexed row rather than only immediate children. Each active SQLite database is the product catalog, while the compatible `catalogs` table contains its indexed source roots; scanning stores a directory row for each source with an empty `parent_path`, then stores descendants with their physical parent paths.

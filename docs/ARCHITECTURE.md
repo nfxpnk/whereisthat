@@ -17,7 +17,9 @@ Those options increase runtime/dependency footprint and abstraction layers. The 
 `FileScanner` runs on a worker thread, recursively enumerates with `FindFirstFileW/FindNextFileW`, skips inaccessible entries, and skips reparse-point directories in v1 to avoid loops.
 
 ## SQLite model
-`Database` opens the user-selected active SQLite catalog file, configures pragmas (`foreign_keys=ON`, `journal_mode=WAL`, `synchronous=NORMAL`), creates schema/indexes for new catalogs, and writes indexed media-source/file rows via prepared statements inside transactions. `catalog.db` is only one possible catalog filename.
+`Database` opens the user-selected active SQLite catalog file, configures pragmas (`foreign_keys=ON`, `journal_mode=WAL`, `synchronous=NORMAL`), and creates replacement-format catalogs containing `catalog_metadata`, `disks`, `disk_scan_statistics`, `folders`, and `files`. Folders and files are linked to disks with foreign keys and are written through prepared statements inside transactions. Old catalog formats are rejected rather than upgraded.
+
+Timestamps are stored as Unix seconds, Boolean scan settings as `INTEGER` values constrained to `0` or `1`, and native file attributes as Win32 bitmasks. Catalog counts and storage totals are calculated from normalized tables; the current catalog database file size is read from the filesystem rather than stored in SQLite. `catalog.db` is only one possible catalog filename.
 
 ## Virtual ListView
 Right pane uses `LVS_OWNERDATA` and only fetches pages (`LIMIT/OFFSET`) for visible ranges. A fixed-size page cache avoids loading all file rows into RAM.

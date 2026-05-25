@@ -1,3 +1,5 @@
+> Storage evolution note: `redesign-catalog-storage-schema` preserves staged Save/Discard behavior while replacing persisted table details with a new-format-only normalized catalog schema.
+
 ## Context
 
 `MainFrame` currently creates one native status-bar control but writes only part zero with transient catalog/scan text. The main contents view is an owner-data `ListView` bound to paged `Database` reads and is currently created with single-selection behavior. `wit::core::FormatSize` already formats file sizes, and the toolbar already embeds 16-pixel PNG resources through WIC.

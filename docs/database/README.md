@@ -1,76 +1,68 @@
 # Database Documentation
 
-## Engine And Ownership
+## Engine And Format
 
-Where Is That? stores catalog content in SQLite database files through the native SQLite C API. SQLite is linked through the separately deployed `third_party/sqlite/sqlite3.dll`; storage SQL is owned by `src/storage/Database.cpp` and prepared statement lifetime management by `src/storage/SQLiteStatement.cpp`.
+Where Is That? uses SQLite through the native C API in `src/storage/Database.cpp`. Each user-selected SQLite file is one catalog. The current format is a replacement format: former databases containing the legacy `catalogs` and mixed folder/file `files` schema are rejected and are not migrated.
 
-Each user-selected SQLite file is one product catalog. Within it, the legacy-named `catalogs` table contains indexed media-source rows and `files` contains the scanned file and folder metadata beneath those sources. The repository file `catalog.db` is a possible catalog file, not an implicit application database.
-
-## Open And Creation Flow
-
-`src/app/MainFrame.cpp`, `MainFrame::ActivateCatalog()` directs creation and opening to `wit::storage::Database`:
-
-- `Database::CreateNew()` creates a non-existing user-selected file and opens it for writable initialization.
-- `Database::OpenExisting()` first attempts an editable open, then falls back to read-only opening for browseable protected catalogs.
-- `Database::OpenInternal()` opens SQLite, validates existing files with `HasCatalogSchema()`, and calls `InitializeSchema()` only for editable connections.
-- `Database::CreateWorkingCopy()` makes an in-memory SQLite backup used to stage Add/Update changes until Save.
-- `Database::ReplaceCatalogDataFrom()` atomically replaces stored `catalogs` and `files` content from the staged copy when the user saves.
-
-Application preferences, including recent/last catalog paths, are stored in `settings.ini` by `src/platform/AppSettings.cpp`, not in these database tables.
-
-## Schema Creation And Upgrade
-
-`Database::InitializeSchema()` is the canonical executable schema definition. For writable database connections it:
-
-1. Enables foreign-key enforcement and applies WAL/NORMAL persistence settings.
-2. Creates `catalogs` and `files` if absent.
-3. Uses `PRAGMA table_info(files)` and conditionally adds `files.is_directory INTEGER NOT NULL DEFAULT 0` for an older schema that lacks the column.
-4. Creates five query-supporting indexes if absent.
-
-There is no numeric schema version, migration table, or `PRAGMA user_version` management in current source. The single observed upgrade is captured in [schema/migrations.sql](schema/migrations.sql), and its conditional execution remains implemented only in C++.
+`Database::InitializeSchema()` is the executable schema authority for new catalog files. Add/Update work is staged in an in-memory database copy and becomes durable only when Save backs that replacement-format database into the active file.
 
 ## Tables
 
-| Table | Description | SQL | Fields and usage |
+| Table | Purpose | SQL | Field documentation |
 |---|---|---|---|
-| `catalogs` | Indexed media-source roots contained in one catalog database file; name retained for compatibility. | [schema/tables/catalogs.sql](schema/tables/catalogs.sql) | [tables/catalogs.md](tables/catalogs.md) |
-| `files` | Scanned file and directory metadata owned by a source and available for offline browse/search. | [schema/tables/files.sql](schema/tables/files.sql) | [tables/files.md](tables/files.md) |
+| `catalog_metadata` | Singleton catalog-owned description metadata. | [schema/tables/catalog_metadata.sql](schema/tables/catalog_metadata.sql) | [tables/catalog_metadata.md](tables/catalog_metadata.md) |
+| `disks` | One added disk/media source and native/storage metadata. | [schema/tables/disks.sql](schema/tables/disks.sql) | [tables/disks.md](tables/disks.md) |
+| `disk_scan_statistics` | Latest successful scan statistics per disk. | [schema/tables/disk_scan_statistics.sql](schema/tables/disk_scan_statistics.sql) | [tables/disk_scan_statistics.md](tables/disk_scan_statistics.md) |
+| `folders` | Normalized folder hierarchy for offline browsing. | [schema/tables/folders.sql](schema/tables/folders.sql) | [tables/folders.md](tables/folders.md) |
+| `files` | File-only metadata stored in folders. | [schema/tables/files.sql](schema/tables/files.sql) | [tables/files.md](tables/files.md) |
 
 ## Relationships
 
-`files.catalog_id` explicitly references `catalogs.id` with `ON DELETE CASCADE`. The application inserts a `files` directory row for a successfully inspected source root with `parent_path = ''`, and stores descendant hierarchy by matching `catalog_id` plus `parent_path`. The path hierarchy is an application-level relationship rather than a self-referential database constraint.
+- `disk_scan_statistics.disk_id -> disks.id ON DELETE CASCADE`.
+- `folders.disk_id -> disks.id ON DELETE CASCADE`.
+- `folders.parent_folder_id -> folders.id ON DELETE CASCADE`; a null parent marks the stored disk root folder.
+- `files.disk_id -> disks.id ON DELETE CASCADE`.
+- `files.folder_id -> folders.id ON DELETE CASCADE`.
 
-## Indexes And Query Shape
+`disks.source_path` is the current stored browse root and is case-insensitively unique. Add/Update matches this path for ordinary sources and can additionally match `disks.location` for an ISO image whose current mounted root has changed.
 
-The schema defines [schema/indexes.sql](schema/indexes.sql):
+## Data Encodings
 
-| Index | Intended/currently visible query support |
+- All stored date/time fields are `INTEGER` Unix timestamps in seconds. `src/platform/Win32Helpers.cpp` converts filesystem times and formats display strings.
+- Boolean `calculated_file_crcs` is stored as `INTEGER` `0` or `1`.
+- File and folder attributes are stored as native Win32 bitmasks; relevant requested values are hidden, system, read-only, compressed, and archive flags.
+- File extensions are stored without a dot, for example `txt`; files without an extension store `''`.
+- `files.crc` is nullable and stores uppercase CRC-32 text only when CRC calculation succeeds during an enabled scan.
+- `disks.disk_type` is constrained to `CD`, `DVD`, `BluRay`, `HardDisk`, `SolidStateDisk`, `RemovableUSB`, `VirtualDisk`, or `Other`. Mounted ISO sources are stored as `VirtualDisk`, Windows removable drives as `RemovableUSB`, and sources without a reliable subtype as `Other`.
+
+## Stored And Derived Values
+
+Stored disk scan results include `disks.total_files` and `disks.total_folders`, because those are metadata for the latest successful disk scan. Catalog-level totals are deliberately calculated by `Database::GetCatalogSummary()`:
+
+| Catalog value | Source |
 |---|---|
-| `idx_catalogs_root_path` | Case-insensitive source lookup and duplicate removal by `root_path`. |
-| `idx_files_catalog_path` | Paged immediate-child listing and lazy directory expansion by source/path. |
-| `idx_files_catalog_name` | Stored source/name ordering or future source name lookup; current global substring search does not filter by source. |
-| `idx_files_catalog_extension` | Present in schema; no current extension-filter SQL was found. |
-| `idx_files_catalog_size` | Present in schema; no current size-filter SQL was found. |
+| Current catalog file size | Filesystem size of the active database path via `src/platform/VolumeInfo.cpp`; not stored in SQLite. |
+| Total disks | `COUNT(disks)` |
+| Total files | `COUNT(files)` |
+| Total folders | `COUNT(folders)` |
+| Total storage space | `SUM(disks.total_capacity)` |
+| Total used space | `SUM(MAX(disks.total_capacity - disks.free_space, 0))`, expressed as a `CASE` query so anomalous free-space values cannot yield negative used space. |
 
-Item search uses `files.name LIKE ? ESCAPE '\'` with a leading wildcard and has no separately defined full-text or substring index.
+## Schema Creation And Access
 
-## Additional Schema Artifacts
+- New catalog creation initializes the tables and indexes above and inserts `catalog_metadata.id = 1`.
+- Existing catalog open validates replacement-format columns only; it includes no legacy upgrade branch.
+- SQLite configuration PRAGMAs are listed in [schema/pragmas.sql](schema/pragmas.sql).
+- Defined indexes are listed in [schema/indexes.sql](schema/indexes.sql).
+- No application views or triggers are defined: [schema/views.sql](schema/views.sql), [schema/triggers.sql](schema/triggers.sql).
 
-- [schema/pragmas.sql](schema/pragmas.sql) records connection/schema-initialization PRAGMAs.
-- [schema/migrations.sql](schema/migrations.sql) records the conditional `is_directory` additive upgrade.
-- [schema/triggers.sql](schema/triggers.sql) records that no application-defined triggers were found.
-- [schema/views.sql](schema/views.sql) records that no application-defined views were found.
-- [schema-inventory.md](schema-inventory.md) gives the complete inventory and source traceability.
+## Updating This Documentation
 
-## Keeping Documentation Current
+When schema code changes, update the affected SQL/table pages and [schema-inventory.md](schema-inventory.md), then run:
 
-When database behavior changes:
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/database-docs/verify.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/storage-smoke/run.ps1
+```
 
-1. Update `src/storage/Database.cpp` first as the runtime source of truth, including upgrade handling for stored user data.
-2. Update the matching table SQL and table Markdown file for every affected column, constraint, read, or write path.
-3. Update shared index, PRAGMA, migration, trigger, or view files when those objects change.
-4. Update this overview and `schema-inventory.md` for table lists, relationships, and compatibility notes.
-5. Run `powershell -ExecutionPolicy Bypass -File tools/database-docs/verify.ps1` to check table coverage, field coverage, and documented DDL against the C++ initializer.
-
-Detailed meanings remain intentionally human-authored: the verifier automates completeness and DDL drift checks without inventing semantics that are not expressed in code.
-
+The verifier checks documented table and field coverage plus shared DDL against the executable initializer. The smoke tool compiles the native storage/scanner sources into a temporary validation executable and exercises replacement-format behavior; narrative meanings still require review of the scanner and storage usage.

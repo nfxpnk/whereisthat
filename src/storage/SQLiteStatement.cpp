@@ -19,6 +19,10 @@ void SQLiteStatement::BindText(int index, const std::string& value) {
     sqlite3_bind_text(stmt_, index, value.c_str(), -1, SQLITE_TRANSIENT);
 }
 
+void SQLiteStatement::BindNull(int index) {
+    sqlite3_bind_null(stmt_, index);
+}
+
 bool SQLiteStatement::Step() {
     return sqlite3_step(stmt_) == SQLITE_ROW;
 }

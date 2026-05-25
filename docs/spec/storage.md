@@ -2,56 +2,73 @@
 
 ## Persistence Model
 
-Where Is That? treats each user-selected SQLite database file as one catalog. A catalog database retains enough filesystem metadata to list prior scans without accessing the original folder or drive. A file named `catalog.db` is supported like any other catalog filename, but is not implicitly created or opened as the permanent catalog.
+Where Is That? treats each user-selected SQLite database file as one catalog. The current catalog format is new-format only: database files created with the former `catalogs` and mixed folder/file `files` tables are not supported and are not migrated or modified when opening fails validation.
 
-SQLite is accessed in native C++ through the SQLite C API. Storage behavior belongs in `src/storage`; domain objects consumed by storage belong in `src/core`.
+SQLite is accessed in native C++ through the SQLite C API. Storage behavior belongs in `src/storage`; domain objects consumed by storage belong in `src/core`; Win32 filesystem and volume metadata discovery belongs in `src/platform` or scan orchestration.
 
 ## Application Preferences
 
 Application preferences are separate from catalog data and must not be added to SQLite merely to support UI configuration.
 
 - General Settings persists implemented preferences in `settings.ini` beside `WhereIsThat.exe`.
-- The initial preference is `[General] ShowStatusBar`, which defaults to enabled when the file or key is absent.
-- The optional `[General] LastCatalogPath` value records the most recently activated catalog database for startup restoration; an absent, empty, or unavailable path produces an empty startup state.
-- The optional `[RecentCatalogs] Path1` through `Path10` values record successfully activated catalog database paths in most-recent-first order for `File > Open Recent`; entries are deduplicated without storing catalog data in the preferences file.
-- UI preference reads and writes use a focused native platform helper; `src/storage` remains responsible for SQLite catalog persistence only.
+- `[General] LastCatalogPath` and `[RecentCatalogs] Path1` through `Path10` record activated catalog file paths, not catalog content.
+- UI preference reads and writes use `src/platform`; `src/storage` remains responsible only for SQLite catalog persistence.
 
 ## SQLite Packaging Decision
-
-The following decision is mandatory:
 
 - Keep `sqlite3.dll` separate from `WhereIsThat.exe`.
 - Use `sqlite3.lib` as the MSVC import library at link time.
 - Use `sqlite3.h` for compilation.
 - Copy `sqlite3.dll` next to `WhereIsThat.exe` after the build.
 
-SQLite must not be replaced with a managed data layer, a framework database abstraction, or a statically embedded amalgamation unless this specification is deliberately revised first.
+SQLite must not be replaced with a managed data layer, framework database abstraction, or statically embedded amalgamation unless this specification is deliberately revised.
 
 ## Current Data Responsibilities
 
-- A catalog database contains indexed media-source records with name, root path, creation timestamp, and item count.
-- File rows record their media-source ownership, parent path, name, extension, size, modification timestamp, attributes, and whether the row represents a directory.
-- Browser listing queries are scoped to the virtual catalog root or to the immediate children of a selected stored source/folder location, and are paged for the virtual ListView.
-- Folder-tree expansion queries return stored child directories only, keyed by source identity and persisted parent path; browsing never requires the indexed source to be online.
-- Item-name search queries match literal text across all file and folder rows in the active catalog database and page results for the virtual search ListView.
-- Useful media-source lookup paths remain indexed as the data set grows.
-- Existing databases that use the established `catalogs` and `files` schema remain valid catalog files; the table name is retained for data compatibility.
+- `catalog_metadata` contains the one catalog-owned free-text description record.
+- `disks` contains one indexed disk/media source with source identity, volume/capacity metadata, stored per-scan disk totals, descriptive classification, disk type, and added/updated timestamps.
+- `disk_scan_statistics` contains only the latest successful scan statistics for each disk.
+- `folders` contains persisted directory hierarchy and filesystem metadata for offline browsing.
+- `files` contains file-only records with folder ownership, description, extension without a dot, optional CRC, size, timestamps, and native attribute flags.
+- Foreign keys and cascading deletes keep disk content and latest statistics associated with their owning disk.
+
+## Encoding Rules
+
+- Persist all date/time values as SQLite `INTEGER` Unix timestamps in seconds. Format user-visible timestamp strings only at the presentation boundary.
+- Persist Boolean values such as `calculated_file_crcs` as `INTEGER` `0` or `1`.
+- Persist file/folder Win32 attributes as the native integer bitmask, including hidden, system, read-only, compressed, and archive flags when present.
+- Persist file extensions without the leading dot and use empty text for no extension.
+- Persist file CRC as nullable text; it remains null when CRC calculation is disabled or a CRC is unavailable.
+- Persist disk type as exactly one of `CD`, `DVD`, `BluRay`, `HardDisk`, `SolidStateDisk`, `RemovableUSB`, `VirtualDisk`, or `Other`; unavailable or unsafe classification resolves to `Other`.
+- Retain the accepted original media location so a mounted image can be matched for rescan even when Windows assigns it a different current browse root.
+
+## Derived Catalog Values
+
+Catalog-wide summary values are not cached in SQLite:
+
+- Read catalog file size from the active database file on the filesystem.
+- Calculate total disks from `COUNT(disks)`.
+- Calculate total files from `COUNT(files)`.
+- Calculate total folders from `COUNT(folders)`.
+- Calculate total storage space from `SUM(disks.total_capacity)`.
+- Calculate total used space from the non-negative sum of `disks.total_capacity - disks.free_space`, treating an anomalous disk with free space exceeding capacity as zero used space.
+
+`disks.total_files` and `disks.total_folders` are persisted per-disk results for the latest successful scan because they are disk metadata; they are not the source of catalog-wide summary counts.
 
 ## Storage Rules
 
 - Use prepared statements for values supplied by application state or filesystem data.
 - Manage SQLite handles and prepared statements with deterministic lifetime management.
-- Keep schema creation and migrations in the storage layer.
-- Treat on-disk databases from earlier application versions as user data; schema evolution must preserve or deliberately migrate existing catalogs.
+- Keep schema creation and supported-format validation centralized in the storage layer.
+- Reject former-format catalog files without attempting upgrade or conversion.
 - Do not execute SQLite reads or writes by embedding SQL in window/view classes.
+- Keep hierarchy/list/search reads paged and available offline from persisted data.
 
 ## Operational Expectations
 
-- Creating a catalog initializes a new SQLite database only at the user-selected new file path.
-- Opening an existing catalog validates the supported schema without replacing an active catalog when opening fails; a readable protected catalog may be opened for browsing without mutation.
-- Scanning stages a new media source or source replacement in a session-local working catalog only, and updates the working aggregate item count when scanning completes.
-- Pending catalog changes are visible to browser reads but SHALL NOT alter the selected real catalog database until explicit Save succeeds.
-- Save commits all pending source/content changes to an editable active database atomically; a failed save rolls back persisted work and preserves pending state for retry or discard.
-- Pending content is not durable across application sessions, so switching catalogs or exiting with pending changes requires Save, Discard, or Cancel resolution.
-- Searching reads indexed file and folder metadata from the active catalog only and does not require the original scanned media to be available.
-- The last-used available catalog can be loaded at application start without requiring any scanned source path to be online; otherwise startup has no active catalog.
+- Creating a catalog initializes only a new SQLite database at the user-selected new path.
+- Opening an existing catalog validates the replacement schema; a readable new-format protected catalog can be opened for browsing without mutation.
+- Scanning stages a disk addition or source replacement in a session-local working database only.
+- Save commits pending replacement-format data atomically; Discard drops only pending changes.
+- A successful new disk scan stores `added_at` and `updated_at`; a successful rescan retains its original `added_at`, advances `updated_at`, replaces indexed content, and updates latest statistics.
+- Native scanning captures available volume information, capacity/free-space information, filesystem metadata, folder/file times, and native attributes; unavailable classifications are not invented.

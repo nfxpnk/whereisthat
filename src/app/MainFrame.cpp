@@ -8,6 +8,7 @@
 #include <vector>
 #include <wincodec.h>
 #include "../core/SizeFormat.h"
+#include "../platform/VolumeInfo.h"
 #include "../platform/Win32Helpers.h"
 #include "../ui/AddNewDiskMediaDialog.h"
 #include "../ui/SearchDialog.h"
@@ -1080,6 +1081,12 @@ void MainFrame::OnAddOrUpdateDiskImage() {
 
     const std::wstring root = NormalizedSourcePath(media.scanRoot);
     const std::wstring diskName = media.diskName.empty() ? NameForCatalogRoot(root) : media.diskName;
+    std::int64_t diskNumber{};
+    try {
+        if (!media.diskNumber.empty()) diskNumber = std::stoll(media.diskNumber);
+    } catch (...) {
+        diskNumber = 0;
+    }
     auto candidate = std::make_unique<wit::storage::Database>();
     auto* working = WorkingDatabase();
     SetAppStatus(AppStatus::Busy);
@@ -1091,30 +1098,50 @@ void MainFrame::OnAddOrUpdateDiskImage() {
         return;
     }
     auto* staged = candidate.release();
-    worker_ = std::thread([this, root, diskName, staged]() {
+    worker_ = std::thread([this, root, diskName, diskNumber, media, staged]() {
         std::int64_t id{};
         bool success = staged->BeginTransaction();
+        wit::core::Disk disk;
+        disk.diskName = diskName;
+        disk.diskNumber = diskNumber;
+        disk.sourcePath = root;
+        disk.location = media.originalPath;
+        disk.diskType = media.kind == wit::ui::MediaSourceKind::Iso
+            ? wit::core::DiskType::VirtualDisk : wit::core::DiskType::Other;
+        disk.addedAt = wit::platform::NowUnixSeconds();
+        disk.updatedAt = disk.addedAt;
+        wit::platform::PopulateVolumeMetadata(root, disk);
         if (success) {
-            id = staged->FindCatalogByRootPath(root);
+            id = staged->FindDiskBySourcePath(root,
+                media.kind == wit::ui::MediaSourceKind::Iso ? media.originalPath : L"");
             if (id != 0) {
-                success = staged->DeleteDuplicateCatalogsForRootPath(root, id) &&
-                    staged->DeleteFilesForCatalog(id);
+                disk.id = id;
+                success = staged->DeleteContentForDisk(id);
             } else {
-                wit::core::Catalog catalog{};
-                catalog.name = diskName;
-                catalog.rootPath = root;
-                catalog.createdAt = wit::platform::NowIso8601();
-                id = staged->AddCatalog(catalog);
+                id = staged->AddDisk(disk);
+                disk.id = id;
                 success = id != 0;
             }
         }
         if (success) {
             wit::core::FileScanner scanner;
+            wit::core::FileScanner::Result scanResult;
             success = scanner.ScanFolder(root, id, *staged,
                 [this](const wit::core::FileScanner::Progress& progress) {
                     PostMessageW(hwnd_, WM_SCAN_PROGRESS, 0, reinterpret_cast<LPARAM>(
                         new ScanProgressMessage{progress.scannedFiles, progress.scannedFolders}));
-                }, false);
+                }, scanResult, media.calculateCrc, false);
+            if (success) {
+                disk.totalFiles = static_cast<std::int64_t>(scanResult.totalFiles);
+                disk.totalFolders = static_cast<std::int64_t>(scanResult.totalFolders);
+                disk.updatedAt = wit::platform::NowUnixSeconds();
+                wit::core::DiskScanStatistics statistics;
+                statistics.diskId = id;
+                statistics.lastScannedAt = disk.updatedAt;
+                statistics.imageScanningTimeMs = scanResult.elapsedMilliseconds;
+                statistics.calculatedFileCrcs = media.calculateCrc;
+                success = staged->UpdateDisk(disk) && staged->UpdateDiskScanStatistics(statistics);
+            }
         }
         if (success) {
             if (!staged->Commit()) {

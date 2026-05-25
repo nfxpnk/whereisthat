@@ -1,3 +1,5 @@
+> Storage evolution note: `redesign-catalog-storage-schema` preserves paged item search behavior while moving storage queries to normalized folder and file records.
+
 ## Context
 
 `Search for Items` already appears in the native Search menu but is specified as a placeholder. Indexed item rows live in the active SQLite catalog database and the existing file browser uses an owner-data ListView with storage-backed paging. Search must remain useful for large catalogs and when original media is offline.

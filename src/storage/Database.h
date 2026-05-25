@@ -4,7 +4,9 @@
 #include <vector>
 #include "../core/BrowserLocation.h"
 #include "../core/Catalog.h"
+#include "../core/Disk.h"
 #include "../core/FileEntry.h"
+#include "../core/FolderEntry.h"
 struct sqlite3;
 
 namespace wit::storage {
@@ -27,11 +29,16 @@ public:
     bool BeginTransaction();
     bool Commit();
     bool Rollback();
-    std::int64_t AddCatalog(const wit::core::Catalog& catalog);
-    std::int64_t FindCatalogByRootPath(const std::wstring& rootPath);
-    bool DeleteDuplicateCatalogsForRootPath(const std::wstring& rootPath, std::int64_t catalogIdToKeep);
-    bool DeleteFilesForCatalog(std::int64_t catalogId);
-    bool UpdateCatalogItemCount(std::int64_t catalogId, std::int64_t itemCount);
+    bool SetCatalogDescription(const std::wstring& description);
+    wit::core::CatalogMetadata GetCatalogMetadata();
+    wit::core::CatalogSummary GetCatalogSummary() const;
+    std::int64_t AddDisk(const wit::core::Disk& disk);
+    std::int64_t FindDiskBySourcePath(const std::wstring& sourcePath,
+        const std::wstring& originalLocation = L"");
+    bool DeleteContentForDisk(std::int64_t diskId);
+    bool UpdateDisk(const wit::core::Disk& disk);
+    bool UpdateDiskScanStatistics(const wit::core::DiskScanStatistics& statistics);
+    std::int64_t InsertFolder(const wit::core::FolderEntry& folder);
     bool InsertFile(const wit::core::FileEntry& file);
     std::vector<wit::core::Catalog> GetCatalogs();
     int GetBrowserItemCount(const wit::core::BrowserLocation& location);
@@ -46,5 +53,6 @@ private:
     bool Exec(const char* sql);
     sqlite3* db_{};
     bool editable_{};
+    std::wstring path_;
 };
 }

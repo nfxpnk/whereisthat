@@ -12,6 +12,7 @@ public:
     SQLiteStatement& operator=(const SQLiteStatement&) = delete;
     void BindInt64(int index, long long value);
     void BindText(int index, const std::string& value);
+    void BindNull(int index);
     bool Step();
     void Reset();
     sqlite3_stmt* Raw() const { return stmt_; }

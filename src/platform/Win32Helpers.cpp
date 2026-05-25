@@ -1,7 +1,6 @@
 #include "Win32Helpers.h"
-#include <chrono>
-#include <iomanip>
-#include <sstream>
+#include <algorithm>
+#include <cstdint>
 
 namespace wit::platform {
 std::string ToUtf8(const std::wstring& value) {
@@ -23,14 +22,26 @@ static std::wstring SystemTimeToIso(const SYSTEMTIME& st) {
     swprintf_s(buffer, L"%04u-%02u-%02uT%02u:%02u:%02uZ", st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);
     return buffer;
 }
-std::wstring FileTimeToIso8601(const FILETIME& fileTime) {
-    SYSTEMTIME utc{};
-    FileTimeToSystemTime(&fileTime, &utc);
-    return SystemTimeToIso(utc);
+std::int64_t FileTimeToUnixSeconds(const FILETIME& fileTime) {
+    ULARGE_INTEGER value{};
+    value.LowPart = fileTime.dwLowDateTime;
+    value.HighPart = fileTime.dwHighDateTime;
+    constexpr std::uint64_t epochDifference = 116444736000000000ULL;
+    return value.QuadPart < epochDifference ? 0 :
+        static_cast<std::int64_t>((value.QuadPart - epochDifference) / 10000000ULL);
 }
-std::wstring NowIso8601() {
+std::int64_t NowUnixSeconds() {
+    FILETIME fileTime{};
+    GetSystemTimeAsFileTime(&fileTime);
+    return FileTimeToUnixSeconds(fileTime);
+}
+std::wstring FormatUnixTimestamp(std::int64_t timestamp) {
+    constexpr std::uint64_t epochDifference = 116444736000000000ULL;
+    ULARGE_INTEGER value{};
+    value.QuadPart = epochDifference + static_cast<std::uint64_t>((std::max)(timestamp, std::int64_t{})) * 10000000ULL;
+    FILETIME fileTime{value.LowPart, value.HighPart};
     SYSTEMTIME utc{};
-    GetSystemTime(&utc);
+    if (!FileTimeToSystemTime(&fileTime, &utc)) return {};
     return SystemTimeToIso(utc);
 }
 }

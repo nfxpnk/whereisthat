@@ -1,3 +1,5 @@
+> Superseded storage note: `redesign-catalog-storage-schema` replaces the compatible `catalogs`/mixed `files` format with a new-format-only normalized schema; its no-migration decision governs later implementation.
+
 ## Context
 
 The current main frame initializes `db_` from a hard-coded `catalog.db` path during window creation. `File > New Catalog` inserts an empty row into that database, and `Edit > Add/Update Disk Image` inserts another row and scans into it. The schema therefore models the `catalogs` rows as scanned media sets, even though the product term "catalog" must now mean the SQLite file itself.

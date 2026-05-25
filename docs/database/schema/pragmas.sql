@@ -1,7 +1,6 @@
--- Source: src/storage/Database.cpp, Database::OpenInternal() and Database::InitializeSchema().
--- foreign_keys is enabled on writable initialization and read-only open.
+-- Enabled for new creation, existing editable open, read-only open, and working copies.
 PRAGMA foreign_keys = ON;
 
--- These settings are issued only by writable schema initialization.
+-- Issued when initializing a newly created catalog.
 PRAGMA journal_mode = WAL;
 PRAGMA synchronous = NORMAL;

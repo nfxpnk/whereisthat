@@ -35,7 +35,7 @@ From **Developer Command Prompt for VS 2022**:
 
 ## Features (v1)
 - Scan a folder or drive root into a catalog.
-- Store both folder and file rows in SQLite.
+- Store normalized disk, latest scan-statistics, folder, and file records in SQLite.
 - Background scanning thread with staged changes and explicit Save/Discard handling.
 - Add New Disk/Media entry dialog for drive, folder/network, and mounted ISO sources.
 - Status bar catalog state, protection indication, focused-item details, selection totals, and activity lights.
@@ -61,7 +61,7 @@ From **Developer Command Prompt for VS 2022**:
 - Complete smoke tests for protected catalogs, recent catalogs, pending Save/Discard/Cancel, Add/Update source variants, and offline browsing.
 
 ### Phase 2: Store the organizing metadata
-- Evolve the SQLite schema with migrations for media identity and details, item descriptions, thumbnails, categories, flags/tags, colors, and optional disk-location/lending state.
+- Extend the replacement SQLite format for thumbnails, flags/tags, colors, and optional lending state as those features are implemented.
 - Provide Properties and Catalog Setup dialogs for editing those values, including multi-selection updates.
 - Add a description/thumbnail pane and a focused description editor/assistant workflow.
 - Use stored media identity for reliable targeted Update Disk Image rather than identifying updates only by selected root path.
@@ -82,4 +82,3 @@ From **Developer Command Prompt for VS 2022**:
 - Implement Report Generator over the browser, search results, and user lists, with selectable columns, ordering, preview/print, and CSV/text/HTML export first.
 - Support description import/export formats and whole-catalog interchange where it remains useful.
 - Add broader application settings, portable configuration selection, localization support, and opt-in automation/batch update facilities.
-

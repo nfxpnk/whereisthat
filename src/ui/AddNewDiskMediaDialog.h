@@ -17,6 +17,7 @@ struct AddNewDiskMediaResult {
     std::wstring scanRoot;
     std::wstring diskNumber;
     std::wstring diskName;
+    bool calculateCrc{};
 };
 
 class AddNewDiskMediaDialog {

@@ -7,7 +7,8 @@ struct Catalog {
     std::int64_t id{};
     std::wstring name;
     std::wstring rootPath;
-    std::wstring createdAt;
-    std::int64_t itemCount{};
+    std::int64_t addedAt{};
+    std::int64_t totalFiles{};
+    std::int64_t totalFolders{};
 };
 }

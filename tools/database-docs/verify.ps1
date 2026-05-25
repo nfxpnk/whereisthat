@@ -17,8 +17,26 @@ function Normalize-Sql([string]$sql) {
 }
 
 function Columns-FromBody([string]$body) {
+    $parts = [System.Collections.Generic.List[string]]::new()
+    $start = 0
+    $depth = 0
+    $quoted = $false
+    for ($index = 0; $index -lt $body.Length; $index++) {
+        $character = $body[$index]
+        if ($character -eq "'") {
+            $quoted = -not $quoted
+        } elseif (-not $quoted -and $character -eq "(") {
+            $depth++
+        } elseif (-not $quoted -and $character -eq ")") {
+            $depth--
+        } elseif (-not $quoted -and $character -eq "," -and $depth -eq 0) {
+            $parts.Add($body.Substring($start, $index - $start))
+            $start = $index + 1
+        }
+    }
+    $parts.Add($body.Substring($start))
     $columns = @()
-    foreach ($part in ($body -split ",")) {
+    foreach ($part in $parts) {
         $definition = $part.Trim()
         if ($definition -match "^(CONSTRAINT|FOREIGN|PRIMARY|UNIQUE|CHECK)\b") {
             continue
@@ -111,9 +129,8 @@ foreach ($file in $knownSqlFiles) {
 }
 
 $sharedChecks = @(
-    @{ Pattern = 'CREATE INDEX IF NOT EXISTS [^"]+;'; File = "schema/indexes.sql"; Label = "index" },
-    @{ Pattern = 'PRAGMA (foreign_keys|journal_mode|synchronous)=[^"]+;'; File = "schema/pragmas.sql"; Label = "configuration PRAGMA" },
-    @{ Pattern = 'ALTER TABLE [^"]+;'; File = "schema/migrations.sql"; Label = "migration" }
+    @{ Pattern = 'CREATE (?:UNIQUE )?INDEX IF NOT EXISTS [^"]+;'; File = "schema/indexes.sql"; Label = "index" },
+    @{ Pattern = 'PRAGMA (foreign_keys|journal_mode|synchronous)=[^"]+;'; File = "schema/pragmas.sql"; Label = "configuration PRAGMA" }
 )
 foreach ($check in $sharedChecks) {
     $documentPath = Join-Path $DocsRoot $check.File
@@ -134,6 +151,9 @@ foreach ($emptyObjectFile in @("schema/triggers.sql", "schema/views.sql")) {
         Fail "Missing empty-object inventory file: $emptyObjectFile"
     }
 }
+if ($source -match '(?i)ALTER\s+TABLE\s+') {
+    Fail "Legacy-style ALTER TABLE SQL exists; the replacement catalog format must not define migrations."
+}
 if ($source -match '(?i)CREATE\s+(TRIGGER|VIEW)\s+') {
     Fail "Application-defined trigger or view SQL exists; extend this verifier and documentation inventory."
 }
@@ -144,4 +164,4 @@ if ($failures.Count -gt 0) {
 }
 
 Write-Output "Database documentation verified: $($sourceTables.Count) tables and their documented fields match $SourceFile."
-Write-Output "Checked table SQL, shared index/PRAGMA/migration SQL, overview coverage, and schema inventory coverage."
+Write-Output "Checked table SQL, shared index/PRAGMA SQL, absence of migration DDL, overview coverage, and schema inventory coverage."

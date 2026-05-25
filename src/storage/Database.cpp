@@ -1,8 +1,10 @@
 #include "Database.h"
 #include "SQLiteStatement.h"
+#include "../platform/VolumeInfo.h"
 #include "../platform/Win32Helpers.h"
 #include "../../third_party/sqlite/sqlite3.h"
 #include <Windows.h>
+#include <algorithm>
 #include <cstdint>
 #include <string>
 #include <utility>
@@ -35,6 +37,24 @@ std::string ItemNameLikePattern(const std::wstring& term) {
     pattern.push_back('%');
     return pattern;
 }
+
+std::wstring Text(sqlite3_stmt* stmt, int column) {
+    const auto* value = reinterpret_cast<const char*>(sqlite3_column_text(stmt, column));
+    return value ? wit::platform::ToUtf16(value) : std::wstring{};
+}
+
+void PopulateDisplayEntry(wit::core::FileEntry& entry, sqlite3_stmt* stmt) {
+    entry.id = sqlite3_column_int64(stmt, 0);
+    entry.catalogId = sqlite3_column_int64(stmt, 1);
+    entry.parentPath = Text(stmt, 2);
+    entry.name = Text(stmt, 3);
+    entry.extension = Text(stmt, 4);
+    entry.size = static_cast<std::uint64_t>(sqlite3_column_int64(stmt, 5));
+    entry.modifiedAtValue = sqlite3_column_int64(stmt, 6);
+    entry.modifiedAt = wit::platform::FormatUnixTimestamp(entry.modifiedAtValue);
+    entry.attributes = static_cast<std::uint32_t>(sqlite3_column_int(stmt, 7));
+    entry.isDirectory = sqlite3_column_int(stmt, 8) != 0;
+}
 }
 
 Database::~Database() {
@@ -42,13 +62,15 @@ Database::~Database() {
 }
 
 Database::Database(Database&& other) noexcept
-    : db_(std::exchange(other.db_, nullptr)), editable_(std::exchange(other.editable_, false)) {}
+    : db_(std::exchange(other.db_, nullptr)), editable_(std::exchange(other.editable_, false)),
+      path_(std::move(other.path_)) {}
 
 Database& Database::operator=(Database&& other) noexcept {
     if (this != &other) {
         Close();
         db_ = std::exchange(other.db_, nullptr);
         editable_ = std::exchange(other.editable_, false);
+        path_ = std::move(other.path_);
     }
     return *this;
 }
@@ -59,6 +81,7 @@ void Database::Close() {
         db_ = nullptr;
     }
     editable_ = false;
+    path_.clear();
 }
 
 bool Database::CreateNew(const std::wstring& path) {
@@ -81,13 +104,15 @@ bool Database::OpenInternal(const std::wstring& path, bool requireExistingSchema
         Close();
         return false;
     }
+    path_ = path;
     editable_ = !readOnly;
     if (requireExistingSchema && !HasCatalogSchema()) {
         Close();
         return false;
     }
     if (readOnly) return Exec("PRAGMA foreign_keys=ON;");
-    if (InitializeSchema()) return true;
+    if (!requireExistingSchema && InitializeSchema()) return true;
+    if (requireExistingSchema && Exec("PRAGMA foreign_keys=ON;")) return true;
     Close();
     return false;
 }
@@ -107,71 +132,32 @@ bool Database::CreateWorkingCopy(const Database& source) {
     }
     const int stepResult = sqlite3_backup_step(backup, -1);
     const int finishResult = sqlite3_backup_finish(backup);
-    const bool success = stepResult == SQLITE_DONE && finishResult == SQLITE_OK;
+    const bool success = stepResult == SQLITE_DONE && finishResult == SQLITE_OK && Exec("PRAGMA foreign_keys=ON;");
     if (!success) Close();
     return success;
 }
 
 bool Database::ReplaceCatalogDataFrom(const Database& source) {
     if (!db_ || !editable_ || !source.db_) return false;
-    if (!BeginTransaction()) return false;
-    bool success = Exec("DELETE FROM files;") && Exec("DELETE FROM catalogs;");
-    if (success) {
-        SQLiteStatement readCatalogs(source.db_,
-            "SELECT id,name,root_path,created_at,item_count FROM catalogs ORDER BY id;");
-        SQLiteStatement writeCatalogs(db_,
-            "INSERT INTO catalogs(id,name,root_path,created_at,item_count) VALUES(?,?,?,?,?);");
-        while (success && sqlite3_step(readCatalogs.Raw()) == SQLITE_ROW) {
-            writeCatalogs.BindInt64(1, sqlite3_column_int64(readCatalogs.Raw(), 0));
-            writeCatalogs.BindText(2, reinterpret_cast<const char*>(sqlite3_column_text(readCatalogs.Raw(), 1)));
-            writeCatalogs.BindText(3, reinterpret_cast<const char*>(sqlite3_column_text(readCatalogs.Raw(), 2)));
-            writeCatalogs.BindText(4, reinterpret_cast<const char*>(sqlite3_column_text(readCatalogs.Raw(), 3)));
-            writeCatalogs.BindInt64(5, sqlite3_column_int64(readCatalogs.Raw(), 4));
-            success = sqlite3_step(writeCatalogs.Raw()) == SQLITE_DONE;
-            sqlite3_reset(writeCatalogs.Raw());
-            sqlite3_clear_bindings(writeCatalogs.Raw());
-        }
-    }
-    if (success) {
-        SQLiteStatement readFiles(source.db_,
-            "SELECT id,catalog_id,parent_path,name,extension,size,modified_at,attributes,is_directory FROM files ORDER BY id;");
-        SQLiteStatement writeFiles(db_,
-            "INSERT INTO files(id,catalog_id,parent_path,name,extension,size,modified_at,attributes,is_directory) "
-            "VALUES(?,?,?,?,?,?,?,?,?);");
-        while (success && sqlite3_step(readFiles.Raw()) == SQLITE_ROW) {
-            writeFiles.BindInt64(1, sqlite3_column_int64(readFiles.Raw(), 0));
-            writeFiles.BindInt64(2, sqlite3_column_int64(readFiles.Raw(), 1));
-            writeFiles.BindText(3, reinterpret_cast<const char*>(sqlite3_column_text(readFiles.Raw(), 2)));
-            writeFiles.BindText(4, reinterpret_cast<const char*>(sqlite3_column_text(readFiles.Raw(), 3)));
-            writeFiles.BindText(5, reinterpret_cast<const char*>(sqlite3_column_text(readFiles.Raw(), 4)));
-            writeFiles.BindInt64(6, sqlite3_column_int64(readFiles.Raw(), 5));
-            writeFiles.BindText(7, reinterpret_cast<const char*>(sqlite3_column_text(readFiles.Raw(), 6)));
-            writeFiles.BindInt64(8, sqlite3_column_int64(readFiles.Raw(), 7));
-            writeFiles.BindInt64(9, sqlite3_column_int64(readFiles.Raw(), 8));
-            success = sqlite3_step(writeFiles.Raw()) == SQLITE_DONE;
-            sqlite3_reset(writeFiles.Raw());
-            sqlite3_clear_bindings(writeFiles.Raw());
-        }
-    }
-    if (success && Commit()) return true;
-    Rollback();
-    return false;
+    auto* backup = sqlite3_backup_init(db_, "main", source.db_, "main");
+    if (!backup) return false;
+    const int stepResult = sqlite3_backup_step(backup, -1);
+    const int finishResult = sqlite3_backup_finish(backup);
+    return stepResult == SQLITE_DONE && finishResult == SQLITE_OK && Exec("PRAGMA foreign_keys=ON;");
 }
 
 bool Database::HasCatalogSchema() {
-    return TableHasColumn(db_, "catalogs", "id") &&
-        TableHasColumn(db_, "catalogs", "name") &&
-        TableHasColumn(db_, "catalogs", "root_path") &&
-        TableHasColumn(db_, "catalogs", "created_at") &&
-        TableHasColumn(db_, "catalogs", "item_count") &&
-        TableHasColumn(db_, "files", "id") &&
-        TableHasColumn(db_, "files", "catalog_id") &&
-        TableHasColumn(db_, "files", "parent_path") &&
-        TableHasColumn(db_, "files", "name") &&
+    return TableHasColumn(db_, "catalog_metadata", "description") &&
+        TableHasColumn(db_, "disks", "disk_name") &&
+        TableHasColumn(db_, "disks", "source_path") &&
+        TableHasColumn(db_, "disks", "disk_type") &&
+        TableHasColumn(db_, "disk_scan_statistics", "last_scanned_at") &&
+        TableHasColumn(db_, "folders", "parent_folder_id") &&
+        TableHasColumn(db_, "folders", "path") &&
+        TableHasColumn(db_, "files", "folder_id") &&
         TableHasColumn(db_, "files", "extension") &&
-        TableHasColumn(db_, "files", "size") &&
-        TableHasColumn(db_, "files", "modified_at") &&
-        TableHasColumn(db_, "files", "attributes");
+        TableHasColumn(db_, "files", "crc") &&
+        TableHasColumn(db_, "files", "accessed_at");
 }
 
 bool Database::Exec(const char* sql) {
@@ -181,14 +167,18 @@ bool Database::Exec(const char* sql) {
 bool Database::InitializeSchema() {
     if (!editable_) return false;
     return Exec("PRAGMA foreign_keys=ON;") && Exec("PRAGMA journal_mode=WAL;") && Exec("PRAGMA synchronous=NORMAL;") &&
-        Exec("CREATE TABLE IF NOT EXISTS catalogs (id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,root_path TEXT NOT NULL,created_at TEXT NOT NULL,item_count INTEGER NOT NULL DEFAULT 0);") &&
-        Exec("CREATE TABLE IF NOT EXISTS files (id INTEGER PRIMARY KEY AUTOINCREMENT,catalog_id INTEGER NOT NULL,parent_path TEXT NOT NULL,name TEXT NOT NULL,extension TEXT NOT NULL,size INTEGER NOT NULL,modified_at TEXT NOT NULL,attributes INTEGER NOT NULL DEFAULT 0,is_directory INTEGER NOT NULL DEFAULT 0,FOREIGN KEY (catalog_id) REFERENCES catalogs(id) ON DELETE CASCADE);") &&
-        (TableHasColumn(db_, "files", "is_directory") || Exec("ALTER TABLE files ADD COLUMN is_directory INTEGER NOT NULL DEFAULT 0;")) &&
-        Exec("CREATE INDEX IF NOT EXISTS idx_catalogs_root_path ON catalogs(root_path COLLATE NOCASE);") &&
-        Exec("CREATE INDEX IF NOT EXISTS idx_files_catalog_path ON files(catalog_id,parent_path);") &&
-        Exec("CREATE INDEX IF NOT EXISTS idx_files_catalog_name ON files(catalog_id,name);") &&
-        Exec("CREATE INDEX IF NOT EXISTS idx_files_catalog_extension ON files(catalog_id,extension);") &&
-        Exec("CREATE INDEX IF NOT EXISTS idx_files_catalog_size ON files(catalog_id,size);");
+        Exec("CREATE TABLE IF NOT EXISTS catalog_metadata (id INTEGER PRIMARY KEY CHECK (id=1),description TEXT NOT NULL DEFAULT '');") &&
+        Exec("CREATE TABLE IF NOT EXISTS disks (id INTEGER PRIMARY KEY AUTOINCREMENT,disk_name TEXT NOT NULL,disk_number INTEGER NOT NULL DEFAULT 0,source_path TEXT NOT NULL COLLATE NOCASE UNIQUE,volume_label TEXT NOT NULL DEFAULT '',total_capacity INTEGER NOT NULL DEFAULT 0,free_space INTEGER NOT NULL DEFAULT 0,cluster_size INTEGER NOT NULL DEFAULT 0,serial_number TEXT NOT NULL DEFAULT '',file_system TEXT NOT NULL DEFAULT '',total_files INTEGER NOT NULL DEFAULT 0,total_folders INTEGER NOT NULL DEFAULT 0,added_at INTEGER NOT NULL,updated_at INTEGER NOT NULL,description TEXT NOT NULL DEFAULT '',category TEXT NOT NULL DEFAULT '',location TEXT NOT NULL DEFAULT '',disk_type TEXT NOT NULL CHECK (disk_type IN ('CD','DVD','BluRay','HardDisk','SolidStateDisk','RemovableUSB','VirtualDisk','Other')));") &&
+        Exec("CREATE TABLE IF NOT EXISTS disk_scan_statistics (disk_id INTEGER PRIMARY KEY,last_scanned_at INTEGER NOT NULL,image_scanning_time_ms INTEGER NOT NULL DEFAULT 0,imported_descriptions_count INTEGER NOT NULL DEFAULT 0,calculated_file_crcs INTEGER NOT NULL DEFAULT 0 CHECK (calculated_file_crcs IN (0,1)),FOREIGN KEY (disk_id) REFERENCES disks(id) ON DELETE CASCADE);") &&
+        Exec("CREATE TABLE IF NOT EXISTS folders (id INTEGER PRIMARY KEY AUTOINCREMENT,disk_id INTEGER NOT NULL,parent_folder_id INTEGER,path TEXT NOT NULL,name TEXT NOT NULL,created_at INTEGER NOT NULL,modified_at INTEGER NOT NULL,accessed_at INTEGER NOT NULL,attributes INTEGER NOT NULL DEFAULT 0,FOREIGN KEY (disk_id) REFERENCES disks(id) ON DELETE CASCADE,FOREIGN KEY (parent_folder_id) REFERENCES folders(id) ON DELETE CASCADE);") &&
+        Exec("CREATE TABLE IF NOT EXISTS files (id INTEGER PRIMARY KEY AUTOINCREMENT,disk_id INTEGER NOT NULL,folder_id INTEGER NOT NULL,name TEXT NOT NULL,description TEXT NOT NULL DEFAULT '',extension TEXT NOT NULL DEFAULT '',crc TEXT,size INTEGER NOT NULL,created_at INTEGER NOT NULL,modified_at INTEGER NOT NULL,accessed_at INTEGER NOT NULL,attributes INTEGER NOT NULL DEFAULT 0,FOREIGN KEY (disk_id) REFERENCES disks(id) ON DELETE CASCADE,FOREIGN KEY (folder_id) REFERENCES folders(id) ON DELETE CASCADE);") &&
+        Exec("INSERT OR IGNORE INTO catalog_metadata(id,description) VALUES(1,'');") &&
+        Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_disks_source_path ON disks(source_path COLLATE NOCASE);") &&
+        Exec("CREATE INDEX IF NOT EXISTS idx_folders_parent ON folders(disk_id,parent_folder_id);") &&
+        Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_folders_disk_path ON folders(disk_id,path COLLATE NOCASE);") &&
+        Exec("CREATE INDEX IF NOT EXISTS idx_files_folder ON files(folder_id);") &&
+        Exec("CREATE INDEX IF NOT EXISTS idx_files_disk_name ON files(disk_id,name);") &&
+        Exec("CREATE INDEX IF NOT EXISTS idx_files_extension ON files(extension);");
 }
 
 bool Database::BeginTransaction() {
@@ -203,69 +193,167 @@ bool Database::Rollback() {
     return editable_ && Exec("ROLLBACK;");
 }
 
-std::int64_t Database::AddCatalog(const wit::core::Catalog& catalog) {
+bool Database::SetCatalogDescription(const std::wstring& description) {
+    if (!editable_) return false;
+    SQLiteStatement statement(db_, "UPDATE catalog_metadata SET description=? WHERE id=1;");
+    statement.BindText(1, wit::platform::ToUtf8(description));
+    return sqlite3_step(statement.Raw()) == SQLITE_DONE;
+}
+
+wit::core::CatalogMetadata Database::GetCatalogMetadata() {
+    wit::core::CatalogMetadata metadata;
+    SQLiteStatement statement(db_, "SELECT description FROM catalog_metadata WHERE id=1;");
+    if (sqlite3_step(statement.Raw()) == SQLITE_ROW) metadata.description = Text(statement.Raw(), 0);
+    return metadata;
+}
+
+wit::core::CatalogSummary Database::GetCatalogSummary() const {
+    wit::core::CatalogSummary summary;
+    summary.catalogFileSize = path_.empty() ? 0 : wit::platform::FileSize(path_);
+    if (!db_) return summary;
+    SQLiteStatement statement(db_,
+        "SELECT (SELECT COUNT(*) FROM disks),(SELECT COUNT(*) FROM files),(SELECT COUNT(*) FROM folders),"
+        "COALESCE((SELECT SUM(total_capacity) FROM disks),0),"
+        "COALESCE((SELECT SUM(CASE WHEN total_capacity > free_space THEN total_capacity-free_space ELSE 0 END) FROM disks),0);");
+    if (sqlite3_step(statement.Raw()) == SQLITE_ROW) {
+        summary.totalDisks = sqlite3_column_int64(statement.Raw(), 0);
+        summary.totalFiles = sqlite3_column_int64(statement.Raw(), 1);
+        summary.totalFolders = sqlite3_column_int64(statement.Raw(), 2);
+        summary.totalStorageSpace = static_cast<std::uint64_t>(sqlite3_column_int64(statement.Raw(), 3));
+        summary.totalUsedSpace = static_cast<std::uint64_t>(sqlite3_column_int64(statement.Raw(), 4));
+    }
+    return summary;
+}
+
+std::int64_t Database::AddDisk(const wit::core::Disk& disk) {
     if (!editable_) return 0;
-    SQLiteStatement statement(db_, "INSERT INTO catalogs(name,root_path,created_at,item_count) VALUES(?,?,?,0);");
-    statement.BindText(1, wit::platform::ToUtf8(catalog.name));
-    statement.BindText(2, wit::platform::ToUtf8(catalog.rootPath));
-    statement.BindText(3, wit::platform::ToUtf8(catalog.createdAt));
+    SQLiteStatement statement(db_,
+        "INSERT INTO disks(disk_name,disk_number,source_path,volume_label,total_capacity,free_space,cluster_size,"
+        "serial_number,file_system,total_files,total_folders,added_at,updated_at,description,category,location,disk_type)"
+        " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);");
+    statement.BindText(1, wit::platform::ToUtf8(disk.diskName));
+    statement.BindInt64(2, disk.diskNumber);
+    statement.BindText(3, wit::platform::ToUtf8(disk.sourcePath));
+    statement.BindText(4, wit::platform::ToUtf8(disk.volumeLabel));
+    statement.BindInt64(5, static_cast<long long>(disk.totalCapacity));
+    statement.BindInt64(6, static_cast<long long>(disk.freeSpace));
+    statement.BindInt64(7, static_cast<long long>(disk.clusterSize));
+    statement.BindText(8, wit::platform::ToUtf8(disk.serialNumber));
+    statement.BindText(9, wit::platform::ToUtf8(disk.fileSystem));
+    statement.BindInt64(10, disk.totalFiles);
+    statement.BindInt64(11, disk.totalFolders);
+    statement.BindInt64(12, disk.addedAt);
+    statement.BindInt64(13, disk.updatedAt);
+    statement.BindText(14, wit::platform::ToUtf8(disk.description));
+    statement.BindText(15, wit::platform::ToUtf8(disk.category));
+    statement.BindText(16, wit::platform::ToUtf8(disk.location));
+    statement.BindText(17, wit::core::DiskTypeValue(disk.diskType));
     return sqlite3_step(statement.Raw()) == SQLITE_DONE ? sqlite3_last_insert_rowid(db_) : 0;
 }
 
-std::int64_t Database::FindCatalogByRootPath(const std::wstring& rootPath) {
-    SQLiteStatement statement(db_, "SELECT id FROM catalogs WHERE root_path=? COLLATE NOCASE LIMIT 1;");
-    statement.BindText(1, wit::platform::ToUtf8(rootPath));
+std::int64_t Database::FindDiskBySourcePath(const std::wstring& sourcePath, const std::wstring& originalLocation) {
+    SQLiteStatement statement(db_,
+        "SELECT id FROM disks WHERE source_path=? COLLATE NOCASE OR "
+        "(? <> '' AND location=? COLLATE NOCASE) LIMIT 1;");
+    statement.BindText(1, wit::platform::ToUtf8(sourcePath));
+    statement.BindText(2, wit::platform::ToUtf8(originalLocation));
+    statement.BindText(3, wit::platform::ToUtf8(originalLocation));
     return sqlite3_step(statement.Raw()) == SQLITE_ROW ? sqlite3_column_int64(statement.Raw(), 0) : 0;
 }
 
-bool Database::DeleteDuplicateCatalogsForRootPath(const std::wstring& rootPath, std::int64_t id) {
+bool Database::DeleteContentForDisk(std::int64_t diskId) {
     if (!editable_) return false;
-    SQLiteStatement statement(db_, "DELETE FROM catalogs WHERE root_path=? COLLATE NOCASE AND id<>?;");
-    statement.BindText(1, wit::platform::ToUtf8(rootPath));
-    statement.BindInt64(2, id);
+    SQLiteStatement statement(db_, "DELETE FROM folders WHERE disk_id=?;");
+    statement.BindInt64(1, diskId);
     return sqlite3_step(statement.Raw()) == SQLITE_DONE;
 }
 
-bool Database::DeleteFilesForCatalog(std::int64_t id) {
+bool Database::UpdateDisk(const wit::core::Disk& disk) {
     if (!editable_) return false;
-    SQLiteStatement statement(db_, "DELETE FROM files WHERE catalog_id=?;");
-    statement.BindInt64(1, id);
+    SQLiteStatement statement(db_,
+        "UPDATE disks SET disk_name=?,disk_number=?,source_path=?,volume_label=?,total_capacity=?,free_space=?,cluster_size=?,"
+        "serial_number=?,file_system=?,total_files=?,total_folders=?,updated_at=?,location=?,disk_type=? WHERE id=?;");
+    statement.BindText(1, wit::platform::ToUtf8(disk.diskName));
+    statement.BindInt64(2, disk.diskNumber);
+    statement.BindText(3, wit::platform::ToUtf8(disk.sourcePath));
+    statement.BindText(4, wit::platform::ToUtf8(disk.volumeLabel));
+    statement.BindInt64(5, static_cast<long long>(disk.totalCapacity));
+    statement.BindInt64(6, static_cast<long long>(disk.freeSpace));
+    statement.BindInt64(7, static_cast<long long>(disk.clusterSize));
+    statement.BindText(8, wit::platform::ToUtf8(disk.serialNumber));
+    statement.BindText(9, wit::platform::ToUtf8(disk.fileSystem));
+    statement.BindInt64(10, disk.totalFiles);
+    statement.BindInt64(11, disk.totalFolders);
+    statement.BindInt64(12, disk.updatedAt);
+    statement.BindText(13, wit::platform::ToUtf8(disk.location));
+    statement.BindText(14, wit::core::DiskTypeValue(disk.diskType));
+    statement.BindInt64(15, disk.id);
     return sqlite3_step(statement.Raw()) == SQLITE_DONE;
 }
 
-bool Database::UpdateCatalogItemCount(std::int64_t id, std::int64_t count) {
+bool Database::UpdateDiskScanStatistics(const wit::core::DiskScanStatistics& statistics) {
     if (!editable_) return false;
-    SQLiteStatement statement(db_, "UPDATE catalogs SET item_count=? WHERE id=?;");
-    statement.BindInt64(1, count);
-    statement.BindInt64(2, id);
+    SQLiteStatement statement(db_,
+        "INSERT INTO disk_scan_statistics(disk_id,last_scanned_at,image_scanning_time_ms,imported_descriptions_count,"
+        "calculated_file_crcs) VALUES(?,?,?,?,?) ON CONFLICT(disk_id) DO UPDATE SET "
+        "last_scanned_at=excluded.last_scanned_at,image_scanning_time_ms=excluded.image_scanning_time_ms,"
+        "imported_descriptions_count=excluded.imported_descriptions_count,"
+        "calculated_file_crcs=excluded.calculated_file_crcs;");
+    statement.BindInt64(1, statistics.diskId);
+    statement.BindInt64(2, statistics.lastScannedAt);
+    statement.BindInt64(3, statistics.imageScanningTimeMs);
+    statement.BindInt64(4, statistics.importedDescriptionsCount);
+    statement.BindInt64(5, statistics.calculatedFileCrcs ? 1 : 0);
     return sqlite3_step(statement.Raw()) == SQLITE_DONE;
+}
+
+std::int64_t Database::InsertFolder(const wit::core::FolderEntry& folder) {
+    if (!editable_) return 0;
+    SQLiteStatement statement(db_,
+        "INSERT INTO folders(disk_id,parent_folder_id,path,name,created_at,modified_at,accessed_at,attributes)"
+        " VALUES(?,?,?,?,?,?,?,?);");
+    statement.BindInt64(1, folder.diskId);
+    if (folder.hasParent) statement.BindInt64(2, folder.parentFolderId); else statement.BindNull(2);
+    statement.BindText(3, wit::platform::ToUtf8(folder.path));
+    statement.BindText(4, wit::platform::ToUtf8(folder.name));
+    statement.BindInt64(5, folder.createdAt);
+    statement.BindInt64(6, folder.modifiedAt);
+    statement.BindInt64(7, folder.accessedAt);
+    statement.BindInt64(8, folder.attributes);
+    return sqlite3_step(statement.Raw()) == SQLITE_DONE ? sqlite3_last_insert_rowid(db_) : 0;
 }
 
 bool Database::InsertFile(const wit::core::FileEntry& file) {
     if (!editable_) return false;
     SQLiteStatement statement(db_,
-        "INSERT INTO files(catalog_id,parent_path,name,extension,size,modified_at,attributes,is_directory) VALUES(?,?,?,?,?,?,?,?);");
+        "INSERT INTO files(disk_id,folder_id,name,description,extension,crc,size,created_at,modified_at,accessed_at,attributes)"
+        " VALUES(?,?,?,?,?,?,?,?,?,?,?);");
     statement.BindInt64(1, file.catalogId);
-    statement.BindText(2, wit::platform::ToUtf8(file.parentPath));
+    statement.BindInt64(2, file.folderId);
     statement.BindText(3, wit::platform::ToUtf8(file.name));
-    statement.BindText(4, wit::platform::ToUtf8(file.extension));
-    statement.BindInt64(5, static_cast<long long>(file.size));
-    statement.BindText(6, wit::platform::ToUtf8(file.modifiedAt));
-    statement.BindInt64(7, file.attributes);
-    statement.BindInt64(8, file.isDirectory ? 1 : 0);
+    statement.BindText(4, wit::platform::ToUtf8(file.description));
+    statement.BindText(5, wit::platform::ToUtf8(file.extension));
+    if (file.crc) statement.BindText(6, wit::platform::ToUtf8(*file.crc)); else statement.BindNull(6);
+    statement.BindInt64(7, static_cast<long long>(file.size));
+    statement.BindInt64(8, file.createdAt);
+    statement.BindInt64(9, file.modifiedAtValue);
+    statement.BindInt64(10, file.accessedAt);
+    statement.BindInt64(11, file.attributes);
     return sqlite3_step(statement.Raw()) == SQLITE_DONE;
 }
 
 std::vector<wit::core::Catalog> Database::GetCatalogs() {
     std::vector<wit::core::Catalog> catalogs;
-    SQLiteStatement statement(db_, "SELECT id,name,root_path,created_at,item_count FROM catalogs ORDER BY id DESC;");
+    SQLiteStatement statement(db_,
+        "SELECT id,disk_name,source_path,added_at,total_files,total_folders FROM disks ORDER BY id DESC;");
     while (sqlite3_step(statement.Raw()) == SQLITE_ROW) {
         wit::core::Catalog catalog;
         catalog.id = sqlite3_column_int64(statement.Raw(), 0);
-        catalog.name = wit::platform::ToUtf16(reinterpret_cast<const char*>(sqlite3_column_text(statement.Raw(), 1)));
-        catalog.rootPath = wit::platform::ToUtf16(reinterpret_cast<const char*>(sqlite3_column_text(statement.Raw(), 2)));
-        catalog.createdAt = wit::platform::ToUtf16(reinterpret_cast<const char*>(sqlite3_column_text(statement.Raw(), 3)));
-        catalog.itemCount = sqlite3_column_int64(statement.Raw(), 4);
+        catalog.name = Text(statement.Raw(), 1);
+        catalog.rootPath = Text(statement.Raw(), 2);
+        catalog.addedAt = sqlite3_column_int64(statement.Raw(), 3);
+        catalog.totalFiles = sqlite3_column_int64(statement.Raw(), 4);
+        catalog.totalFolders = sqlite3_column_int64(statement.Raw(), 5);
         catalogs.push_back(catalog);
     }
     return catalogs;
@@ -273,41 +361,52 @@ std::vector<wit::core::Catalog> Database::GetCatalogs() {
 
 int Database::GetBrowserItemCount(const wit::core::BrowserLocation& location) {
     if (location.isRoot) {
-        SQLiteStatement statement(db_, "SELECT COUNT(*) FROM catalogs;");
+        SQLiteStatement statement(db_, "SELECT COUNT(*) FROM disks;");
         return sqlite3_step(statement.Raw()) == SQLITE_ROW ? sqlite3_column_int(statement.Raw(), 0) : 0;
     }
-    SQLiteStatement statement(db_, "SELECT COUNT(*) FROM files WHERE catalog_id=? AND parent_path=?;");
+    SQLiteStatement statement(db_,
+        "SELECT (SELECT COUNT(*) FROM folders c JOIN folders p ON c.parent_folder_id=p.id "
+        "WHERE c.disk_id=? AND p.path=? COLLATE NOCASE) + "
+        "(SELECT COUNT(*) FROM files c JOIN folders p ON c.folder_id=p.id "
+        "WHERE c.disk_id=? AND p.path=? COLLATE NOCASE);");
     statement.BindInt64(1, location.sourceId);
     statement.BindText(2, wit::platform::ToUtf8(location.path));
+    statement.BindInt64(3, location.sourceId);
+    statement.BindText(4, wit::platform::ToUtf8(location.path));
     return sqlite3_step(statement.Raw()) == SQLITE_ROW ? sqlite3_column_int(statement.Raw(), 0) : 0;
 }
 
 std::vector<wit::core::FileEntry> Database::GetBrowserItemsPage(
     const wit::core::BrowserLocation& location, int offset, int limit) {
     std::vector<wit::core::FileEntry> files;
-    const char* query = location.isRoot
-        ? "SELECT id,root_path,name,'',0,created_at,0,1 FROM catalogs ORDER BY name LIMIT ? OFFSET ?;"
-        : "SELECT id,parent_path,name,extension,size,modified_at,attributes,is_directory FROM files "
-            "WHERE catalog_id=? AND parent_path=? ORDER BY is_directory DESC,name LIMIT ? OFFSET ?;";
-    SQLiteStatement statement(db_, query);
-    int parameter = 1;
-    if (!location.isRoot) {
-        statement.BindInt64(parameter++, location.sourceId);
-        statement.BindText(parameter++, wit::platform::ToUtf8(location.path));
+    if (location.isRoot) {
+        SQLiteStatement statement(db_,
+            "SELECT id,id,source_path,disk_name,'',0,updated_at,0,1 FROM disks ORDER BY disk_name LIMIT ? OFFSET ?;");
+        statement.BindInt64(1, limit);
+        statement.BindInt64(2, offset);
+        while (sqlite3_step(statement.Raw()) == SQLITE_ROW) {
+            wit::core::FileEntry file;
+            PopulateDisplayEntry(file, statement.Raw());
+            files.push_back(file);
+        }
+        return files;
     }
-    statement.BindInt64(parameter++, limit);
-    statement.BindInt64(parameter, offset);
+    SQLiteStatement statement(db_,
+        "SELECT id,disk_id,parent_path,name,extension,size,modified_at,attributes,is_directory FROM ("
+        "SELECT c.id,c.disk_id,p.path AS parent_path,c.name,'' AS extension,0 AS size,c.modified_at,c.attributes,1 AS is_directory "
+        "FROM folders c JOIN folders p ON c.parent_folder_id=p.id WHERE c.disk_id=? AND p.path=? COLLATE NOCASE "
+        "UNION ALL SELECT f.id,f.disk_id,p.path AS parent_path,f.name,f.extension,f.size,f.modified_at,f.attributes,0 AS is_directory "
+        "FROM files f JOIN folders p ON f.folder_id=p.id WHERE f.disk_id=? AND p.path=? COLLATE NOCASE)"
+        " ORDER BY is_directory DESC,name LIMIT ? OFFSET ?;");
+    statement.BindInt64(1, location.sourceId);
+    statement.BindText(2, wit::platform::ToUtf8(location.path));
+    statement.BindInt64(3, location.sourceId);
+    statement.BindText(4, wit::platform::ToUtf8(location.path));
+    statement.BindInt64(5, limit);
+    statement.BindInt64(6, offset);
     while (sqlite3_step(statement.Raw()) == SQLITE_ROW) {
         wit::core::FileEntry file;
-        file.id = sqlite3_column_int64(statement.Raw(), 0);
-        file.catalogId = location.isRoot ? file.id : location.sourceId;
-        file.parentPath = wit::platform::ToUtf16(reinterpret_cast<const char*>(sqlite3_column_text(statement.Raw(), 1)));
-        file.name = wit::platform::ToUtf16(reinterpret_cast<const char*>(sqlite3_column_text(statement.Raw(), 2)));
-        file.extension = wit::platform::ToUtf16(reinterpret_cast<const char*>(sqlite3_column_text(statement.Raw(), 3)));
-        file.size = sqlite3_column_int64(statement.Raw(), 4);
-        file.modifiedAt = wit::platform::ToUtf16(reinterpret_cast<const char*>(sqlite3_column_text(statement.Raw(), 5)));
-        file.attributes = static_cast<std::uint32_t>(sqlite3_column_int(statement.Raw(), 6));
-        file.isDirectory = sqlite3_column_int(statement.Raw(), 7) != 0;
+        PopulateDisplayEntry(file, statement.Raw());
         files.push_back(file);
     }
     return files;
@@ -317,51 +416,46 @@ std::vector<wit::core::FileEntry> Database::GetChildFolders(
     std::int64_t sourceId, const std::wstring& parentPath) {
     std::vector<wit::core::FileEntry> folders;
     SQLiteStatement statement(db_,
-        "SELECT id,parent_path,name,extension,size,modified_at,attributes,is_directory FROM files "
-        "WHERE catalog_id=? AND parent_path=? AND is_directory=1 ORDER BY name;");
+        "SELECT c.id,c.disk_id,p.path,c.name,'',0,c.modified_at,c.attributes,1 "
+        "FROM folders c JOIN folders p ON c.parent_folder_id=p.id "
+        "WHERE c.disk_id=? AND p.path=? COLLATE NOCASE ORDER BY c.name;");
     statement.BindInt64(1, sourceId);
     statement.BindText(2, wit::platform::ToUtf8(parentPath));
     while (sqlite3_step(statement.Raw()) == SQLITE_ROW) {
         wit::core::FileEntry folder;
-        folder.id = sqlite3_column_int64(statement.Raw(), 0);
-        folder.catalogId = sourceId;
-        folder.parentPath = wit::platform::ToUtf16(reinterpret_cast<const char*>(sqlite3_column_text(statement.Raw(), 1)));
-        folder.name = wit::platform::ToUtf16(reinterpret_cast<const char*>(sqlite3_column_text(statement.Raw(), 2)));
-        folder.extension = wit::platform::ToUtf16(reinterpret_cast<const char*>(sqlite3_column_text(statement.Raw(), 3)));
-        folder.size = sqlite3_column_int64(statement.Raw(), 4);
-        folder.modifiedAt = wit::platform::ToUtf16(reinterpret_cast<const char*>(sqlite3_column_text(statement.Raw(), 5)));
-        folder.attributes = static_cast<std::uint32_t>(sqlite3_column_int(statement.Raw(), 6));
-        folder.isDirectory = true;
+        PopulateDisplayEntry(folder, statement.Raw());
         folders.push_back(folder);
     }
     return folders;
 }
 
 int Database::GetItemSearchCount(const std::wstring& nameTerm) {
-    SQLiteStatement statement(db_, "SELECT COUNT(*) FROM files WHERE name LIKE ? ESCAPE '\\';");
-    statement.BindText(1, ItemNameLikePattern(nameTerm));
+    SQLiteStatement statement(db_,
+        "SELECT (SELECT COUNT(*) FROM files WHERE name LIKE ? ESCAPE '\\') + "
+        "(SELECT COUNT(*) FROM folders WHERE name LIKE ? ESCAPE '\\');");
+    const auto pattern = ItemNameLikePattern(nameTerm);
+    statement.BindText(1, pattern);
+    statement.BindText(2, pattern);
     return sqlite3_step(statement.Raw()) == SQLITE_ROW ? sqlite3_column_int(statement.Raw(), 0) : 0;
 }
 
 std::vector<wit::core::FileEntry> Database::GetItemSearchPage(const std::wstring& nameTerm, int offset, int limit) {
     std::vector<wit::core::FileEntry> files;
     SQLiteStatement statement(db_,
-        "SELECT id,catalog_id,parent_path,name,extension,size,modified_at,attributes,is_directory "
-        "FROM files WHERE name LIKE ? ESCAPE '\\' ORDER BY is_directory DESC,name,parent_path LIMIT ? OFFSET ?;");
-    statement.BindText(1, ItemNameLikePattern(nameTerm));
-    statement.BindInt64(2, limit);
-    statement.BindInt64(3, offset);
+        "SELECT id,disk_id,parent_path,name,extension,size,modified_at,attributes,is_directory FROM ("
+        "SELECT f.id,f.disk_id,p.path AS parent_path,f.name,f.extension,f.size,f.modified_at,f.attributes,0 AS is_directory "
+        "FROM files f JOIN folders p ON f.folder_id=p.id WHERE f.name LIKE ? ESCAPE '\\' "
+        "UNION ALL SELECT c.id,c.disk_id,COALESCE(p.path,''),c.name,'',0,c.modified_at,c.attributes,1 "
+        "FROM folders c LEFT JOIN folders p ON c.parent_folder_id=p.id WHERE c.name LIKE ? ESCAPE '\\') "
+        "ORDER BY is_directory DESC,name,parent_path LIMIT ? OFFSET ?;");
+    const auto pattern = ItemNameLikePattern(nameTerm);
+    statement.BindText(1, pattern);
+    statement.BindText(2, pattern);
+    statement.BindInt64(3, limit);
+    statement.BindInt64(4, offset);
     while (sqlite3_step(statement.Raw()) == SQLITE_ROW) {
         wit::core::FileEntry file;
-        file.id = sqlite3_column_int64(statement.Raw(), 0);
-        file.catalogId = sqlite3_column_int64(statement.Raw(), 1);
-        file.parentPath = wit::platform::ToUtf16(reinterpret_cast<const char*>(sqlite3_column_text(statement.Raw(), 2)));
-        file.name = wit::platform::ToUtf16(reinterpret_cast<const char*>(sqlite3_column_text(statement.Raw(), 3)));
-        file.extension = wit::platform::ToUtf16(reinterpret_cast<const char*>(sqlite3_column_text(statement.Raw(), 4)));
-        file.size = sqlite3_column_int64(statement.Raw(), 5);
-        file.modifiedAt = wit::platform::ToUtf16(reinterpret_cast<const char*>(sqlite3_column_text(statement.Raw(), 6)));
-        file.attributes = static_cast<std::uint32_t>(sqlite3_column_int(statement.Raw(), 7));
-        file.isDirectory = sqlite3_column_int(statement.Raw(), 8) != 0;
+        PopulateDisplayEntry(file, statement.Raw());
         files.push_back(file);
     }
     return files;

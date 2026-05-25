@@ -1,6 +1,8 @@
 #include "AddNewDiskMediaDialog.h"
 #include "../app/resource.h"
 #include <array>
+#include <cerrno>
+#include <cstdlib>
 #include <cwctype>
 #include <shellapi.h>
 #include <shobjidl.h>
@@ -332,8 +334,23 @@ bool AddNewDiskMediaDialog::Confirm() {
         ClearSelection();
         return false;
     }
-    result_.diskNumber = ReadText(dialog_, IDC_MEDIA_NUMBER);
+    const auto diskNumber = ReadText(dialog_, IDC_MEDIA_NUMBER);
+    if (!IsBlank(diskNumber)) {
+        wchar_t* end{};
+        errno = 0;
+        const auto value = std::wcstoll(diskNumber.c_str(), &end, 10);
+        if (errno == ERANGE || end == diskNumber.c_str() || *end != L'\0' || value < 0) {
+            MessageBoxW(dialog_, L"Disk number must be a non-negative whole number.",
+                L"Add New Disk/Media", MB_OK | MB_ICONWARNING);
+            SetFocus(GetDlgItem(dialog_, IDC_MEDIA_NUMBER));
+            return false;
+        }
+        result_.diskNumber = std::to_wstring(value);
+    } else {
+        result_.diskNumber = L"0";
+    }
     result_.diskName = ReadText(dialog_, IDC_MEDIA_NAME);
+    result_.calculateCrc = IsDlgButtonChecked(dialog_, IDC_MEDIA_CALCULATE_CRC) == BST_CHECKED;
     if (IsBlank(result_.diskName)) result_.diskName = SourceName(result_.originalPath);
     return true;
 }

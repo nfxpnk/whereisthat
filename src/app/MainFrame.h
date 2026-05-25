@@ -80,6 +80,7 @@ private:
     void OnAbout();
     LRESULT OnTreeSelectionChanged(LPNMHDR hdr);
     LRESULT OnTreeExpanding(LPNMHDR hdr);
+    LRESULT OnTreeRightClick();
     LRESULT OnFileGetDispInfo(LPNMHDR hdr);
     LRESULT OnFileActivate(LPNMHDR hdr);
     LRESULT OnFileItemChanged(LPNMHDR hdr);

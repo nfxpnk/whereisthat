@@ -369,6 +369,7 @@ LRESULT MainFrame::HandleMessage(UINT message, WPARAM wparam, LPARAM lparam) {
         auto* hdr = reinterpret_cast<LPNMHDR>(lparam);
         if (hdr->idFrom == IDC_BROWSER_TREE && hdr->code == TVN_SELCHANGEDW) return OnTreeSelectionChanged(hdr);
         if (hdr->idFrom == IDC_BROWSER_TREE && hdr->code == TVN_ITEMEXPANDINGW) return OnTreeExpanding(hdr);
+        if (hdr->idFrom == IDC_BROWSER_TREE && hdr->code == NM_RCLICK) return OnTreeRightClick();
         if (hdr->idFrom == IDC_FILES && hdr->code == LVN_GETDISPINFOW) return OnFileGetDispInfo(hdr);
         if (hdr->idFrom == IDC_FILES && hdr->code == LVN_ITEMACTIVATE) return OnFileActivate(hdr);
         if (hdr->idFrom == IDC_FILES && hdr->code == LVN_ITEMCHANGED) return OnFileItemChanged(hdr);
@@ -714,6 +715,49 @@ LRESULT MainFrame::OnTreeSelectionChanged(LPNMHDR hdr) {
 LRESULT MainFrame::OnTreeExpanding(LPNMHDR hdr) {
     const auto* notification = reinterpret_cast<NMTREEVIEWW*>(hdr);
     if (notification->action == TVE_EXPAND) tree_.Expand(notification->itemNew.hItem);
+    return 0;
+}
+
+LRESULT MainFrame::OnTreeRightClick() {
+    POINT screenPoint{};
+    if (!GetCursorPos(&screenPoint)) return 0;
+
+    POINT treePoint = screenPoint;
+    ScreenToClient(treeCtl_, &treePoint);
+    TVHITTESTINFO hitTest{};
+    hitTest.pt = treePoint;
+    const auto item = TreeView_HitTest(treeCtl_, &hitTest);
+    if (!item) return 0;
+
+    TreeView_SelectItem(treeCtl_, item);
+
+    const auto menu = CreatePopupMenu();
+    if (!menu) return 0;
+    AppendMenuW(menu, MF_STRING, ID_EDIT_ADDDISKIMAGE, L"Add New Disk Image");
+    AppendMenuW(menu, MF_STRING, ID_TREE_CONTEXT_ADD_NEW_DISK_GROUP_PLACEHOLDER, L"Add New Disk Group");
+    AppendMenuW(menu, MF_STRING, ID_TREE_CONTEXT_UPDATE_ALL_DISK_IMAGES_PLACEHOLDER, L"Update All Disk Images");
+    AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(menu, MF_STRING, ID_SEARCH_FIND_IN_CATALOG, L"Find in This Catalog");
+    AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(menu, MF_STRING, ID_ACTIONS_EDIT_DESCRIPTION, L"Edit Description");
+    AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(menu, MF_STRING, ID_FILE_NEWCATALOG, L"Add New Catalog");
+    AppendMenuW(menu, MF_STRING, ID_FILE_OPEN, L"Open Catalog");
+    AppendMenuW(menu, MF_STRING, ID_FILE_SAVE, L"Save Catalog");
+    AppendMenuW(menu, MF_STRING, ID_FILE_REBUILD_DATABASE, L"Rebuild Catalog File");
+    AppendMenuW(menu, MF_STRING, ID_FILE_CLOSE, L"Close Catalog");
+    AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(menu, MF_STRING, ID_EDIT_CATALOG_MANAGER, L"Catalog Manager");
+    AppendMenuW(menu, MF_STRING, ID_EDIT_CATALOG_SETUP, L"Catalog Setup");
+    AppendMenuW(menu, MF_STRING, ID_ACTIONS_PROPERTIES, L"Properties");
+
+    const auto command = TrackPopupMenuEx(menu, TPM_RETURNCMD | TPM_LEFTALIGN | TPM_TOPALIGN,
+        screenPoint.x, screenPoint.y, hwnd_, nullptr);
+    DestroyMenu(menu);
+    if (command) {
+        // Deferred placeholder IDs deliberately have no OnCommand route yet.
+        OnCommand(command);
+    }
     return 0;
 }
 

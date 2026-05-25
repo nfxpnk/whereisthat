@@ -38,6 +38,8 @@ public:
     bool DeleteContentForDisk(std::int64_t diskId);
     bool UpdateDisk(const wit::core::Disk& disk);
     bool UpdateDiskScanStatistics(const wit::core::DiskScanStatistics& statistics);
+    int GetDiskCount();
+    std::vector<wit::core::Disk> GetDisksPage(int offset, int limit);
     std::int64_t InsertFolder(const wit::core::FolderEntry& folder);
     bool InsertFile(const wit::core::FileEntry& file);
     std::vector<wit::core::Catalog> GetCatalogs();

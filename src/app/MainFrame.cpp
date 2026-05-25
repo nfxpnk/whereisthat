@@ -438,26 +438,6 @@ bool MainFrame::OnCreate() {
     tree_.Attach(treeCtl_);
     files_.Attach(filesCtl_);
 
-    LVCOLUMNW col{LVCF_TEXT | LVCF_WIDTH | LVCF_FMT};
-    col.fmt = LVCFMT_LEFT;
-    col.cx = 200;
-    col.pszText = const_cast<LPWSTR>(L"Name");
-    ListView_InsertColumn(filesCtl_, 0, &col);
-    col.cx = 80;
-    col.pszText = const_cast<LPWSTR>(L"Type");
-    ListView_InsertColumn(filesCtl_, 1, &col);
-    col.fmt = LVCFMT_RIGHT;
-    col.cx = 100;
-    col.pszText = const_cast<LPWSTR>(L"Size");
-    ListView_InsertColumn(filesCtl_, 2, &col);
-    col.fmt = LVCFMT_LEFT;
-    col.cx = 320;
-    col.pszText = const_cast<LPWSTR>(L"Path");
-    ListView_InsertColumn(filesCtl_, 3, &col);
-    col.cx = 180;
-    col.pszText = const_cast<LPWSTR>(L"Modified");
-    ListView_InsertColumn(filesCtl_, 4, &col);
-
     ClearCatalogViews();
     if (!settings_.lastCatalogPath.empty() && !ActivateCatalog(settings_.lastCatalogPath, false, false)) {
         MessageBoxW(hwnd_, L"The last used catalog is unavailable.", L"Open Catalog",
@@ -749,17 +729,19 @@ LRESULT MainFrame::OnFileGetDispInfo(LPNMHDR hdr) {
 LRESULT MainFrame::OnFileActivate(LPNMHDR hdr) {
     const auto* activation = reinterpret_cast<NMITEMACTIVATE*>(hdr);
     if (activation->iItem < 0) return 0;
-    const auto* entry = files_.EntryAt(activation->iItem);
-    if (!entry || !entry->isDirectory) return 0;
 
     wit::core::BrowserLocation next;
     next.isRoot = false;
     if (currentLocation_.isRoot) {
-        next.sourceId = entry->catalogId;
-        next.sourceName = entry->name;
-        next.sourceRoot = entry->parentPath;
-        next.path = entry->parentPath;
+        const auto* disk = files_.DiskAt(activation->iItem);
+        if (!disk) return 0;
+        next.sourceId = disk->id;
+        next.sourceName = disk->diskName;
+        next.sourceRoot = disk->sourcePath;
+        next.path = disk->sourcePath;
     } else {
+        const auto* entry = files_.EntryAt(activation->iItem);
+        if (!entry || !entry->isDirectory) return 0;
         next = currentLocation_;
         next.path = JoinStoredPath(currentLocation_.path, entry->name);
     }
@@ -988,8 +970,11 @@ void MainFrame::UpdateFocusedItemStatus() {
     std::wstring text;
     if (filesCtl_) {
         const int index = ListView_GetNextItem(filesCtl_, -1, LVNI_FOCUSED);
-        const auto* entry = index >= 0 ? files_.EntryAt(index) : nullptr;
-        if (entry) {
+        if (const auto* disk = index >= 0 ? files_.DiskAt(index) : nullptr) {
+            text = disk->diskName + L" | " + CompactSize(disk->totalCapacity);
+            const auto updatedAt = wit::platform::FormatUnixTimestamp(disk->updatedAt);
+            if (!updatedAt.empty()) text += L" | " + updatedAt;
+        } else if (const auto* entry = index >= 0 ? files_.EntryAt(index) : nullptr) {
             text = entry->name;
             if (!entry->isDirectory) text += L" | " + CompactSize(entry->size);
             if (!entry->modifiedAt.empty()) text += L" | " + entry->modifiedAt;
@@ -1004,8 +989,10 @@ void MainFrame::UpdateSelectionSummaryStatus() {
     if (filesCtl_) {
         for (int index = ListView_GetNextItem(filesCtl_, -1, LVNI_SELECTED); index >= 0;
             index = ListView_GetNextItem(filesCtl_, index, LVNI_SELECTED)) {
-            const auto* entry = files_.EntryAt(index);
-            if (entry) {
+            if (const auto* disk = files_.DiskAt(index)) {
+                ++selected;
+                totalSize += disk->totalCapacity;
+            } else if (const auto* entry = files_.EntryAt(index)) {
                 ++selected;
                 if (!entry->isDirectory) totalSize += entry->size;
             }

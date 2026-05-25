@@ -17,18 +17,19 @@ Stores one disk/media source added to a catalog. `MainFrame::OnAddOrUpdateDiskIm
 - `total_files` and `total_folders` are latest successful per-disk scan results. Catalog-wide counts are calculated from `files` and `folders` rather than summing these fields.
 - `added_at` is set on insertion and retained during rescans; `updated_at` changes after successful scan completion.
 - Volume/capacity fields are read from native Windows APIs for the source's owning volume where available; unknown text/size fields retain their empty/zero defaults. The current scan workflow classifies mounted ISOs as `VirtualDisk`, removable drives as `RemovableUSB`, and otherwise uses `Other` unless a reliable subtype is available.
+- The catalog-root right-pane inventory reads paged `Disk` records from this table to show stored name, type, capacity, free space, update time, number, description, category, and location without requiring connected media.
 
 ## Field Reference
 
 | Field | Type | Nullable | Default | Key/Index | Description | Used in code | Confidence |
 |---|---|---:|---|---|---|---|---|
 | `id` | `INTEGER` | No | none | `PRIMARY KEY AUTOINCREMENT` | Disk record identifier. | `src/storage/Database.cpp`; `src/app/MainFrame.cpp`; navigation projections | Explicit |
-| `disk_name` | `TEXT` | No | none | none | User-visible disk/media name. | `src/ui/AddNewDiskMediaDialog.cpp`; `src/app/MainFrame.cpp`; `Database::GetCatalogs` | Explicit |
+| `disk_name` | `TEXT` | No | none | none | User-visible disk/media name. | `src/ui/AddNewDiskMediaDialog.cpp`; `src/app/MainFrame.cpp`; `Database::GetCatalogs`, `GetDisksPage` | Explicit |
 | `disk_number` | `INTEGER` | No | `0` | none | Numeric identifier accepted for the disk. | `src/app/MainFrame.cpp`; `Database::AddDisk`, `UpdateDisk` | Explicit |
 | `source_path` | `TEXT` | No | none | `UNIQUE`; `idx_disks_source_path` | Current normalized scan/browse root; normally identifies rescans, and is refreshed if a matched ISO mount root changes. | `MainFrame::OnAddOrUpdateDiskImage`; `Database::FindDiskBySourcePath`, `UpdateDisk`; browser projection | Explicit |
 | `volume_label` | `TEXT` | No | `''` | none | Native volume label when available. | `src/platform/VolumeInfo.cpp`; `Database` disk writes | Explicit |
-| `total_capacity` | `INTEGER` | No | `0` | none | Total capacity in bytes. | `VolumeInfo.cpp`; `Database::GetCatalogSummary` | Explicit |
-| `free_space` | `INTEGER` | No | `0` | none | Free capacity in bytes. | `VolumeInfo.cpp`; `Database::GetCatalogSummary` | Explicit |
+| `total_capacity` | `INTEGER` | No | `0` | none | Total capacity in bytes. | `VolumeInfo.cpp`; `Database::GetCatalogSummary`, `GetDisksPage` | Explicit |
+| `free_space` | `INTEGER` | No | `0` | none | Free capacity in bytes. | `VolumeInfo.cpp`; `Database::GetCatalogSummary`, `GetDisksPage` | Explicit |
 | `cluster_size` | `INTEGER` | No | `0` | none | Allocation cluster size in bytes. | `VolumeInfo.cpp`; disk writes | Explicit |
 | `serial_number` | `TEXT` | No | `''` | none | Native volume serial number represented as text. | `VolumeInfo.cpp`; disk writes | Explicit |
 | `file_system` | `TEXT` | No | `''` | none | Native filesystem name when available. | `VolumeInfo.cpp`; disk writes | Explicit |

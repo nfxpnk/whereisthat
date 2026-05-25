@@ -62,5 +62,5 @@ No CRC index is defined because no CRC lookup query is implemented.
 | Latest statistics | `FileScanner::ScanFolder`, `Database::UpdateDiskScanStatistics` | `disk_scan_statistics`. |
 | File/folder capture | `FileScanner::ScanFolder`, `Database::InsertFolder`, `InsertFile` | `folders`, `files`. |
 | Disk native metadata | `src/platform/VolumeInfo.cpp` | Volume, capacity, cluster and filesystem fields on `disks`. |
-| Browser/search reads | `Database::GetCatalogs`, `GetBrowserItemCount`, `GetBrowserItemsPage`, `GetChildFolders`, `GetItemSearchCount`, `GetItemSearchPage` | `disks`, `folders`, `files`. |
+| Browser/search reads | `Database::GetCatalogs`, `GetBrowserItemCount`, `GetBrowserItemsPage`, `HasChildFolders`, `GetChildFolders`, `GetItemSearchCount`, `GetItemSearchPage` | `disks`, `folders`, `files`. |
 | Summary reads | `Database::GetCatalogSummary` | Derived counts/sums plus filesystem file size. |

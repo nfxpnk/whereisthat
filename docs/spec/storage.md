@@ -63,6 +63,7 @@ Catalog-wide summary values are not cached in SQLite:
 - Reject former-format catalog files without attempting upgrade or conversion.
 - Do not execute SQLite reads or writes by embedding SQL in window/view classes.
 - Keep hierarchy/list/search reads paged and available offline from persisted data.
+- Read catalog-root disk inventory rows directly from persisted `disks` metadata using count and paged queries; do not retrieve live media information while browsing.
 
 ## Operational Expectations
 

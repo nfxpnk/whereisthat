@@ -55,6 +55,31 @@ void PopulateDisplayEntry(wit::core::FileEntry& entry, sqlite3_stmt* stmt) {
     entry.attributes = static_cast<std::uint32_t>(sqlite3_column_int(stmt, 7));
     entry.isDirectory = sqlite3_column_int(stmt, 8) != 0;
 }
+
+wit::core::DiskType DiskTypeFromText(const std::wstring& value) {
+    if (value == L"CD") return wit::core::DiskType::CD;
+    if (value == L"DVD") return wit::core::DiskType::DVD;
+    if (value == L"BluRay") return wit::core::DiskType::BluRay;
+    if (value == L"HardDisk") return wit::core::DiskType::HardDisk;
+    if (value == L"SolidStateDisk") return wit::core::DiskType::SolidStateDisk;
+    if (value == L"RemovableUSB") return wit::core::DiskType::RemovableUSB;
+    if (value == L"VirtualDisk") return wit::core::DiskType::VirtualDisk;
+    return wit::core::DiskType::Other;
+}
+
+void PopulateDisk(wit::core::Disk& disk, sqlite3_stmt* stmt) {
+    disk.id = sqlite3_column_int64(stmt, 0);
+    disk.diskName = Text(stmt, 1);
+    disk.diskNumber = sqlite3_column_int64(stmt, 2);
+    disk.sourcePath = Text(stmt, 3);
+    disk.totalCapacity = static_cast<std::uint64_t>(sqlite3_column_int64(stmt, 4));
+    disk.freeSpace = static_cast<std::uint64_t>(sqlite3_column_int64(stmt, 5));
+    disk.updatedAt = sqlite3_column_int64(stmt, 6);
+    disk.description = Text(stmt, 7);
+    disk.category = Text(stmt, 8);
+    disk.location = Text(stmt, 9);
+    disk.diskType = DiskTypeFromText(Text(stmt, 10));
+}
 }
 
 Database::~Database() {
@@ -305,6 +330,27 @@ bool Database::UpdateDiskScanStatistics(const wit::core::DiskScanStatistics& sta
     statement.BindInt64(4, statistics.importedDescriptionsCount);
     statement.BindInt64(5, statistics.calculatedFileCrcs ? 1 : 0);
     return sqlite3_step(statement.Raw()) == SQLITE_DONE;
+}
+
+int Database::GetDiskCount() {
+    SQLiteStatement statement(db_, "SELECT COUNT(*) FROM disks;");
+    return sqlite3_step(statement.Raw()) == SQLITE_ROW ? sqlite3_column_int(statement.Raw(), 0) : 0;
+}
+
+std::vector<wit::core::Disk> Database::GetDisksPage(int offset, int limit) {
+    std::vector<wit::core::Disk> disks;
+    SQLiteStatement statement(db_,
+        "SELECT id,disk_name,disk_number,source_path,total_capacity,free_space,updated_at,"
+        "description,category,location,disk_type FROM disks "
+        "ORDER BY disk_name COLLATE NOCASE,id LIMIT ? OFFSET ?;");
+    statement.BindInt64(1, limit);
+    statement.BindInt64(2, offset);
+    while (sqlite3_step(statement.Raw()) == SQLITE_ROW) {
+        wit::core::Disk disk;
+        PopulateDisk(disk, statement.Raw());
+        disks.push_back(disk);
+    }
+    return disks;
 }
 
 std::int64_t Database::InsertFolder(const wit::core::FolderEntry& folder) {

@@ -35,9 +35,9 @@ The delivered application and supported build must not depend on .NET, WPF, C#, 
 - Switching catalogs or closing with pending changes offers Save, Discard, or Cancel, and protected/read-only catalogs remain browseable while rejecting edits.
 - Scan work does not freeze the primary UI message loop, and program activity is surfaced through the status area.
 - After restart, an available last-used catalog can be browsed from persisted data even when an indexed source is unavailable.
-- The main browser displays an active-catalog root with folder-only TreeView expansion, immediate file/folder contents, a catalog-relative address display, and synchronized Back/Forward navigation.
-- File browsing remains database-backed and paged for large catalog locations.
-- The status bar presents catalog state, protected state, focused file details, multi-selected item totals, and grey/green placeholder application lights, and continues to resize with the main window.
+- The main browser displays an active-catalog root with folder-only TreeView expansion, a root disk inventory whose columns are `Disk Name`, `Media Type`, `Capacity`, `Free Space`, `Last Updated`, `Disk #`, `Description`, `Category`, and `Disk Location`, immediate file/folder contents below selected disks or folders, a catalog-relative address display, and synchronized Back/Forward navigation.
+- Catalog-root disk inventory and file browsing remain database-backed and paged for large catalog locations, including when indexed media is unavailable.
+- The status bar presents catalog state, protected state, focused item details, multi-selected item totals, and grey/green placeholder application lights, and continues to resize with the main window.
 
 ## Documentation Acceptance
 

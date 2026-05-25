@@ -9,11 +9,11 @@ The user interface is a native Unicode Win32 desktop interface written with the 
 The app must provide a direct desktop workflow:
 
 - A main frame window for catalog browsing.
-- An Explorer-style main browser with the active catalog as the tree root, folder-only hierarchy on the left, and location contents on the right.
+- An Explorer-style main browser with the active catalog as the tree root, folder-only hierarchy on the left, and either root disk inventory or location contents on the right.
 - A compact navigation row above the contents list with Back, Forward, and a read-only catalog-relative address display.
 - Commands to create a new catalog database file or open an existing catalog database file.
 - A command to choose a folder or disk image for adding to or updating in the active catalog.
-- A media-source view for selecting prior scans in the active catalog.
+- A catalog-root disk inventory view for selecting prior scans in the active catalog.
 - A file view showing metadata from the selected indexed source.
 - A five-section status bar, when enabled, showing catalog state, protected status, focused-item metadata, selected-item totals, and program status lights.
 
@@ -37,7 +37,8 @@ The active catalog remains useful when its indexed original storage is disconnec
 - Opening or creating another catalog, or exiting the application, prompts the user to Save, Discard, or Cancel when pending catalog changes exist.
 - Search for Items (`Ctrl+F`) requires an active catalog and opens a native search window with a file/folder name input and Search action; matching indexed items from all media sources in that database appear below the controls with name, type, size, path, and modified metadata.
 - The main folder tree uses a native TreeView: its top-level node is the active catalog database label, its children are stored disks/media sources, and expanding a node loads only normalized persisted descendant folders.
-- The main contents area uses a native owner-data ListView showing immediate folders and files for the current catalog location; activating a folder navigates into it and updates the tree selection, address display, and Back/Forward history.
+- When the catalog root is selected, the native owner-data right-pane ListView displays one row per stored disk with columns `Disk Name`, `Media Type`, `Capacity`, `Free Space`, `Last Updated`, `Disk #`, `Description`, `Category`, and `Disk Location`, in that order; activating a disk navigates into its stored root contents.
+- When a disk or descendant folder is selected, the same right-pane ListView displays immediate folders and files with content-oriented columns; activating a folder navigates into it and updates the tree selection, address display, and Back/Forward history.
 - The main contents area supports multi-selection so the status bar can report selected item count and aggregate stored size; focused item status includes filename, size, and stored date.
 - An active read-only or otherwise protected catalog remains browseable and shows a compact lock indicator, but does not accept Add/Update or Save mutations.
 - General Settings opens a native settings dialog; its initial `Show status bar` preference immediately controls status-bar visibility and defaults to enabled, and it displays the stored last-opened catalog path as read-only information.
@@ -55,7 +56,7 @@ The active catalog remains useful when its indexed original storage is disconnec
 ## Large Result Sets
 
 - Catalog contents must be viable for large scans.
-- The main contents view uses virtual/owner-data ListView behavior with database-backed paging scoped to the current catalog location.
+- The main right-pane view uses virtual/owner-data ListView behavior with database-backed paging for both catalog-root disk inventory and file/folder contents scoped to the current location.
 - The Search for Items result list uses virtual/owner-data ListView behavior with database-backed paging.
 - UI changes must not require loading all rows in a catalog into memory merely to display them.
 

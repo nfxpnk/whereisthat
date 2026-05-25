@@ -60,6 +60,8 @@ private:
     bool selectingTree_{};
 
     static LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam);
+    static LRESULT CALLBACK FileListSubclassProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam,
+        UINT_PTR subclassId, DWORD_PTR referenceData);
     LRESULT HandleMessage(UINT message, WPARAM wparam, LPARAM lparam);
     bool OnCreate();
     bool CreateToolbar();
@@ -84,6 +86,7 @@ private:
     LRESULT OnFileGetDispInfo(LPNMHDR hdr);
     LRESULT OnFileActivate(LPNMHDR hdr);
     LRESULT OnFileItemChanged(LPNMHDR hdr);
+    void OnSelectAllFileItems();
     LRESULT OnToolbarDropDown(LPNMTOOLBAR notification);
     void DrawStatusPart(LPDRAWITEMSTRUCT drawItem);
     bool ActivateCatalog(const std::wstring& path, bool createNew, bool persistPath);

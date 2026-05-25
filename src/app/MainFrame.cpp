@@ -302,6 +302,20 @@ LRESULT CALLBACK MainFrame::WndProc(HWND hwnd, UINT message, WPARAM wparam, LPAR
     return self ? self->HandleMessage(message, wparam, lparam) : DefWindowProcW(hwnd, message, wparam, lparam);
 }
 
+LRESULT CALLBACK MainFrame::FileListSubclassProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam,
+    UINT_PTR subclassId, DWORD_PTR referenceData) {
+    auto* self = reinterpret_cast<MainFrame*>(referenceData);
+    if (message == WM_KEYDOWN && wparam == L'A' && (GetKeyState(VK_CONTROL) & 0x8000) &&
+        !(GetKeyState(VK_MENU) & 0x8000)) {
+        self->OnSelectAllFileItems();
+        return 0;
+    }
+    if (message == WM_NCDESTROY) {
+        RemoveWindowSubclass(hwnd, FileListSubclassProc, subclassId);
+    }
+    return DefSubclassProc(hwnd, message, wparam, lparam);
+}
+
 LRESULT MainFrame::HandleMessage(UINT message, WPARAM wparam, LPARAM lparam) {
     switch (message) {
     case WM_CREATE:
@@ -435,6 +449,8 @@ bool MainFrame::OnCreate() {
         WS_CHILD | WS_VISIBLE | LVS_REPORT | LVS_OWNERDATA, 0, 0, 0, 0,
         hwnd_, reinterpret_cast<HMENU>(IDC_FILES), GetModuleHandle(nullptr), nullptr);
     if (!status_ || !treeCtl_ || !backCtl_ || !forwardCtl_ || !addressCtl_ || !filesCtl_) return false;
+    ListView_SetExtendedListViewStyle(filesCtl_, LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER);
+    if (!SetWindowSubclass(filesCtl_, FileListSubclassProc, 1, reinterpret_cast<DWORD_PTR>(this))) return false;
 
     tree_.Attach(treeCtl_);
     files_.Attach(filesCtl_);
@@ -801,6 +817,15 @@ LRESULT MainFrame::OnFileItemChanged(LPNMHDR hdr) {
         UpdateSelectionSummaryStatus();
     }
     return 0;
+}
+
+void MainFrame::OnSelectAllFileItems() {
+    if (GetFocus() != filesCtl_ || files_.ShowsDisks()) return;
+    const int focused = ListView_GetNextItem(filesCtl_, -1, LVNI_FOCUSED);
+    if (focused < 0 || !files_.EntryAt(focused)) return;
+    if (ListView_GetSelectedCount(filesCtl_) == files_.total) return;
+    ListView_SetItemState(filesCtl_, -1, LVIS_SELECTED, LVIS_SELECTED);
+    UpdateSelectionSummaryStatus();
 }
 
 LRESULT MainFrame::OnToolbarDropDown(LPNMTOOLBAR notification) {

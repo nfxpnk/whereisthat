@@ -24,14 +24,6 @@ std::wstring WildcardFor(const std::wstring& path) {
     return (last == L'\\' || last == L'/') ? path + L"*" : path + L"\\*";
 }
 
-std::wstring DisplayNameForRoot(const std::wstring& rootPath) {
-    if (rootPath.size() == 3 && rootPath[1] == L':' && (rootPath[2] == L'\\' || rootPath[2] == L'/')) return rootPath;
-    auto end = rootPath.find_last_not_of(L"\\/");
-    if (end == std::wstring::npos) return rootPath;
-    auto pos = rootPath.find_last_of(L"\\/", end);
-    return pos == std::wstring::npos ? rootPath.substr(0, end + 1) : rootPath.substr(pos + 1, end - pos);
-}
-
 std::optional<std::wstring> FileCrc32(const std::wstring& path, std::stop_token stopToken, bool& cancelled) {
     const auto file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
         FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
@@ -106,7 +98,7 @@ bool FileScanner::ScanFolder(const std::wstring& rootPath, std::int64_t diskId, 
     rootData.ftCreationTime = rootAttrs.ftCreationTime;
     rootData.ftLastWriteTime = rootAttrs.ftLastWriteTime;
     rootData.ftLastAccessTime = rootAttrs.ftLastAccessTime;
-    auto root = FolderFromData(diskId, 0, false, rootPath, DisplayNameForRoot(rootPath), rootData);
+    auto root = FolderFromData(diskId, 0, false, rootPath, wit::platform::DisplayNameForPath(rootPath), rootData);
     const auto rootId = db.InsertFolder(root);
     if (rootId == 0) return fail();
     ++folderCount;

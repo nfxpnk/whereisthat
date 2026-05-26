@@ -1,5 +1,6 @@
 #include "../../src/app/ScanCoordinator.h"
 #include "../../src/core/FileScanner.h"
+#include "../../src/platform/PathHelpers.h"
 #include "../../src/platform/Win32Helpers.h"
 #include "../../src/storage/Database.h"
 #include "../../third_party/sqlite/sqlite3.h"
@@ -103,6 +104,12 @@ int wmain() {
     const auto catalogPath = testRoot / L"catalog.db";
     const auto oldPath = testRoot / L"old.db";
     const auto normalizedWithoutSizePath = testRoot / L"normalized-without-size.db";
+
+    Check(wit::platform::DisplayNameForPath(mediaWithCrc) == L"media-crc", "path display leaf name");
+    Check(wit::platform::DisplayNameForPath(mediaWithCrc / L"") == L"media-crc",
+        "path display ignores trailing separator");
+    Check(wit::platform::DisplayNameForPath(testRoot.root_path()) == testRoot.root_path().wstring(),
+        "path display retains drive root");
 
     std::filesystem::remove_all(testRoot);
     std::filesystem::create_directories(mediaWithCrc);

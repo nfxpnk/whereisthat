@@ -1,8 +1,10 @@
 #include "ScanCoordinator.h"
+#include <filesystem>
 #include <string>
 #include <utility>
 #include <vector>
 #include "../core/FileScanner.h"
+#include "../platform/PathHelpers.h"
 #include "../platform/VolumeInfo.h"
 #include "../platform/Win32Helpers.h"
 
@@ -10,31 +12,6 @@ namespace wit::app {
 namespace {
 
 constexpr wchar_t kScanDeliveryWindowClass[] = L"WhereIsThatScanDeliveryWindow";
-
-std::wstring NameForCatalogRoot(const std::wstring& root) {
-    if (root.size() == 3 && root[1] == L':' && (root[2] == L'\\' || root[2] == L'/')) return root;
-    const auto end = root.find_last_not_of(L"\\/");
-    if (end == std::wstring::npos) return root;
-    const auto separator = root.find_last_of(L"\\/", end);
-    return separator == std::wstring::npos ? root.substr(0, end + 1) :
-        root.substr(separator + 1, end - separator);
-}
-
-std::wstring NormalizedSourcePath(const std::wstring& path) {
-    std::vector<wchar_t> buffer(MAX_PATH);
-    for (;;) {
-        const DWORD length = GetFullPathNameW(path.c_str(), static_cast<DWORD>(buffer.size()), buffer.data(), nullptr);
-        if (length == 0) return path;
-        if (length < buffer.size()) {
-            std::wstring normalized(buffer.data(), length);
-            while (normalized.size() > 3 && (normalized.back() == L'\\' || normalized.back() == L'/')) {
-                normalized.pop_back();
-            }
-            return normalized;
-        }
-        buffer.resize(static_cast<std::size_t>(length) + 1);
-    }
-}
 
 }
 
@@ -80,8 +57,10 @@ bool ScanCoordinator::Start(wit::storage::Database* source, const wit::ui::AddNe
     if (IsRunning() || !deliveryWindow_ || !source) return false;
     auto candidate = std::make_unique<wit::storage::Database>();
     if (!candidate->CreateWorkingCopy(*source)) return false;
-    const std::wstring root = NormalizedSourcePath(media.scanRoot);
-    const std::wstring diskName = media.diskName.empty() ? NameForCatalogRoot(root) : media.diskName;
+    const auto rootPath = std::filesystem::absolute(media.scanRoot);
+    const std::wstring root = rootPath.wstring();
+    const std::wstring diskName = media.diskName.empty()
+        ? wit::platform::DisplayNameForPath(rootPath) : media.diskName;
     std::int64_t diskNumber{};
     try {
         if (!media.diskNumber.empty()) diskNumber = std::stoll(media.diskNumber);

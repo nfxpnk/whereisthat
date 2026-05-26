@@ -2,30 +2,12 @@
 #include <Windows.h>
 #include <algorithm>
 #include <cassert>
+#include <filesystem>
 #include <vector>
+#include "../platform/PathHelpers.h"
 
 namespace wit::app {
 namespace {
-
-std::wstring NameForCatalogPath(const std::wstring& path) {
-    if (path.size() == 3 && path[1] == L':' && (path[2] == L'\\' || path[2] == L'/')) return path;
-    const auto end = path.find_last_not_of(L"\\/");
-    if (end == std::wstring::npos) return path;
-    const auto separator = path.find_last_of(L"\\/", end);
-    return separator == std::wstring::npos ? path.substr(0, end + 1) :
-        path.substr(separator + 1, end - separator);
-}
-
-std::wstring NormalizedCatalogPath(const std::wstring& path) {
-    DWORD capacity = MAX_PATH;
-    for (;;) {
-        std::vector<wchar_t> buffer(capacity);
-        const auto length = GetFullPathNameW(path.c_str(), capacity, buffer.data(), nullptr);
-        if (length == 0) return path;
-        if (length < capacity) return std::wstring(buffer.data(), length);
-        capacity = length + 1;
-    }
-}
 
 bool SamePath(const std::wstring& left, const std::wstring& right) {
     return CompareStringOrdinal(left.c_str(), -1, right.c_str(), -1, TRUE) == CSTR_EQUAL;
@@ -52,7 +34,7 @@ bool CatalogSession::SaveSettings(const wit::platform::AppSettings& settings) {
 OpenCatalog* CatalogSession::Open(const std::wstring& path, bool createNew, bool persistPath,
     bool& settingsSaved, bool& alreadyOpen) {
     AssertOwnerThread();
-    const auto normalizedPath = NormalizedCatalogPath(path);
+    const auto normalizedPath = std::filesystem::absolute(path).wstring();
     alreadyOpen = false;
     settingsSaved = true;
     if (!createNew) {
@@ -76,7 +58,7 @@ OpenCatalog* CatalogSession::Open(const std::wstring& path, bool createNew, bool
     catalog->id = nextCatalogId_++;
     if (catalog->id == 0) catalog->id = nextCatalogId_++;
     catalog->path = normalizedPath;
-    catalog->label = NameForCatalogPath(normalizedPath);
+    catalog->label = wit::platform::DisplayNameForPath(normalizedPath);
     catalog->database = std::move(candidate);
     auto* result = catalog.get();
     catalogs_.push_back(std::move(catalog));

@@ -24,6 +24,7 @@ public:
     bool ShowsDisks() const { return db && location.isRoot; }
     const wit::core::FileEntry* EntryAt(int row);
     const wit::core::Disk* DiskAt(int row);
+    int ImageFor(int row);
     std::wstring TextFor(int row, int column);
 
 private:

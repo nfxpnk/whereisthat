@@ -1,6 +1,7 @@
 #include "../../src/app/ScanCoordinator.h"
 #include "../../src/core/FileScanner.h"
 #include "../../src/platform/PathHelpers.h"
+#include "../../src/platform/VolumeInfo.h"
 #include "../../src/platform/Win32Helpers.h"
 #include "../../src/storage/Database.h"
 #include "../../third_party/sqlite/sqlite3.h"
@@ -143,6 +144,16 @@ int wmain() {
         "path display ignores trailing separator");
     Check(wit::platform::DisplayNameForPath(testRoot.root_path()) == testRoot.root_path().wstring(),
         "path display retains drive root");
+    Check(wit::platform::ClassifyVolumeDiskType(wit::core::DiskType::Other, false, true, true) ==
+        wit::core::DiskType::HardDisk, "fixed seek-penalty media is classified as hard disk");
+    Check(wit::platform::ClassifyVolumeDiskType(wit::core::DiskType::Other, false, true, false) ==
+        wit::core::DiskType::SolidStateDisk, "fixed no-seek-penalty media is classified as solid-state disk");
+    Check(wit::platform::ClassifyVolumeDiskType(wit::core::DiskType::Other, false, true, std::nullopt) ==
+        wit::core::DiskType::Other, "fixed media with unavailable property retains unknown type");
+    Check(wit::platform::ClassifyVolumeDiskType(wit::core::DiskType::VirtualDisk, true, true, true) ==
+        wit::core::DiskType::VirtualDisk, "explicit virtual media classification is retained");
+    Check(wit::platform::ClassifyVolumeDiskType(wit::core::DiskType::Other, true, false, std::nullopt) ==
+        wit::core::DiskType::RemovableUSB, "removable media classification is retained");
 
     std::filesystem::remove_all(testRoot);
     std::filesystem::create_directories(mediaWithCrc);
@@ -165,7 +176,7 @@ int wmain() {
     SetFileAttributesW((mediaWithCrc / L"example.txt").c_str(), FILE_ATTRIBUTE_ARCHIVE | FILE_ATTRIBUTE_HIDDEN);
 
     wit::storage::Database db;
-    Check(db.CreateNew(catalogPath.wstring()), "fresh catalog creation");
+    Check(db.CreateNew(catalogPath.wstring(), false), "fresh catalog creation");
     wit::storage::Database staged;
     Check(staged.CreateWorkingCopy(db), "working-copy creation");
     Check(staged.SetCatalogDescription(L"Smoke catalog"), "catalog description update");
@@ -365,7 +376,7 @@ int wmain() {
         "stored empty folder size is persisted");
 
     wit::storage::Database archiveDb;
-    Check(archiveDb.CreateNew(archiveCatalogPath.wstring()), "archive catalog creation");
+    Check(archiveDb.CreateNew(archiveCatalogPath.wstring(), false), "archive catalog creation");
     wit::core::Disk archiveDisk{};
     archiveDisk.diskName = L"Archives";
     archiveDisk.sourcePath = mediaArchives.wstring();

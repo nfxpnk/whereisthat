@@ -36,7 +36,7 @@ Where Is That? uses SQLite through the native C API in `src/storage/Database.cpp
 - `folders.content_size` stores the sum of file sizes in each folder and all stored descendants, finalized while scanning.
 - `folders.entry_type` is `directory` for physical/internal directories and `archive` for a readable physical archive exposed as a folder.
 - `disk_scan_statistics.scanned_archives`, `archive_files_count`, and `archive_folders_count` store latest successful archive expansion counts.
-- `disks.disk_type` is constrained to `CD`, `DVD`, `BluRay`, `HardDisk`, `SolidStateDisk`, `RemovableUSB`, `VirtualDisk`, or `Other`. Mounted ISO sources are stored as `VirtualDisk`, Windows removable drives as `RemovableUSB`, and sources without a reliable subtype as `Other`.
+- `disks.disk_type` is constrained to `CD`, `DVD`, `BluRay`, `HardDisk`, `SolidStateDisk`, `RemovableUSB`, `VirtualDisk`, or `Other`. Mounted ISO sources are stored as `VirtualDisk`, Windows removable drives as `RemovableUSB`, and fixed drives as `HardDisk` or `SolidStateDisk` when native seek-penalty metadata reliably reports the distinction; sources without a reliable subtype remain `Other`.
 
 ## Stored And Derived Values
 

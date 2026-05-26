@@ -20,7 +20,7 @@ void ReleaseIfPresent(T*& value) {
     }
 }
 
-HBITMAP LoadToolbarBitmap(IWICImagingFactory* factory, UINT resourceId) {
+HBITMAP LoadPngBitmap(IWICImagingFactory* factory, UINT resourceId) {
     const auto instance = GetModuleHandleW(nullptr);
     const auto resource = FindResourceW(instance, MAKEINTRESOURCEW(resourceId), RT_RCDATA);
     if (!resource) return nullptr;
@@ -127,6 +127,7 @@ bool MainWindowChrome::Create(HWND parent, bool showStatusBar, std::function<voi
     if (!statusHandle_ || !treeHandle_ || !backHandle_ || !forwardHandle_ || !addressHandle_ || !filesHandle_) {
         return false;
     }
+    if (!CreateBrowserImages()) return false;
     ListView_SetExtendedListViewStyle(filesHandle_, LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER);
     filesSubclass_.SetAction(&selectAllAction_);
     return filesSubclass_.SubclassWindow(filesHandle_) != FALSE;
@@ -154,7 +155,7 @@ bool MainWindowChrome::CreateToolbar() {
         IDB_TOOLBAR_SORT_DATE, IDB_TOOLBAR_SORT_REVERSE
     };
     for (const auto id : imageIds) {
-        const auto bitmap = LoadToolbarBitmap(factory, id);
+        const auto bitmap = LoadPngBitmap(factory, id);
         if (!bitmap || ImageList_Add(toolbarImages_, bitmap, nullptr) == -1) {
             if (bitmap) DeleteObject(bitmap);
             factory->Release();
@@ -206,6 +207,31 @@ bool MainWindowChrome::CreateToolbar() {
     return true;
 }
 
+bool MainWindowChrome::CreateBrowserImages() {
+    browserImages_ = ImageList_Create(kToolbarIconSize, kToolbarIconSize, ILC_COLOR32, 5, 0);
+    if (!browserImages_) return false;
+    IWICImagingFactory* factory{};
+    if (FAILED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
+        IID_PPV_ARGS(&factory)))) return false;
+    constexpr std::array<UINT, 5> imageIds = {
+        IDB_BROWSER_FOLDER, IDB_BROWSER_DOCUMENT, IDB_BROWSER_ARCHIVE,
+        IDB_BROWSER_DATABASE, IDB_BROWSER_DRIVE
+    };
+    for (const auto id : imageIds) {
+        const auto bitmap = LoadPngBitmap(factory, id);
+        if (!bitmap || ImageList_Add(browserImages_, bitmap, nullptr) == -1) {
+            if (bitmap) DeleteObject(bitmap);
+            factory->Release();
+            return false;
+        }
+        DeleteObject(bitmap);
+    }
+    factory->Release();
+    TreeView_SetImageList(treeHandle_, browserImages_, TVSIL_NORMAL);
+    ListView_SetImageList(filesHandle_, browserImages_, LVSIL_SMALL);
+    return true;
+}
+
 void MainWindowChrome::Destroy() {
     if (filesSubclass_.IsWindow()) {
         filesSubclass_.UnsubclassWindow(TRUE);
@@ -213,6 +239,10 @@ void MainWindowChrome::Destroy() {
     if (toolbarImages_) {
         ImageList_Destroy(toolbarImages_);
         toolbarImages_ = nullptr;
+    }
+    if (browserImages_) {
+        ImageList_Destroy(browserImages_);
+        browserImages_ = nullptr;
     }
 }
 

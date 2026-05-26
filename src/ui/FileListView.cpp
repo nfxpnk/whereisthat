@@ -1,7 +1,11 @@
 #include "FileListView.h"
+#include "BrowserItemIcons.h"
 #include "../core/SizeFormat.h"
 #include "../platform/Win32Helpers.h"
 #include <CommCtrl.h>
+#include <algorithm>
+#include <array>
+#include <cwctype>
 
 namespace wit::ui {
 namespace {
@@ -24,6 +28,16 @@ void InsertColumn(HWND hwnd, int index, const wchar_t* name, int width, int form
     column.cx = width;
     column.pszText = const_cast<LPWSTR>(name);
     ListView_InsertColumn(hwnd, index, &column);
+}
+
+bool IsArchiveFileExtension(std::wstring extension) {
+    std::transform(extension.begin(), extension.end(), extension.begin(),
+        [](wchar_t value) { return static_cast<wchar_t>(std::towlower(value)); });
+    constexpr std::array<const wchar_t*, 12> extensions{
+        L"zip", L"7z", L"rar", L"tar", L"tgz", L"gz", L"bz2", L"xz", L"cab", L"arj", L"lha", L"iso"
+    };
+    return std::any_of(extensions.begin(), extensions.end(),
+        [&extension](const wchar_t* candidate) { return extension == candidate; });
 }
 }
 
@@ -89,6 +103,14 @@ const wit::core::Disk* FileListView::DiskAt(int row) {
     EnsurePage(row);
     const int index = row - pageStart;
     return index >= 0 && index < static_cast<int>(diskPage.size()) ? &diskPage[index] : nullptr;
+}
+
+int FileListView::ImageFor(int row) {
+    if (ShowsDisks()) return DiskAt(row) ? BrowserDriveImage : I_IMAGENONE;
+    const auto* entry = EntryAt(row);
+    if (!entry) return I_IMAGENONE;
+    if (entry->isDirectory) return entry->isArchive ? BrowserArchiveImage : BrowserFolderImage;
+    return IsArchiveFileExtension(entry->extension) ? BrowserArchiveImage : BrowserDocumentImage;
 }
 
 std::wstring FileListView::TextFor(int row, int column) {

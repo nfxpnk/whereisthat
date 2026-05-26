@@ -46,7 +46,7 @@ private:
     std::vector<std::unique_ptr<Node>> nodes_;
 
     HTREEITEM InsertNode(HTREEITEM parent, wit::core::CatalogId catalogId, const std::wstring& text,
-        const wit::core::BrowserLocation& location, bool catalogRoot, bool mayHaveChildren);
+        const wit::core::BrowserLocation& location, bool catalogRoot, bool mayHaveChildren, int image);
     Root* FindRoot(wit::core::CatalogId id);
     const Root* FindRoot(wit::core::CatalogId id) const;
     HTREEITEM FindSource(wit::core::CatalogId catalogId, std::int64_t sourceId) const;

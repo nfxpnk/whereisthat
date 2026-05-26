@@ -1,4 +1,5 @@
 #include "CatalogTreeView.h"
+#include "BrowserItemIcons.h"
 #include <algorithm>
 
 namespace wit::ui {
@@ -34,7 +35,7 @@ void CatalogTreeView::Clear() {
 
 HTREEITEM CatalogTreeView::InsertNode(HTREEITEM parent, wit::core::CatalogId catalogId,
     const std::wstring& text, const wit::core::BrowserLocation& location, bool catalogRoot,
-    bool mayHaveChildren) {
+    bool mayHaveChildren, int image) {
     auto node = std::make_unique<Node>();
     node->target.catalogId = catalogId;
     node->target.location = location;
@@ -46,10 +47,12 @@ HTREEITEM CatalogTreeView::InsertNode(HTREEITEM parent, wit::core::CatalogId cat
     TVINSERTSTRUCTW insert{};
     insert.hParent = parent;
     insert.hInsertAfter = TVI_LAST;
-    insert.item.mask = TVIF_TEXT | TVIF_PARAM | TVIF_CHILDREN;
+    insert.item.mask = TVIF_TEXT | TVIF_PARAM | TVIF_CHILDREN | TVIF_IMAGE | TVIF_SELECTEDIMAGE;
     insert.item.pszText = const_cast<LPWSTR>(text.c_str());
     insert.item.lParam = reinterpret_cast<LPARAM>(nodePointer);
     insert.item.cChildren = mayHaveChildren ? 1 : 0;
+    insert.item.iImage = image;
+    insert.item.iSelectedImage = image;
     return TreeView_InsertItem(hwnd_, &insert);
 }
 
@@ -81,7 +84,7 @@ void CatalogTreeView::PopulateRoot(Root& root, const std::wstring& label,
         location.sourceRoot = source.rootPath;
         location.path = source.rootPath;
         InsertNode(root.item, root.id, source.name, location, false,
-            database && database->HasChildFolders(location.sourceId, location.path));
+            database && database->HasChildFolders(location.sourceId, location.path), BrowserDriveImage);
     }
     TreeView_Expand(hwnd_, root.item, TVE_EXPAND);
 }
@@ -93,7 +96,7 @@ void CatalogTreeView::AddCatalog(wit::core::CatalogId id, const std::wstring& ca
         return;
     }
     wit::core::BrowserLocation rootLocation;
-    Root root{id, InsertNode(TVI_ROOT, id, catalogLabel, rootLocation, true, !sources.empty())};
+    Root root{id, InsertNode(TVI_ROOT, id, catalogLabel, rootLocation, true, !sources.empty(), BrowserDatabaseImage)};
     roots_.push_back(root);
     PopulateRoot(roots_.back(), catalogLabel, sources);
     if (select) TreeView_SelectItem(hwnd_, root.item);
@@ -158,10 +161,9 @@ void CatalogTreeView::Expand(HTREEITEM item) {
     for (const auto& folder : folders) {
         auto child = location;
         child.path = JoinPath(location.path, folder.name);
-        //const auto label = folder.isArchive ? folder.name : folder.name;
-        const auto label = folder.name;
-        InsertNode(item, node->target.catalogId, label, child, false,
-            database->HasChildFolders(child.sourceId, child.path));
+        InsertNode(item, node->target.catalogId, folder.name, child, false,
+            database->HasChildFolders(child.sourceId, child.path),
+            folder.isArchive ? BrowserArchiveImage : BrowserFolderImage);
     }
     node->populated = true;
     treeItem.mask = TVIF_CHILDREN;

@@ -83,6 +83,7 @@ private:
     WTL::CStatusBarCtrl statusHandle_;
     WTL::CToolBarCtrl toolbarHandle_;
     HIMAGELIST toolbarImages_{};
+    HIMAGELIST browserImages_{};
     int splitterPosition_{-1};
     int splitterDragOffset_{};
     int contentHeight_{};
@@ -95,6 +96,7 @@ private:
     ContentsListSubclass filesSubclass_;
 
     bool CreateToolbar();
+    bool CreateBrowserImages();
     bool IsOverSplitter(int x, int y) const;
     void InvalidateStatusPart(int part);
 };

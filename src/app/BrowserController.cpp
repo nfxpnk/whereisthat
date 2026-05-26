@@ -157,6 +157,9 @@ LRESULT BrowserController::OnTreeExpanding(LPNMHDR header) {
 
 LRESULT BrowserController::OnFileGetDispInfo(LPNMHDR header) {
     auto* displayInfo = reinterpret_cast<NMLVDISPINFOW*>(header);
+    if (displayInfo->item.mask & LVIF_IMAGE) {
+        displayInfo->item.iImage = files_.ImageFor(displayInfo->item.iItem);
+    }
     if (displayInfo->item.mask & LVIF_TEXT) {
         auto text = files_.TextFor(displayInfo->item.iItem, displayInfo->item.iSubItem);
         lstrcpynW(displayInfo->item.pszText, text.c_str(), displayInfo->item.cchTextMax);

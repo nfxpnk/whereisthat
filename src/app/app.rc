@@ -17,6 +17,11 @@ IDB_TOOLBAR_SORT_EXTENSION RCDATA "toolbar\\fugue\\document-attribute.png"
 IDB_TOOLBAR_SORT_SIZE RCDATA "toolbar\\fugue\\sort-number.png"
 IDB_TOOLBAR_SORT_DATE RCDATA "toolbar\\fugue\\sort-date.png"
 IDB_TOOLBAR_SORT_REVERSE RCDATA "toolbar\\fugue\\arrow-switch.png"
+IDB_BROWSER_FOLDER RCDATA "toolbar\\fugue\\folder.png"
+IDB_BROWSER_DOCUMENT RCDATA "toolbar\\fugue\\document.png"
+IDB_BROWSER_ARCHIVE RCDATA "toolbar\\fugue\\vise-drawer.png"
+IDB_BROWSER_DATABASE RCDATA "toolbar\\fugue\\database-sql.png"
+IDB_BROWSER_DRIVE RCDATA "toolbar\\fugue\\drive.png"
 
 IDR_MAINMENU MENU
 BEGIN

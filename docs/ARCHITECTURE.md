@@ -14,10 +14,10 @@ WTL gives native message maps and lightweight wrapper classes without replacing 
 - `src/platform`: UTF-16/UTF-8 conversion, path/time helpers.
 
 ## Scanning model
-`FileScanner` runs on a worker thread, recursively enumerates with `FindFirstFileW/FindNextFileW`, skips inaccessible entries, and skips reparse-point directories in v1 to avoid loops.
+`FileScanner` runs on a worker thread, recursively enumerates with `FindFirstFileW/FindNextFileW`, skips inaccessible entries, and skips reparse-point directories in v1 to avoid loops. When requested by scan options, it uses the packaged libarchive runtime to validate and store readable archive contents as virtual folder subtrees while falling back to ordinary files for unreadable archives.
 
 ## SQLite model
-`Database` opens the user-selected active SQLite catalog file, configures pragmas (`foreign_keys=ON`, `journal_mode=WAL`, `synchronous=NORMAL`), and creates replacement-format catalogs containing `catalog_metadata`, `disks`, `disk_scan_statistics`, `folders`, and `files`. Folders store recursive content sizes finalized by the scanner; folders and files are linked to disks with foreign keys and are written through prepared statements inside transactions. Old catalog formats and normalized catalogs lacking required folder totals are rejected rather than upgraded.
+`Database` opens the user-selected active SQLite catalog file, configures pragmas (`foreign_keys=ON`, `journal_mode=WAL`, `synchronous=NORMAL`), and creates replacement-format catalogs containing `catalog_metadata`, `disks`, `disk_scan_statistics`, `folders`, and `files`. Folders store recursive content sizes and a physical-directory/archive-backed type finalized by the scanner; latest statistics contain archive expansion counts. Folders and files are linked to disks with foreign keys and are written through prepared statements inside transactions. Old catalog formats and normalized catalogs lacking required folder totals or archive-aware fields are rejected rather than upgraded.
 
 Timestamps are stored as Unix seconds, Boolean scan settings as `INTEGER` values constrained to `0` or `1`, and native file attributes as Win32 bitmasks. Catalog counts and storage totals are calculated from normalized tables; the current catalog database file size is read from the filesystem rather than stored in SQLite. `catalog.db` is only one possible catalog filename.
 

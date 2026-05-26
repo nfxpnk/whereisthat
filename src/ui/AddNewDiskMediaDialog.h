@@ -21,6 +21,7 @@ struct AddNewDiskMediaResult {
     std::wstring diskNumber;
     std::wstring diskName;
     bool calculateCrc{};
+    bool browseArchives{};
     wit::core::CatalogId destinationCatalogId{};
 };
 

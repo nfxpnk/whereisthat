@@ -2,7 +2,7 @@
 
 ## Purpose And Lifecycle
 
-Stores file-only scanned metadata under normalized folders. `FileScanner::ScanFolder()` inserts each enumerated non-directory item and optional CRC value; rows are removed transitively when refreshed disk folders are deleted.
+Stores file-only scanned metadata under normalized folders. `FileScanner::ScanFolder()` inserts physical non-directory items and, when archive browsing is enabled, files inside successfully expanded archive-backed folders; a readable archive container itself is represented in `folders` instead. Rows are removed transitively when refreshed disk folders are deleted.
 
 ## Keys, Relationships And Indexes
 

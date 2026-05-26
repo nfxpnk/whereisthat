@@ -158,7 +158,9 @@ void CatalogTreeView::Expand(HTREEITEM item) {
     for (const auto& folder : folders) {
         auto child = location;
         child.path = JoinPath(location.path, folder.name);
-        InsertNode(item, node->target.catalogId, folder.name, child, false,
+        //const auto label = folder.isArchive ? folder.name : folder.name;
+        const auto label = folder.name;
+        InsertNode(item, node->target.catalogId, label, child, false,
             database->HasChildFolders(child.sourceId, child.path));
     }
     node->populated = true;

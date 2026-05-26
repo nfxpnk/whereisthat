@@ -19,6 +19,7 @@ The canonical product, architecture, build, storage, UI, coding, and acceptance 
 - Visual Studio Build Tools 2022, Visual Studio 2022, or Visual Studio 2026 with MSVC v143 installed
 - Desktop development with C++ workload and the **C++ ATL for latest v143 build tools (x86 & x64)** component
 - SQLite 3.53.1 DLL/import library/header are vendored under `third_party/sqlite`
+- libarchive DLLs/import library/headers are vendored under `third_party/libarchive`
 - WTL 10.0 headers are vendored under `third_party/wtl/Include`
 
 ## Build (Visual Studio)
@@ -27,8 +28,8 @@ The canonical product, architecture, build, storage, UI, coding, and acceptance 
 3. Build Solution.
 4. Run `x64/Release/WhereIsThat.exe`.
 
-The project links against the precompiled SQLite DLL in `third_party/sqlite`.
-The post-build step copies `sqlite3.dll` next to `WhereIsThat.exe`.
+The project links against the precompiled SQLite and libarchive libraries in `third_party`.
+The post-build step copies `sqlite3.dll` and the libarchive runtime DLLs next to `WhereIsThat.exe`.
 WTL is header-only; it uses the ATL headers supplied by the installed MSVC ATL component.
 
 ## Build (MSBuild)

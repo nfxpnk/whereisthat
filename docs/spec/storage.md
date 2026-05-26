@@ -2,7 +2,7 @@
 
 ## Persistence Model
 
-Where Is That? treats each user-selected SQLite database file as one catalog. The current catalog format is new-format only: database files created with the former `catalogs` and mixed folder/file `files` tables, or normalized catalogs lacking required stored folder content sizes, are not supported and are not migrated or modified when opening fails validation.
+Where Is That? treats each user-selected SQLite database file as one catalog. The current catalog format is new-format only: database files created with the former `catalogs` and mixed folder/file `files` tables, or normalized catalogs lacking required stored folder content sizes or archive-aware fields, are not supported and are not migrated or modified when opening fails validation.
 
 SQLite is accessed in native C++ through the SQLite C API. Storage behavior belongs in `src/storage`; domain objects consumed by storage belong in `src/core`; Win32 filesystem and volume metadata discovery belongs in `src/platform` or scan orchestration.
 
@@ -27,8 +27,8 @@ SQLite must not be replaced with a managed data layer, framework database abstra
 
 - `catalog_metadata` contains the one catalog-owned free-text description record.
 - `disks` contains one indexed disk/media source with source identity, volume/capacity metadata, stored per-scan disk totals, descriptive classification, disk type, and added/updated timestamps.
-- `disk_scan_statistics` contains only the latest successful scan statistics for each disk.
-- `folders` contains persisted directory hierarchy, filesystem metadata, and scan-time recursive stored-file byte totals for offline browsing.
+- `disk_scan_statistics` contains only the latest successful scan statistics for each disk, including archive expansion counts.
+- `folders` contains persisted physical and archive-backed folder hierarchy, metadata, an archive/directory type marker, and scan-time recursive stored-file byte totals for offline browsing.
 - `files` contains file-only records with folder ownership, description, extension without a dot, optional CRC, size, timestamps, and native attribute flags.
 - Foreign keys and cascading deletes keep disk content and latest statistics associated with their owning disk.
 
@@ -38,6 +38,7 @@ SQLite must not be replaced with a managed data layer, framework database abstra
 - Persist Boolean values such as `calculated_file_crcs` as `INTEGER` `0` or `1`.
 - Persist file/folder Win32 attributes as the native integer bitmask, including hidden, system, read-only, compressed, and archive flags when present.
 - Persist each folder content size as the sum of stored file byte sizes in that folder and all stored descendant folders, finalized during successful scanning rather than calculated during browsing.
+- Persist folder entry type as `directory` or `archive`; a readable physical archive uses `archive` while its internal directory descendants use `directory`.
 - Persist file extensions without the leading dot and use empty text for no extension.
 - Persist file CRC as nullable text; it remains null when CRC calculation is disabled or a CRC is unavailable.
 - Persist disk type as exactly one of `CD`, `DVD`, `BluRay`, `HardDisk`, `SolidStateDisk`, `RemovableUSB`, `VirtualDisk`, or `Other`; unavailable or unsafe classification resolves to `Other`.
@@ -61,7 +62,7 @@ Catalog-wide summary values are not cached in SQLite:
 - Use prepared statements for values supplied by application state or filesystem data.
 - Manage SQLite handles and prepared statements with deterministic lifetime management.
 - Keep schema creation and supported-format validation centralized in the storage layer.
-- Reject former-format catalog files and normalized catalog files without required stored folder content sizes without attempting upgrade, conversion, or backfill.
+- Reject former-format catalog files and normalized catalog files without required stored folder content sizes or archive-aware fields without attempting upgrade, conversion, or backfill.
 - Do not execute SQLite reads or writes by embedding SQL in window/view classes.
 - Keep hierarchy/list/search reads paged and available offline from persisted data.
 - Read immediate folder/file contents using persisted item sizes and indexed ownership relationships; do not calculate recursive descendant totals during owner-data list display.
@@ -76,4 +77,5 @@ Catalog-wide summary values are not cached in SQLite:
 - Save commits pending replacement-format data atomically; Discard drops only pending changes.
 - A successful new disk scan stores `added_at` and `updated_at`; a successful rescan retains its original `added_at`, advances `updated_at`, replaces indexed content, and updates latest statistics.
 - A successful scan finalizes and stages each stored folder's recursive file-byte total in the same pending catalog data as its folder/file replacement.
+- When archive browsing is selected, a successfully read physical archive is staged as an archive-backed folder with stored member folders/files and latest archive counts; an unreadable, corrupt, unsupported, or encrypted archive is logged and retained as an ordinary file while scanning continues.
 - Native scanning captures available volume information, capacity/free-space information, filesystem metadata, folder/file times, and native attributes; unavailable classifications are not invented.

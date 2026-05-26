@@ -16,11 +16,16 @@ public:
     struct Result {
         std::uint64_t totalFiles{};
         std::uint64_t totalFolders{};
+        std::uint64_t scannedArchives{};
+        std::uint64_t archiveFiles{};
+        std::uint64_t archiveFolders{};
         std::int64_t elapsedMilliseconds{};
     };
     using ProgressCallback = std::function<void(const Progress&)>;
+    using DiagnosticCallback = std::function<void(const std::wstring&)>;
     bool ScanFolder(const std::wstring& rootPath, std::int64_t diskId, wit::storage::Database& db,
         const ProgressCallback& onProgress, Result& result, bool calculateCrc, bool manageTransaction = true,
-        std::stop_token stopToken = {});
+        std::stop_token stopToken = {}, bool browseArchives = false,
+        const DiagnosticCallback& onDiagnostic = {});
 };
 }

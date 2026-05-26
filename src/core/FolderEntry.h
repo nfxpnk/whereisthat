@@ -3,6 +3,15 @@
 #include <string>
 
 namespace wit::core {
+enum class FolderEntryType {
+    Directory,
+    Archive
+};
+
+inline const char* FolderEntryTypeValue(FolderEntryType type) {
+    return type == FolderEntryType::Archive ? "archive" : "directory";
+}
+
 struct FolderEntry {
     std::int64_t id{};
     std::int64_t diskId{};
@@ -15,5 +24,6 @@ struct FolderEntry {
     std::int64_t accessedAt{};
     std::uint32_t attributes{};
     std::uint64_t contentSize{};
+    FolderEntryType entryType{FolderEntryType::Directory};
 };
 }

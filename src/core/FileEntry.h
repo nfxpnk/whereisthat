@@ -20,5 +20,6 @@ struct FileEntry {
     std::wstring modifiedAt;
     std::uint32_t attributes{};
     bool isDirectory{};
+    bool isArchive{};
 };
 }

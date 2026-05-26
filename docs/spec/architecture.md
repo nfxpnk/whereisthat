@@ -47,8 +47,8 @@ Modal dialog presentation for General Settings belongs to a dedicated WTL/ATL-ho
 - A scan is initiated from the UI and performs filesystem enumeration without blocking interactive window message handling.
 - Scanned metadata is first staged in the selected destination open catalog session and is persisted to that user-selected SQLite catalog database only by explicit Save; `catalog.db` is not implicitly preferred over other filenames.
 - The main frame can have no active catalog at startup, or can restore the available catalog identified by `settings.ini`.
-- A catalog database stores catalog metadata, disk/media records, latest scan statistics, normalized folders with scan-time persisted recursive content sizes, and file-only records; browsing them remains possible after the original source drive is unavailable.
-- The supported catalog format is deliberately new-format only and rejects earlier `catalogs`/mixed `files` databases and normalized catalogs lacking required folder content sizes rather than migrating them.
+- A catalog database stores catalog metadata, disk/media records, latest scan statistics including archive counts, normalized physical or archive-backed folders with scan-time persisted recursive content sizes, and file-only records; browsing them remains possible after the original source drive is unavailable.
+- The supported catalog format is deliberately new-format only and rejects earlier `catalogs`/mixed `files` databases and normalized catalogs lacking required folder content sizes or archive-aware fields rather than migrating them.
 - Persisted catalog timestamps are Unix timestamp integers; user-facing formatting is performed outside SQLite.
 - Catalog-wide totals are queried from normalized rows and catalog file size is read from the filesystem, rather than persisted as summary metadata.
 - The main catalog browser presents a native TreeView with one top-level root per concurrently open database catalog and an owner-data ListView for the selected root or folder's immediate persisted contents, with Back/Forward and catalog-relative location display. File/folder pages read stored sizes through indexed immediate ownership relationships rather than browse-time descendant aggregation.
@@ -60,7 +60,7 @@ Modal dialog presentation for General Settings belongs to a dedicated WTL/ATL-ho
 ## Dependency Boundaries
 
 - Win32 and Common Controls remain the UI platform; vendored WTL 10.01 headers and installed ATL provide lightweight native C++ wrappers.
-- SQLite is the only database engine dependency.
+- SQLite is the only database engine dependency; the already packaged libarchive runtime is used by opt-in archive scanning.
 - Third-party SQLite deployment consists of `sqlite3.h`, `sqlite3.lib`, and `sqlite3.dll` under `third_party/sqlite`.
 - Third-party WTL integration consists of WTL 10.01 headers under `third_party/wtl/Include`; it does not add a deployed runtime DLL. `WTL::CAppModule`, `WTL::CMessageLoop`, `WTL::CFrameWindowImpl`, main-window control wrappers, and ATL/WTL-style dialogs are adopted within the component boundaries above.
 - New dependencies require an explicit update to this specification before adoption.

@@ -2,7 +2,7 @@
 
 ## Purpose And Lifecycle
 
-Stores normalized directory hierarchy, offline display metadata, and recursive stored file-byte totals for a disk. `FileScanner::ScanFolder()` inserts folders and finalizes `content_size` during staged scanning; deleting disk contents removes folder rows and cascades their files.
+Stores normalized physical and archive-backed folder hierarchy, offline display metadata, and recursive stored file-byte totals for a disk. `FileScanner::ScanFolder()` inserts folders and finalizes `content_size` during staged scanning; deleting disk contents removes folder rows and cascades their files.
 
 ## Keys, Relationships And Indexes
 
@@ -25,3 +25,4 @@ Stores normalized directory hierarchy, offline display metadata, and recursive s
 | `accessed_at` | `INTEGER` | No | none | none | Filesystem access time as Unix timestamp. | Scanner | Explicit |
 | `attributes` | `INTEGER` | No | `0` | none | Win32 attribute bitmask. | Scanner; display projection | Explicit |
 | `content_size` | `INTEGER` | No | `0` | none | Sum of stored file sizes in this folder and all stored descendant folders. | `FileScanner`; right-pane/status projection | Explicit |
+| `entry_type` | `TEXT` | No | `'directory'` | `CHECK ('directory','archive')` | Distinguishes physical/internal directory rows from readable physical archives represented as folder-like rows. | `FileScanner`; browse/search projection | Explicit |

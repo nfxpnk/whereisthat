@@ -103,7 +103,7 @@ std::wstring SearchDialog::TextFor(int row, int column) {
     case 0:
         return file.name;
     case 1:
-        return file.isDirectory ? L"Folder" : file.extension;
+        return file.isArchive ? L"Archive" : (file.isDirectory ? L"Folder" : file.extension);
     case 2:
         return file.isDirectory ? L"" : wit::core::FormatSize(file.size);
     case 3:

@@ -54,6 +54,9 @@ struct DiskScanStatistics {
     std::int64_t imageScanningTimeMs{};
     std::int64_t importedDescriptionsCount{};
     bool calculatedFileCrcs{};
+    std::int64_t scannedArchives{};
+    std::int64_t archiveFilesCount{};
+    std::int64_t archiveFoldersCount{};
 };
 
 struct CatalogMetadata {

@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS folders (
     accessed_at INTEGER NOT NULL,
     attributes INTEGER NOT NULL DEFAULT 0,
     content_size INTEGER NOT NULL DEFAULT 0,
+    entry_type TEXT NOT NULL DEFAULT 'directory' CHECK (entry_type IN ('directory', 'archive')),
     FOREIGN KEY (disk_id) REFERENCES disks(id) ON DELETE CASCADE,
     FOREIGN KEY (parent_folder_id) REFERENCES folders(id) ON DELETE CASCADE
 );

@@ -182,7 +182,7 @@ void ScanCoordinator::RunScan(std::stop_token stopToken, ScanId scanId, std::wst
         success = scanner.ScanFolder(root, id, *staged,
             [this, scanId](const wit::core::FileScanner::Progress& progress) {
                 PublishProgress(scanId, {progress.scannedFiles, progress.scannedFolders});
-            }, scanResult, media.calculateCrc, false, stopToken);
+            }, scanResult, media.calculateCrc, false, stopToken, media.browseArchives);
         if (success && !cancelled()) {
             disk.totalFiles = static_cast<std::int64_t>(scanResult.totalFiles);
             disk.totalFolders = static_cast<std::int64_t>(scanResult.totalFolders);
@@ -192,6 +192,9 @@ void ScanCoordinator::RunScan(std::stop_token stopToken, ScanId scanId, std::wst
             statistics.lastScannedAt = disk.updatedAt;
             statistics.imageScanningTimeMs = scanResult.elapsedMilliseconds;
             statistics.calculatedFileCrcs = media.calculateCrc;
+            statistics.scannedArchives = static_cast<std::int64_t>(scanResult.scannedArchives);
+            statistics.archiveFilesCount = static_cast<std::int64_t>(scanResult.archiveFiles);
+            statistics.archiveFoldersCount = static_cast<std::int64_t>(scanResult.archiveFolders);
             success = staged->UpdateDisk(disk) && staged->UpdateDiskScanStatistics(statistics);
         }
     }

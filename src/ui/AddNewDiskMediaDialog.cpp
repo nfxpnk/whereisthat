@@ -366,6 +366,7 @@ bool AddNewDiskMediaDialog::Confirm() {
     }
     result_.diskName = ReadText(m_hWnd, IDC_MEDIA_NAME);
     result_.calculateCrc = ::IsDlgButtonChecked(m_hWnd, IDC_MEDIA_CALCULATE_CRC) == BST_CHECKED;
+    result_.browseArchives = ::IsDlgButtonChecked(m_hWnd, IDC_MEDIA_BROWSE_ARCHIVES) == BST_CHECKED;
     if (IsBlank(result_.diskName)) result_.diskName = SourceName(result_.originalPath);
     const auto selected = ::SendDlgItemMessageW(m_hWnd, IDC_MEDIA_CATALOG, CB_GETCURSEL, 0, 0);
     if (selected == CB_ERR) return false;

@@ -5,6 +5,8 @@
 #include "../../src/storage/Database.h"
 #include "../../third_party/sqlite/sqlite3.h"
 #include <Windows.h>
+#include <archive.h>
+#include <archive_entry.h>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -94,6 +96,34 @@ bool ExecRaw(const std::filesystem::path& path, const char* sql) {
     if (db) sqlite3_close(db);
     return success;
 }
+
+struct ZipMember {
+    const wchar_t* path;
+    std::string contents;
+};
+
+bool WriteZip(const std::filesystem::path& path, const std::vector<ZipMember>& members) {
+    auto* writer = archive_write_new();
+    if (!writer || archive_write_set_format_zip(writer) != ARCHIVE_OK ||
+        archive_write_open_filename_w(writer, path.c_str()) != ARCHIVE_OK) {
+        if (writer) archive_write_free(writer);
+        return false;
+    }
+    bool success = true;
+    for (const auto& member : members) {
+        auto* entry = archive_entry_new();
+        archive_entry_copy_pathname_w(entry, member.path);
+        archive_entry_set_filetype(entry, AE_IFREG);
+        archive_entry_set_perm(entry, 0644);
+        archive_entry_set_size(entry, static_cast<la_int64_t>(member.contents.size()));
+        success = archive_write_header(writer, entry) == ARCHIVE_OK &&
+            archive_write_data(writer, member.contents.data(), member.contents.size()) ==
+                static_cast<la_ssize_t>(member.contents.size());
+        archive_entry_free(entry);
+        if (!success) break;
+    }
+    return archive_write_free(writer) == ARCHIVE_OK && success;
+}
 }
 
 int wmain() {
@@ -101,9 +131,12 @@ int wmain() {
         (L"whereisthat-storage-smoke-" + std::to_wstring(GetCurrentProcessId()));
     const auto mediaWithCrc = testRoot / L"media-crc";
     const auto mediaWithoutCrc = testRoot / L"media-no-crc";
+    const auto mediaArchives = testRoot / L"media-archives";
     const auto catalogPath = testRoot / L"catalog.db";
+    const auto archiveCatalogPath = testRoot / L"archive-catalog.db";
     const auto oldPath = testRoot / L"old.db";
     const auto normalizedWithoutSizePath = testRoot / L"normalized-without-size.db";
+    const auto normalizedWithoutArchivePath = testRoot / L"normalized-without-archive.db";
 
     Check(wit::platform::DisplayNameForPath(mediaWithCrc) == L"media-crc", "path display leaf name");
     Check(wit::platform::DisplayNameForPath(mediaWithCrc / L"") == L"media-crc",
@@ -116,12 +149,19 @@ int wmain() {
     std::filesystem::create_directories(mediaWithCrc / L"container" / L"nested");
     std::filesystem::create_directories(mediaWithCrc / L"empty");
     std::filesystem::create_directories(mediaWithoutCrc);
+    std::filesystem::create_directories(mediaArchives);
     {
         std::ofstream(mediaWithCrc / L"example.txt", std::ios::binary) << "abc";
         std::ofstream(mediaWithCrc / L"container" / L"inside.bin", std::ios::binary) << "1234";
         std::ofstream(mediaWithCrc / L"container" / L"nested" / L"deeper.bin", std::ios::binary) << "12345";
         std::ofstream(mediaWithoutCrc / L"plain", std::ios::binary) << "no crc";
+        std::ofstream(mediaArchives / L"ordinary.txt", std::ios::binary) << "plain";
+        std::ofstream(mediaArchives / L"broken.zip", std::ios::binary) << "not zip";
     }
+    Check(WriteZip(mediaArchives / L"readable.zip", {{L"nested/inner.txt", "abcde"}, {L"top.bin", "12"}}),
+        "readable archive fixture creation");
+    Check(WriteZip(mediaArchives / L"empty.zip", {}), "empty archive fixture creation");
+    Check(WriteZip(mediaArchives / L"unsafe.zip", {{L"../escape.txt", "bad"}}), "unsafe archive fixture creation");
     SetFileAttributesW((mediaWithCrc / L"example.txt").c_str(), FILE_ATTRIBUTE_ARCHIVE | FILE_ATTRIBUTE_HIDDEN);
 
     wit::storage::Database db;
@@ -324,6 +364,94 @@ int wmain() {
     Check(ScalarInt(catalogPath, "SELECT content_size FROM folders WHERE name='empty';") == 0,
         "stored empty folder size is persisted");
 
+    wit::storage::Database archiveDb;
+    Check(archiveDb.CreateNew(archiveCatalogPath.wstring()), "archive catalog creation");
+    wit::core::Disk archiveDisk{};
+    archiveDisk.diskName = L"Archives";
+    archiveDisk.sourcePath = mediaArchives.wstring();
+    archiveDisk.addedAt = 300;
+    archiveDisk.updatedAt = 300;
+    archiveDisk.id = archiveDb.AddDisk(archiveDisk);
+    Check(archiveDisk.id != 0, "archive disk insert");
+    std::stop_source cancelledArchiveScan;
+    cancelledArchiveScan.request_stop();
+    wit::core::FileScanner::Result cancelledArchiveResult{};
+    Check(!scanner.ScanFolder(archiveDisk.sourcePath, archiveDisk.id, archiveDb, {}, cancelledArchiveResult,
+        false, true, cancelledArchiveScan.get_token(), true), "archive-enabled cancelled scan aborts");
+    wit::core::BrowserLocation cancelledArchiveLocation{};
+    cancelledArchiveLocation.isRoot = false;
+    cancelledArchiveLocation.sourceId = archiveDisk.id;
+    cancelledArchiveLocation.path = archiveDisk.sourcePath;
+    Check(archiveDb.GetBrowserItemCount(cancelledArchiveLocation) == 0,
+        "archive-enabled cancelled scan publishes no virtual content");
+    std::vector<std::wstring> diagnostics;
+    wit::core::FileScanner::Result archiveResult{};
+    Check(scanner.ScanFolder(archiveDisk.sourcePath, archiveDisk.id, archiveDb, {}, archiveResult, true, true, {},
+        true, [&diagnostics](const std::wstring& message) { diagnostics.push_back(message); }),
+        "archive-enabled scan");
+    Check(archiveResult.scannedArchives == 2 && archiveResult.archiveFiles == 2 &&
+        archiveResult.archiveFolders == 1, "archive result counts readable containers and member hierarchy");
+    Check(archiveResult.totalFiles == 5 && archiveResult.totalFolders == 4,
+        "archive representation replaces readable container files in ordinary totals");
+    Check(diagnostics.size() >= 2, "unreadable and unsafe archives produce nonfatal diagnostics");
+    wit::core::DiskScanStatistics archiveStats{archiveDisk.id, 301, archiveResult.elapsedMilliseconds, 0, true,
+        static_cast<std::int64_t>(archiveResult.scannedArchives),
+        static_cast<std::int64_t>(archiveResult.archiveFiles),
+        static_cast<std::int64_t>(archiveResult.archiveFolders)};
+    Check(archiveDb.UpdateDiskScanStatistics(archiveStats), "archive scan statistics persistence");
+    Check(ScalarText(archiveCatalogPath, "SELECT entry_type FROM folders WHERE name='readable.zip';") == "archive",
+        "readable archive is represented as archive-backed folder");
+    Check(ScalarInt(archiveCatalogPath, "SELECT COUNT(*) FROM files WHERE name='readable.zip';") == 0,
+        "readable archive is not duplicated as ordinary file");
+    Check(ScalarText(archiveCatalogPath, "SELECT entry_type FROM folders WHERE name='empty.zip';") == "archive" &&
+        ScalarInt(archiveCatalogPath, "SELECT content_size FROM folders WHERE name='empty.zip';") == 0,
+        "empty readable archive remains navigable");
+    Check(ScalarInt(archiveCatalogPath, "SELECT COUNT(*) FROM folders WHERE name='nested' AND entry_type='directory';") == 1 &&
+        ScalarInt(archiveCatalogPath, "SELECT COUNT(*) FROM files WHERE name='inner.txt';") == 1,
+        "omitted archive parent directories are synthesized");
+    Check(ScalarInt(archiveCatalogPath, "SELECT content_size FROM folders WHERE name='readable.zip';") == 7 &&
+        ScalarInt(archiveCatalogPath, "SELECT content_size FROM folders WHERE name='nested';") == 5,
+        "archive content sizes use stored uncompressed member sizes");
+    Check(ScalarInt(archiveCatalogPath, "SELECT COUNT(*) FROM files WHERE name='inner.txt' AND crc IS NOT NULL;") == 1,
+        "archive member CRC is calculated when enabled");
+    Check(ScalarInt(archiveCatalogPath, "SELECT COUNT(*) FROM files WHERE name IN ('broken.zip','unsafe.zip');") == 2 &&
+        ScalarInt(archiveCatalogPath, "SELECT COUNT(*) FROM folders WHERE name IN ('broken.zip','unsafe.zip');") == 0,
+        "failed archives fall back to files without virtual rows");
+    Check(ScalarInt(archiveCatalogPath, "SELECT scanned_archives FROM disk_scan_statistics;") == 2 &&
+        ScalarInt(archiveCatalogPath, "SELECT archive_files_count FROM disk_scan_statistics;") == 2 &&
+        ScalarInt(archiveCatalogPath, "SELECT archive_folders_count FROM disk_scan_statistics;") == 1,
+        "latest statistics persist archive counts");
+    wit::core::BrowserLocation archiveLocation{};
+    archiveLocation.isRoot = false;
+    archiveLocation.sourceId = archiveDisk.id;
+    archiveLocation.path = archiveDisk.sourcePath;
+    const auto archiveItems = archiveDb.GetBrowserItemsPage(archiveLocation, 0, 20);
+    bool foundReadableArchive{};
+    for (const auto& item : archiveItems) {
+        if (item.name == L"readable.zip") foundReadableArchive = item.isDirectory && item.isArchive;
+    }
+    Check(foundReadableArchive, "browser projection distinguishes navigable archive folders");
+    archiveLocation.path = (mediaArchives / L"readable.zip").wstring();
+    const auto readableArchiveItems = archiveDb.GetBrowserItemsPage(archiveLocation, 0, 20);
+    Check(readableArchiveItems.size() == 2, "archive folder uses ordinary immediate-content navigation");
+
+    wit::core::Disk disabledArchiveDisk{};
+    disabledArchiveDisk.diskName = L"Archives disabled";
+    disabledArchiveDisk.sourcePath = mediaArchives.wstring() + L"-disabled";
+    std::filesystem::create_directories(disabledArchiveDisk.sourcePath);
+    Check(WriteZip(std::filesystem::path(disabledArchiveDisk.sourcePath) / L"readable.zip",
+        {{L"nested/inner.txt", "abcde"}}), "disabled archive fixture creation");
+    disabledArchiveDisk.addedAt = 302;
+    disabledArchiveDisk.updatedAt = 302;
+    disabledArchiveDisk.id = archiveDb.AddDisk(disabledArchiveDisk);
+    wit::core::FileScanner::Result disabledResult{};
+    Check(disabledArchiveDisk.id != 0 && scanner.ScanFolder(disabledArchiveDisk.sourcePath, disabledArchiveDisk.id,
+        archiveDb, {}, disabledResult, false), "archive-disabled scan");
+    Check(disabledResult.scannedArchives == 0 && disabledResult.archiveFiles == 0 &&
+        ScalarInt(archiveCatalogPath, "SELECT COUNT(*) FROM folders WHERE disk_id=2 AND entry_type='archive';") == 0,
+        "archive-disabled scan keeps archive as ordinary file");
+    archiveDb.Close();
+
     Check(ExecRaw(oldPath, "CREATE TABLE catalogs(id INTEGER PRIMARY KEY);"
         "CREATE TABLE files(id INTEGER PRIMARY KEY,is_directory INTEGER);"), "old-format fixture creation");
     wit::storage::Database old;
@@ -344,6 +472,22 @@ int wmain() {
     Check(ScalarInt(normalizedWithoutSizePath,
         "SELECT COUNT(*) FROM pragma_table_info('folders') WHERE name='content_size';") == 0,
         "normalized catalog rejection does not backfill stored folder size");
+
+    Check(ExecRaw(normalizedWithoutArchivePath,
+        "CREATE TABLE catalog_metadata(id INTEGER PRIMARY KEY,description TEXT);"
+        "CREATE TABLE disks(id INTEGER PRIMARY KEY,disk_name TEXT,source_path TEXT,disk_type TEXT);"
+        "CREATE TABLE disk_scan_statistics(disk_id INTEGER PRIMARY KEY,last_scanned_at INTEGER,"
+        "image_scanning_time_ms INTEGER,imported_descriptions_count INTEGER,calculated_file_crcs INTEGER);"
+        "CREATE TABLE folders(id INTEGER PRIMARY KEY,disk_id INTEGER,parent_folder_id INTEGER,path TEXT,"
+        "content_size INTEGER);"
+        "CREATE TABLE files(folder_id INTEGER,extension TEXT,crc TEXT,accessed_at INTEGER);"),
+        "normalized-without-archive fixture creation");
+    wit::storage::Database normalizedWithoutArchive;
+    Check(!normalizedWithoutArchive.OpenExisting(normalizedWithoutArchivePath.wstring()),
+        "normalized catalog without archive-aware fields rejection");
+    Check(ScalarInt(normalizedWithoutArchivePath,
+        "SELECT COUNT(*) FROM pragma_table_info('folders') WHERE name='entry_type';") == 0,
+        "normalized archive-field rejection does not backfill schema");
 
     std::filesystem::remove_all(testRoot);
     if (failures != 0) return 1;

@@ -14,7 +14,7 @@ Stores one disk/media source added to a catalog. `MainFrame::OnAddOrUpdateDiskIm
 
 ## Notes
 
-- `total_files` and `total_folders` are latest successful per-disk scan results. Catalog-wide counts are calculated from `files` and `folders` rather than summing these fields.
+- `total_files` and `total_folders` are latest successful per-disk scan results. When archive expansion is selected, these totals count the stored archive member rows and archive-backed folder representation rather than a readable container file row. Catalog-wide counts are calculated from `files` and `folders` rather than summing these fields.
 - `added_at` is set on insertion and retained during rescans; `updated_at` changes after successful scan completion.
 - Volume/capacity fields are read from native Windows APIs for the source's owning volume where available; unknown text/size fields retain their empty/zero defaults. The current scan workflow classifies mounted ISOs as `VirtualDisk`, removable drives as `RemovableUSB`, and otherwise uses `Other` unless a reliable subtype is available.
 - The catalog-root right-pane inventory reads paged `Disk` records from this table to show stored name, type, capacity, free space, update time, number, description, category, and location without requiring connected media.

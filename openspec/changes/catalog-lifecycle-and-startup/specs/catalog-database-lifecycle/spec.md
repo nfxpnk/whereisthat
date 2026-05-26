@@ -12,7 +12,7 @@ The system SHALL treat each opened SQLite catalog database file as a separate ca
 - **THEN** browsing and catalog mutations are scoped to the activated file only
 
 ### Requirement: Create a new catalog database
-The system SHALL make `File > New Catalog` prompt for a destination path, create a new empty SQLite catalog database only at a destination that does not already contain a file, and activate the newly created catalog after successful initialization.
+The system SHALL make `File > New Catalog` prompt for a destination path, create a new empty SQLite catalog database at an unused destination or at a closed existing destination after native overwrite confirmation, refuse any destination that identifies a catalog currently open in the application, and activate the newly created catalog after successful initialization.
 
 #### Scenario: New catalog creation succeeds
 - **WHEN** the user chooses an unused destination path in `File > New Catalog` and confirms creation
@@ -24,9 +24,15 @@ The system SHALL make `File > New Catalog` prompt for a destination path, create
 - **THEN** the previously active database is not modified by creation of the new database
 - **THEN** subsequent browsing and catalog mutations apply to the newly active database
 
-#### Scenario: Destination already exists
-- **WHEN** the user attempts to create a new catalog at an existing file path
-- **THEN** the system does not overwrite or modify that existing file
+#### Scenario: Closed destination already exists
+- **WHEN** the user attempts to create a new catalog at an existing file path that is not open in the application
+- **THEN** the native save dialog asks the user to confirm replacement of the existing file
+- **THEN** after confirmation the system replaces it with a newly initialized empty catalog and activates that catalog
+
+#### Scenario: Destination is already open
+- **WHEN** the user attempts to create a new catalog at the path of a catalog currently open in the application
+- **THEN** the system reports that the catalog is currently open and must be closed or a different filename chosen
+- **THEN** the system does not overwrite or modify that open catalog
 - **THEN** the system does not switch away from the currently active catalog, if any
 
 ### Requirement: Open an existing catalog database

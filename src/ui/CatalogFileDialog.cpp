@@ -30,7 +30,7 @@ bool CatalogFileDialog::ChooseNewCatalogPath(HWND owner, std::wstring& path) con
     dialog->SetDefaultExtension(L"db");
     DWORD options{};
     dialog->GetOptions(&options);
-    dialog->SetOptions(options | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST | FOS_NOCHANGEDIR);
+    dialog->SetOptions(options | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST | FOS_NOCHANGEDIR | FOS_OVERWRITEPROMPT);
     bool selected = false;
     if (SUCCEEDED(dialog->Show(owner))) {
         IShellItem* item{};

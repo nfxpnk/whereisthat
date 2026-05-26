@@ -29,7 +29,7 @@ Each open catalog remains useful when its indexed original storage is disconnect
 - The Options menu follows Actions and exposes General Settings, User Interface Setup, File List Settings, Disk Image Settings, and Description Settings.
 - The Window menu follows Options and exposes Next Window (`Ctrl+F6`) and Search Window.
 - The Help menu follows Window and exposes Help (`F1`) and About.
-- New Catalog prompts for a new database file destination, creates a fresh empty SQLite catalog at that path without overwriting an existing file, adds it as a selected TreeView root without closing other roots, and stores its path in settings.
+- New Catalog prompts for a new database file destination, uses the native overwrite confirmation when a file already exists, creates a fresh empty SQLite catalog at a new or confirmed replacement path only when that path is not already open in the application, adds it as a selected TreeView root without closing other roots, and stores its path in settings.
 - Open prompts for an existing SQLite catalog database, adds and selects it after a successful open without closing other roots, or selects its existing root when already open, and stores its path in settings.
 - Open Recent lists up to ten successfully activated catalog database paths in most-recent-first order and uses the same validated activation behavior as Open.
 - On startup the available last-used catalog path from settings is reopened; when it is absent or unavailable the application remains empty without creating or opening `catalog.db` implicitly.

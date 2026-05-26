@@ -51,7 +51,7 @@ OpenCatalog* CatalogSession::Open(const std::wstring& path, bool createNew, bool
         }
     }
     wit::storage::Database candidate;
-    const bool opened = createNew ? candidate.CreateNew(normalizedPath) : candidate.OpenExisting(normalizedPath);
+    const bool opened = createNew ? candidate.CreateNew(normalizedPath, true) : candidate.OpenExisting(normalizedPath);
     if (!opened) return nullptr;
 
     auto catalog = std::make_unique<OpenCatalog>();
@@ -69,6 +69,15 @@ OpenCatalog* CatalogSession::Open(const std::wstring& path, bool createNew, bool
         settingsSaved = wit::platform::SaveAppSettings(settings_);
     }
     return result;
+}
+
+bool CatalogSession::IsPathOpen(const std::wstring& path) const {
+    AssertOwnerThread();
+    const auto normalizedPath = std::filesystem::absolute(path).wstring();
+    for (const auto& catalog : catalogs_) {
+        if (SamePath(catalog->path, normalizedPath)) return true;
+    }
+    return false;
 }
 
 OpenCatalog* CatalogSession::Find(wit::core::CatalogId id) {

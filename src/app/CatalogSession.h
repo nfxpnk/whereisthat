@@ -34,6 +34,7 @@ public:
 
     OpenCatalog* Open(const std::wstring& path, bool createNew, bool persistPath,
         bool& settingsSaved, bool& alreadyOpen);
+    bool IsPathOpen(const std::wstring& path) const;
     OpenCatalog* Find(wit::core::CatalogId id);
     const OpenCatalog* Find(wit::core::CatalogId id) const;
     OpenCatalog* ActiveCatalog();

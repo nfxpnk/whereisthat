@@ -18,7 +18,7 @@ public:
     Database& operator=(const Database&) = delete;
     Database(Database&& other) noexcept;
     Database& operator=(Database&& other) noexcept;
-    bool CreateNew(const std::wstring& path);
+    bool CreateNew(const std::wstring& path, bool overwriteExisting);
     bool OpenExisting(const std::wstring& path);
     bool CreateWorkingCopy(const Database& source);
     bool ReplaceCatalogDataFrom(const Database& source);

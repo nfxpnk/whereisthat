@@ -89,8 +89,17 @@ ControllerResult CatalogWorkflowController::CreateCatalogPathSelected(const std:
         PopulatePresentation(result);
         return result;
     }
+    if (session_.IsPathOpen(*path)) {
+        ControllerResult result;
+        result.messages.push_back(Message(
+            L"Unable to save the new catalog because this catalog is currently open in the application. "
+            L"Choose a different filename that does not already exist or close the opened catalog.",
+            L"New Catalog", MB_OK | MB_ICONERROR));
+        PopulatePresentation(result);
+        return result;
+    }
     return ActivateCatalog(*path, true, true, L"New Catalog",
-        L"Unable to create the new catalog. Choose a filename that does not already exist.",
+        L"Unable to save the new catalog at the selected filename.",
         MB_OK | MB_ICONERROR);
 }
 

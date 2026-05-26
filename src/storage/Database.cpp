@@ -110,8 +110,9 @@ void Database::Close() {
     path_.clear();
 }
 
-bool Database::CreateNew(const std::wstring& path) {
-    HANDLE file = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
+bool Database::CreateNew(const std::wstring& path, bool overwriteExisting) {
+    const DWORD disposition = overwriteExisting ? CREATE_ALWAYS : CREATE_NEW;
+    HANDLE file = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, disposition, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (file == INVALID_HANDLE_VALUE) return false;
     CloseHandle(file);
     if (OpenInternal(path, false)) return true;

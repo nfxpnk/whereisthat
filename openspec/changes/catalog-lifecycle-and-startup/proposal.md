@@ -5,7 +5,7 @@ The application currently treats `catalog.db` as a container for multiple in-dat
 ## What Changes
 
 - **BREAKING** Replace the single fixed `catalog.db` persistence assumption with an active-catalog model in which each selected SQLite database file is one separate catalog.
-- Make `File > New Catalog` prompt for a destination, create a new empty SQLite catalog database at that path, switch the active catalog to it, and leave any previously active database unchanged.
+- Make `File > New Catalog` prompt for a destination, create a new empty SQLite catalog database at a new or user-confirmed replacement path unless that path is already open in the application, switch the active catalog to it, and leave any previously active database unchanged.
 - Make `File > Open` select and activate an existing SQLite catalog database.
 - Store the last successfully opened or created catalog path in application settings and attempt to reopen it on application startup.
 - Display the last-opened catalog in General Settings and persist up to ten recently activated catalogs for access through `File > Open Recent`.

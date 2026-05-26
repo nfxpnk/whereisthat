@@ -12,7 +12,8 @@
 ## 3. Catalog Activation Workflows
 
 - [x] 3.1 Implement startup restoration that activates the saved last-used catalog only when it remains available and usable, otherwise leaving the application in the empty state without creating a database.
-- [x] 3.2 Replace the New Catalog row-creation dialog behavior with a native save-path workflow that refuses existing destination files, creates an initialized empty SQLite database, activates it, and stores its path without mutating the formerly active catalog.
+- [x] 3.2 Replace the New Catalog row-creation dialog behavior with a native save-path workflow that creates an initialized empty SQLite database, activates it, and stores its path without mutating the formerly active catalog.
+- [x] 3.5 Permit native-confirmed replacement of a closed existing New Catalog destination while refusing a destination already open in the application with a specific conflict message.
 - [x] 3.3 Implement `File > Open` with a native existing-database selection workflow that activates and stores a successfully opened catalog while retaining the prior active state after failures.
 - [x] 3.4 Route the empty-state user experience so New/Open remain usable and catalog-dependent Add/Update reports that a catalog must first be created or opened.
 
@@ -26,7 +27,8 @@
 
 - [x] 5.1 Build `whereisthat.sln` for `Release|x64` with MSBuild and confirm the existing native Win32/SQLite DLL deployment remains intact.
 - [x] 5.2 Smoke test empty startup, New/Open switching between differently named database files, persistence/restoration of the last-used path, and missing/unusable saved-path fallback.
-- [x] 5.3 Smoke test that New Catalog never modifies an existing or previously active file and that repeated Add/Update refreshes one source only in the active catalog while another database remains unchanged.
+- [x] 5.3 Smoke test that New Catalog does not modify any open or previously active file and that repeated Add/Update refreshes one source only in the active catalog while another database remains unchanged.
+- [ ] 5.4 Smoke test native-confirmed replacement of a closed existing New Catalog destination and the open-catalog conflict message.
 
 ## 6. Recent Catalog Access And Settings Display
 

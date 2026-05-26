@@ -81,8 +81,8 @@ HBITMAP LoadToolbarBitmap(IWICImagingFactory* factory, UINT resourceId) {
 
 const wchar_t* ToolbarTooltipText(int commandId) {
     switch (commandId) {
-    case ID_FILE_NEWCATALOG:
-    case ID_WIT_FILE_OPEN: return L"Catalog";
+    case ID_FILE_NEWCATALOG: return L"Create New Catalog";
+    case ID_WIT_FILE_OPEN: return L"Open Catalog";
     case ID_WIT_FILE_SAVE: return L"Save Current Catalog";
     case ID_FILE_REPORT_GENERATOR: return L"Generate Report";
     case ID_EDIT_ADDDISKIMAGE: return L"Add/Update Disk Image in Catalog";

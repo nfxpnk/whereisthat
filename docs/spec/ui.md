@@ -21,12 +21,14 @@ Each open catalog remains useful when its indexed original storage is disconnect
 
 ## Main Menu Workflow
 
-- The File menu exposes catalog lifecycle commands: New Catalog, Open, Open Recent, Save, Save As, Rebuild Catalog Database, Close, Catalog Info, Report Generator, and Exit.
+- The File menu exposes catalog lifecycle commands: New Catalog, Open, Open Recent, Save, Save As, Save All Catalogs, Import XML, Rebuild Catalog Database, Close, Close All, Catalogs Info, Report Generator, and Exit.
 - The Edit menu follows File and exposes Add/Update Disk Image, Catalog Manager, and Catalog Setup.
 - The View menu follows Edit and exposes Sort items, View Icons, View List, View Small Icons, View Details, View Thumbnails, Columns Setup, Show Alias Item Names, Locate in Catalog, Toolbar, and Status Bar.
 - The Search menu follows View and exposes Search for Items, Find in This Catalog, Find Selected Items, Scan for Duplicates, Compare to Media, Compare Files to Catalog, and Compare Cataloged Data.
 - The Actions menu follows Search and exposes Open in Explorer, View File, Launch File, Edit Description, User List, Rename Catalog, Remove Alias Name, File Management, Remove from Catalog, Remove Archive Contents, Remove Thumbnail, and Properties.
 - The Options menu follows Actions and exposes General Settings, User Interface Setup, File List Settings, Disk Image Settings, and Description Settings.
+- The Window menu follows Options and exposes Next Window (`Ctrl+F6`) and Search Window.
+- The Help menu follows Window and exposes Help (`F1`) and About.
 - New Catalog prompts for a new database file destination, creates a fresh empty SQLite catalog at that path without overwriting an existing file, adds it as a selected TreeView root without closing other roots, and stores its path in settings.
 - Open prompts for an existing SQLite catalog database, adds and selects it after a successful open without closing other roots, or selects its existing root when already open, and stores its path in settings.
 - Open Recent lists up to ten successfully activated catalog database paths in most-recent-first order and uses the same validated activation behavior as Open.

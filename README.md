@@ -51,14 +51,14 @@ From **Developer Command Prompt for VS 2022**:
 
 ## Limitations
 - Search currently supports literal item-name substring matching only.
-- Most commands already shown in the File, Edit, View, Search, Actions, and Options menus or toolbar are presentation placeholders.
+- Most commands already shown in the File, Edit, View, Search, Actions, Options, Window, and Help menus or toolbar are presentation placeholders.
 - Add New Disk/Media exposes archive, CRC, description, auto-save, and related scan options as placeholders; they do not yet change scanning.
 
 ## Roadmap
 
 ### Phase 1: Complete the catalog browser foundation
 - Show real scan counts/progress and support cancellation without losing the saved catalog or a valid pending edit.
-- Implement existing File placeholders: Save As, Close, Rebuild Catalog Database, and Catalog Info/statistics.
+- Implement existing File placeholders: Save As, Save All Catalogs, Import XML, Close All, Rebuild Catalog Database, and Catalogs Info/statistics.
 - Make item-list sorting, reverse order, column configuration, and useful detail view choices functional and persistent.
 - Implement basic selected-item actions: Properties metadata display, Open in Explorer, View/Launch when original media is available, Rename source, and Remove from Catalog with staged-save semantics.
 - Complete smoke tests for protected catalogs, recent catalogs, pending Save/Discard/Cancel, Add/Update source variants, and offline browsing.

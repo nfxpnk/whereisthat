@@ -1,11 +1,11 @@
 ## ADDED Requirements
 
 ### Requirement: Additional top-level menu order
-The system SHALL present `View`, `Search`, `Actions`, and `Options` top-level menus immediately after `Edit` in that order, while retaining the existing Help menu after them.
+The system SHALL present `View`, `Search`, `Actions`, `Options`, and `Window` top-level menus immediately after `Edit` in that order, while retaining the Help menu after them.
 
 #### Scenario: User inspects the main menu bar
 - **WHEN** the main window menu bar is displayed
-- **THEN** the top-level application menus appear in the order `File`, `Edit`, `View`, `Search`, `Actions`, `Options`, and `Help`
+- **THEN** the top-level application menus appear in the order `File`, `Edit`, `View`, `Search`, `Actions`, `Options`, `Window`, and `Help`
 
 ### Requirement: View menu command surface
 The system SHALL present a View menu containing, in order, `Sort items`, `View Icons`, `View List`, `View Small Icons`, `View Details`, `View Thumbnails`, `Columns Setup`, `Show Alias Item Names`, `Locate in Catalog`, `Toolbar`, and `Status Bar`.
@@ -52,3 +52,27 @@ The system SHALL present an Options menu containing, in order, `General Settings
 #### Scenario: User selects an Options placeholder
 - **WHEN** the user selects `User Interface Setup`, `File List Settings`, `Disk Image Settings`, or `Description Settings`
 - **THEN** the application performs no interface, file-list, disk-image, description, catalog, or persisted-settings operation for that placeholder command
+
+### Requirement: Window menu command surface
+The system SHALL present a Window menu containing, in order, `Next Window` and `Search Window`.
+
+#### Scenario: User opens Window menu
+- **WHEN** the user opens the Window menu in the main window
+- **THEN** all required Window commands are visible in the specified order
+- **THEN** `Next Window` displays `Ctrl+F6` beside its name
+
+#### Scenario: User selects a Window placeholder
+- **WHEN** the user selects `Next Window` or `Search Window`
+- **THEN** the application performs no window, catalog, file, or persisted-settings operation for that placeholder command
+
+### Requirement: Help menu command surface
+The system SHALL present a Help menu containing, in order, `Help` and `About`.
+
+#### Scenario: User opens Help menu
+- **WHEN** the user opens the Help menu in the main window
+- **THEN** all required Help commands are visible in the specified order
+- **THEN** `Help` displays `F1` beside its name
+
+#### Scenario: User selects the Help placeholder
+- **WHEN** the user selects `Help`
+- **THEN** the application performs no help-navigation, catalog, file, or persisted-settings operation for that placeholder command

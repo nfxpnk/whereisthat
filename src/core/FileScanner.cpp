@@ -3,6 +3,8 @@
 #include "../platform/PathHelpers.h"
 #include "../platform/Win32Helpers.h"
 #include <Windows.h>
+#include <archive.h>
+#include <archive_entry.h>
 #include <chrono>
 #include <iomanip>
 #include <optional>

@@ -22,6 +22,7 @@ try {
         "/D_UNICODE"
         "/I`"$root`""
         "/I`"$(Join-Path $root 'third_party\sqlite')`""
+        "/I`"$(Join-Path $root 'third_party\libarchive\include')`""
         "/I`"$(Join-Path $root 'third_party\wtl\Include')`""
         "`"$(Join-Path $root 'tools\storage-smoke\StorageSmoke.cpp')`""
         "`"$(Join-Path $root 'src\app\ScanCoordinator.cpp')`""
@@ -32,6 +33,7 @@ try {
         "`"$(Join-Path $root 'src\storage\Database.cpp')`""
         "`"$(Join-Path $root 'src\storage\SQLiteStatement.cpp')`""
         "`"$(Join-Path $root 'third_party\sqlite\sqlite3.lib')`""
+        "`"$(Join-Path $root 'third_party\libarchive\lib\archive.lib')`""
         "/Fe:`"$exe`""
     ) | Set-Content -LiteralPath $response -Encoding ASCII
 
@@ -41,6 +43,7 @@ try {
         & cmd.exe /d /c $compile
         if ($LASTEXITCODE -ne 0) { throw "Storage smoke compilation failed." }
         Copy-Item -LiteralPath (Join-Path $root "third_party\sqlite\sqlite3.dll") -Destination $buildDir
+        Copy-Item -Path (Join-Path $root "third_party\libarchive\bin\*.dll") -Destination $buildDir
         & $exe
         if ($LASTEXITCODE -ne 0) { throw "Storage smoke execution failed." }
     } finally {

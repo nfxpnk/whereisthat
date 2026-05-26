@@ -11,15 +11,16 @@
   <ItemDefinitionGroup>
     <ClCompile>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <AdditionalIncludeDirectories>.;src;third_party\sqlite;third_party\wtl\Include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>.;src;third_party\sqlite;third_party\libarchive\include;third_party\wtl\Include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
-      <AdditionalLibraryDirectories>third_party\sqlite;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>sqlite3.lib;comctl32.lib;ole32.lib;uuid.lib;windowscodecs.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>third_party\sqlite;third_party\libarchive\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>sqlite3.lib;archive.lib;comctl32.lib;ole32.lib;uuid.lib;windowscodecs.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <PostBuildEvent>
-      <Command>copy /Y "$(ProjectDir)third_party\sqlite\sqlite3.dll" "$(OutDir)sqlite3.dll"</Command>
+      <Command>copy /Y "$(ProjectDir)third_party\sqlite\sqlite3.dll" "$(OutDir)sqlite3.dll"
+copy /Y "$(ProjectDir)third_party\libarchive\bin\*.dll" "$(OutDir)"</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup><ClCompile Include="src\app\App.cpp"/><ClCompile Include="src\app\BrowserController.cpp"/><ClCompile Include="src\app\CatalogSession.cpp"/><ClCompile Include="src\app\CatalogWorkflowController.cpp"/><ClCompile Include="src\app\main.cpp"/><ClCompile Include="src\app\MainFrame.cpp"/><ClCompile Include="src\app\MainWindowChrome.cpp"/><ClCompile Include="src\app\ScanCoordinator.cpp"/><ClCompile Include="src\core\Catalog.cpp"/><ClCompile Include="src\core\FileEntry.cpp"/><ClCompile Include="src\core\FileScanner.cpp"/><ClCompile Include="src\core\SizeFormat.cpp"/><ClCompile Include="src\platform\AppSettings.cpp"/><ClCompile Include="src\platform\PathHelpers.cpp"/><ClCompile Include="src\platform\VolumeInfo.cpp"/><ClCompile Include="src\platform\Win32Helpers.cpp"/><ClCompile Include="src\storage\Database.cpp"/><ClCompile Include="src\storage\SQLiteStatement.cpp"/><ClCompile Include="src\ui\AddNewDiskMediaDialog.cpp"/><ClCompile Include="src\ui\CatalogFileDialog.cpp"/><ClCompile Include="src\ui\CatalogListView.cpp"/><ClCompile Include="src\ui\CatalogTreeView.cpp"/><ClCompile Include="src\ui\FileListView.cpp"/><ClCompile Include="src\ui\GeneralSettingsDialog.cpp"/><ClCompile Include="src\ui\ProgressDialog.cpp"/><ClCompile Include="src\ui\SearchDialog.cpp"/></ItemGroup>

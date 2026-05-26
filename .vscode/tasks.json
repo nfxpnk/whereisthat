@@ -3,10 +3,46 @@
   "tasks": [
     {
       "label": "build",
-      "command": "dotnet",
-      "type": "process",
-      "args": ["build"],
-      "problemMatcher": "$msCompile"
+      "type": "shell",
+      "command": "msbuild",
+      "args": [
+        "WhereIsThat.vcxproj",
+        "/p:Configuration=Debug",
+        "/p:Platform=x64"
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": [
+        "$msCompile"
+      ]
+    },
+    {
+      "label": "build-release",
+      "type": "shell",
+      "command": "msbuild",
+      "args": [
+        "WhereIsThat.vcxproj",
+        "/p:Configuration=Release",
+        "/p:Platform=x64"
+      ],
+      "group": "build",
+      "problemMatcher": [
+        "$msCompile"
+      ]
+    },
+    {
+      "label": "clean",
+      "type": "shell",
+      "command": "msbuild",
+      "args": [
+        "WhereIsThat.vcxproj",
+        "/t:Clean",
+        "/p:Configuration=Debug",
+        "/p:Platform=x64"
+      ],
+      "problemMatcher": []
     }
   ]
 }

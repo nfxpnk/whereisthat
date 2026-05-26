@@ -8,11 +8,17 @@
 #include <optional>
 #include <sstream>
 #include <stop_token>
+#include <thread>
 #include <utility>
 #include <vector>
 
 namespace wit::core {
 namespace {
+// Enable while testing the progress dialog with a small scan source.
+constexpr bool kEnableScanFileDelay = false;
+constexpr std::int64_t kScanFileDelayMicroseconds = 50000;
+constexpr std::uint64_t kProgressReportItemInterval = 250;
+
 std::wstring JoinPath(const std::wstring& parent, const std::wstring& child) {
     if (parent.empty()) return child;
     wchar_t last = parent.back();
@@ -102,6 +108,7 @@ bool FileScanner::ScanFolder(const std::wstring& rootPath, std::int64_t diskId, 
     const auto rootId = db.InsertFolder(root);
     if (rootId == 0) return fail();
     ++folderCount;
+    if (onProgress) onProgress({fileCount, folderCount, rootPath});
 
     struct FolderFrame {
         std::wstring path;
@@ -143,6 +150,12 @@ bool FileScanner::ScanFolder(const std::wstring& rootPath, std::int64_t diskId, 
                             frame.children.emplace_back(fullPath, childId);
                         }
                     } else {
+                        if constexpr (kEnableScanFileDelay) {
+                            if (fileCount != 0) {
+                                std::this_thread::sleep_for(
+                                    std::chrono::microseconds{kScanFileDelayMicroseconds});
+                            }
+                        }
                         wit::core::FileEntry entry{};
                         entry.catalogId = diskId;
                         entry.folderId = frame.id;
@@ -167,7 +180,9 @@ bool FileScanner::ScanFolder(const std::wstring& rootPath, std::int64_t diskId, 
                         ++fileCount;
                     }
                     const auto total = fileCount + folderCount;
-                    if (onProgress && total % 250 == 0) onProgress({fileCount, folderCount, fullPath});
+                    if (onProgress && (kEnableScanFileDelay || total % kProgressReportItemInterval == 0)) {
+                        onProgress({fileCount, folderCount, fullPath});
+                    }
                 } while (FindNextFileW(findHandle, &findData));
                 FindClose(findHandle);
             }

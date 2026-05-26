@@ -9,6 +9,7 @@
 #include "CatalogWorkflowController.h"
 #include "MainWindowChrome.h"
 #include "resource.h"
+#include "../ui/ProgressDialog.h"
 
 class MainFrame : public WTL::CFrameWindowImpl<MainFrame>, public WTL::CMessageFilter {
 public:
@@ -43,6 +44,7 @@ private:
     wit::app::MainWindowChrome chrome_;
     wit::app::BrowserController browser_;
     wit::app::CatalogWorkflowController controller_;
+    wit::ui::ProgressDialog scanProgressDialog_;
     bool protectedCatalog_{};
 
     LRESULT OnFrameMessage(UINT message, WPARAM wparam, LPARAM lparam, BOOL& handled);

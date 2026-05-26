@@ -67,11 +67,26 @@ struct PresentationEffect {
     bool flushStatus{};
 };
 
+enum class ScanDialogAction {
+    None,
+    Show,
+    Update,
+    Cancelling,
+    Close
+};
+
+struct ScanDialogEffect {
+    ScanDialogAction action{ScanDialogAction::None};
+    std::uint64_t files{};
+    std::uint64_t folders{};
+};
+
 struct ControllerResult {
     std::vector<BrowserEffect> browserEffects;
     std::vector<MessageEffect> messages;
     RequestEffect request;
     PresentationEffect presentation;
+    ScanDialogEffect scanDialog;
     bool destroyWindow{};
 };
 
@@ -96,6 +111,7 @@ public:
     ControllerResult SearchClosed();
     ControllerResult RequestAddOrUpdateMedia();
     ControllerResult MediaSelectionCompleted(const std::optional<wit::ui::AddNewDiskMediaResult>& media);
+    ControllerResult RequestCancelScan();
     ControllerResult RequestGeneralSettings();
     ControllerResult GeneralSettingsCompleted(const std::optional<wit::platform::AppSettings>& settings);
     ControllerResult OnScanProgress(ScanId scanId);

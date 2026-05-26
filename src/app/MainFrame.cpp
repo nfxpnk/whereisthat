@@ -128,6 +128,7 @@ void MainFrame::OnClose() {
 }
 
 void MainFrame::OnDestroy() {
+    scanProgressDialog_.Close();
     controller_.DetachTarget();
     chrome_.Destroy();
     PostQuitMessage(0);
@@ -220,6 +221,24 @@ void MainFrame::ApplyControllerResult(wit::app::ControllerResult result) {
         }
     }
     RenderPresentation(result.presentation);
+    switch (result.scanDialog.action) {
+    case wit::app::ScanDialogAction::Show:
+        scanProgressDialog_.Show(m_hWnd, [this]() {
+            ApplyControllerResult(controller_.RequestCancelScan());
+        });
+        break;
+    case wit::app::ScanDialogAction::Update:
+        scanProgressDialog_.Update(result.scanDialog.files, result.scanDialog.folders);
+        break;
+    case wit::app::ScanDialogAction::Cancelling:
+        scanProgressDialog_.SetCancelling();
+        break;
+    case wit::app::ScanDialogAction::Close:
+        scanProgressDialog_.Close();
+        break;
+    case wit::app::ScanDialogAction::None:
+        break;
+    }
     for (const auto& message : result.messages) {
         ::MessageBoxW(m_hWnd, message.text.c_str(), message.title.c_str(), message.type);
     }

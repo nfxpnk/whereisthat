@@ -289,6 +289,7 @@ ControllerResult CatalogWorkflowController::RequestWindowClose() {
             closePending_ = true;
             scans_.RequestCancel();
         }
+        result.scanDialog.action = ScanDialogAction::Cancelling;
         PopulatePresentation(result);
         return result;
     }
@@ -345,6 +346,7 @@ ControllerResult CatalogWorkflowController::RequestAddOrUpdateMedia() {
             result.messages.push_back(Message(L"Scan cancellation is still pending.",
                 L"Cancelling scan", MB_OK | MB_ICONINFORMATION));
         }
+        result.scanDialog.action = ScanDialogAction::Cancelling;
         PopulatePresentation(result);
         return result;
     }
@@ -391,6 +393,17 @@ ControllerResult CatalogWorkflowController::MediaSelectionCompleted(
             L"Add/Update Disk Image", MB_OK | MB_ICONERROR));
     } else {
         activeScanId_ = scanId;
+        result.scanDialog.action = ScanDialogAction::Show;
+    }
+    PopulatePresentation(result);
+    return result;
+}
+
+ControllerResult CatalogWorkflowController::RequestCancelScan() {
+    ControllerResult result;
+    if (scans_.IsRunning()) {
+        if (!scans_.IsCancelling()) scans_.RequestCancel();
+        result.scanDialog.action = ScanDialogAction::Cancelling;
     }
     PopulatePresentation(result);
     return result;
@@ -421,8 +434,14 @@ ControllerResult CatalogWorkflowController::GeneralSettingsCompleted(
 }
 
 ControllerResult CatalogWorkflowController::OnScanProgress(ScanId scanId) {
-    scans_.TakeProgress(scanId);
     ControllerResult result;
+    if (scanId != 0 && scanId == activeScanId_) {
+        if (const auto progress = scans_.TakeProgress(scanId)) {
+            result.scanDialog = {ScanDialogAction::Update, progress->files, progress->folders};
+        }
+    } else {
+        scans_.TakeProgress(scanId);
+    }
     PopulatePresentation(result);
     return result;
 }
@@ -437,6 +456,7 @@ ControllerResult CatalogWorkflowController::OnScanComplete(ScanId scanId) {
     const bool cancellationRequested = scans_.IsCancelling();
     scans_.RetireWorker(scanId);
     activeScanId_ = 0;
+    result.scanDialog.action = ScanDialogAction::Close;
     result.presentation.updateAppStatus = true;
     result.presentation.appStatus = AppStatus::Idle;
     if (closePending_) {

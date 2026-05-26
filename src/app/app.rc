@@ -30,27 +30,33 @@ BEGIN
         END
         MENUITEM "&Save\tCtrl+S", ID_WIT_FILE_SAVE
         MENUITEM "Save &As...", ID_FILE_SAVEAS
+        MENUITEM "Import &XML", ID_FILE_IMPORT_XML_PLACEHOLDER
         MENUITEM "Rebuild Catalog &Database", ID_FILE_REBUILD_DATABASE
         MENUITEM "&Close", ID_WIT_FILE_CLOSE
         MENUITEM "Catalog &Info", ID_FILE_CATALOG_INFO
+        MENUITEM SEPARATOR
         MENUITEM "&Report Generator\tCtrl+R", ID_FILE_REPORT_GENERATOR
+        MENUITEM SEPARATOR
         MENUITEM "E&xit\tAlt+F4", ID_FILE_EXIT
     END
     POPUP "&Edit"
     BEGIN
         MENUITEM "&Add/Update Disk Image\tCtrl+D", ID_EDIT_ADDDISKIMAGE
+        MENUITEM SEPARATOR
         MENUITEM "&Catalog Manager", ID_EDIT_CATALOG_MANAGER
         MENUITEM "Catalog Set&up", ID_EDIT_CATALOG_SETUP
     END
     POPUP "&View"
     BEGIN
         MENUITEM "&Sort items", ID_VIEW_SORT_ITEMS
+        MENUITEM SEPARATOR
         MENUITEM "View &Icons", ID_VIEW_ICONS
         MENUITEM "View &List", ID_VIEW_LIST
         MENUITEM "View S&mall Icons", ID_VIEW_SMALL_ICONS
         MENUITEM "View &Details", ID_VIEW_DETAILS
         MENUITEM "View &Thumbnails", ID_VIEW_THUMBNAILS
         MENUITEM "&Columns Setup", ID_VIEW_COLUMNS_SETUP
+        MENUITEM SEPARATOR
         MENUITEM "Show &Alias Item Names", ID_VIEW_SHOW_ALIAS_NAMES
         MENUITEM "Locate in Catalo&g", ID_VIEW_LOCATE_IN_CATALOG
         MENUITEM "Tool&bar", ID_WIT_VIEW_TOOLBAR
@@ -62,6 +68,7 @@ BEGIN
         MENUITEM "&Find in This Catalog", ID_SEARCH_FIND_IN_CATALOG
         MENUITEM "Find Selected &Items", ID_SEARCH_FIND_SELECTED_ITEMS
         MENUITEM "Scan for &Duplicates", ID_SEARCH_SCAN_DUPLICATES
+        MENUITEM SEPARATOR
         MENUITEM "Compare to &Media", ID_SEARCH_COMPARE_MEDIA
         MENUITEM "Compare &Files to Catalog", ID_SEARCH_COMPARE_FILES_TO_CATALOG
         MENUITEM "Compare Cataloged &Data", ID_SEARCH_COMPARE_CATALOGED_DATA
@@ -75,10 +82,12 @@ BEGIN
         MENUITEM "&User List", ID_ACTIONS_USER_LIST
         MENUITEM "&Rename Catalog", ID_ACTIONS_RENAME_CATALOG
         MENUITEM "Remove &Alias Name", ID_ACTIONS_REMOVE_ALIAS_NAME
+        MENUITEM SEPARATOR
         MENUITEM "File Mana&gement", ID_ACTIONS_FILE_MANAGEMENT
         MENUITEM "Remove from &Catalog", ID_ACTIONS_REMOVE_FROM_CATALOG
         MENUITEM "Remove Archive C&ontents", ID_ACTIONS_REMOVE_ARCHIVE_CONTENTS
         MENUITEM "Remove &Thumbnail", ID_ACTIONS_REMOVE_THUMBNAIL
+        MENUITEM SEPARATOR
         MENUITEM "&Properties\tCtrl+P", ID_ACTIONS_PROPERTIES
     END
     POPUP "&Options"

@@ -179,6 +179,7 @@ bool Database::HasCatalogSchema() {
         TableHasColumn(db_, "disk_scan_statistics", "last_scanned_at") &&
         TableHasColumn(db_, "folders", "parent_folder_id") &&
         TableHasColumn(db_, "folders", "path") &&
+        TableHasColumn(db_, "folders", "content_size") &&
         TableHasColumn(db_, "files", "folder_id") &&
         TableHasColumn(db_, "files", "extension") &&
         TableHasColumn(db_, "files", "crc") &&
@@ -195,7 +196,7 @@ bool Database::InitializeSchema() {
         Exec("CREATE TABLE IF NOT EXISTS catalog_metadata (id INTEGER PRIMARY KEY CHECK (id=1),description TEXT NOT NULL DEFAULT '');") &&
         Exec("CREATE TABLE IF NOT EXISTS disks (id INTEGER PRIMARY KEY AUTOINCREMENT,disk_name TEXT NOT NULL,disk_number INTEGER NOT NULL DEFAULT 0,source_path TEXT NOT NULL COLLATE NOCASE UNIQUE,volume_label TEXT NOT NULL DEFAULT '',total_capacity INTEGER NOT NULL DEFAULT 0,free_space INTEGER NOT NULL DEFAULT 0,cluster_size INTEGER NOT NULL DEFAULT 0,serial_number TEXT NOT NULL DEFAULT '',file_system TEXT NOT NULL DEFAULT '',total_files INTEGER NOT NULL DEFAULT 0,total_folders INTEGER NOT NULL DEFAULT 0,added_at INTEGER NOT NULL,updated_at INTEGER NOT NULL,description TEXT NOT NULL DEFAULT '',category TEXT NOT NULL DEFAULT '',location TEXT NOT NULL DEFAULT '',disk_type TEXT NOT NULL CHECK (disk_type IN ('CD','DVD','BluRay','HardDisk','SolidStateDisk','RemovableUSB','VirtualDisk','Other')));") &&
         Exec("CREATE TABLE IF NOT EXISTS disk_scan_statistics (disk_id INTEGER PRIMARY KEY,last_scanned_at INTEGER NOT NULL,image_scanning_time_ms INTEGER NOT NULL DEFAULT 0,imported_descriptions_count INTEGER NOT NULL DEFAULT 0,calculated_file_crcs INTEGER NOT NULL DEFAULT 0 CHECK (calculated_file_crcs IN (0,1)),FOREIGN KEY (disk_id) REFERENCES disks(id) ON DELETE CASCADE);") &&
-        Exec("CREATE TABLE IF NOT EXISTS folders (id INTEGER PRIMARY KEY AUTOINCREMENT,disk_id INTEGER NOT NULL,parent_folder_id INTEGER,path TEXT NOT NULL,name TEXT NOT NULL,created_at INTEGER NOT NULL,modified_at INTEGER NOT NULL,accessed_at INTEGER NOT NULL,attributes INTEGER NOT NULL DEFAULT 0,FOREIGN KEY (disk_id) REFERENCES disks(id) ON DELETE CASCADE,FOREIGN KEY (parent_folder_id) REFERENCES folders(id) ON DELETE CASCADE);") &&
+        Exec("CREATE TABLE IF NOT EXISTS folders (id INTEGER PRIMARY KEY AUTOINCREMENT,disk_id INTEGER NOT NULL,parent_folder_id INTEGER,path TEXT NOT NULL,name TEXT NOT NULL,created_at INTEGER NOT NULL,modified_at INTEGER NOT NULL,accessed_at INTEGER NOT NULL,attributes INTEGER NOT NULL DEFAULT 0,content_size INTEGER NOT NULL DEFAULT 0,FOREIGN KEY (disk_id) REFERENCES disks(id) ON DELETE CASCADE,FOREIGN KEY (parent_folder_id) REFERENCES folders(id) ON DELETE CASCADE);") &&
         Exec("CREATE TABLE IF NOT EXISTS files (id INTEGER PRIMARY KEY AUTOINCREMENT,disk_id INTEGER NOT NULL,folder_id INTEGER NOT NULL,name TEXT NOT NULL,description TEXT NOT NULL DEFAULT '',extension TEXT NOT NULL DEFAULT '',crc TEXT,size INTEGER NOT NULL,created_at INTEGER NOT NULL,modified_at INTEGER NOT NULL,accessed_at INTEGER NOT NULL,attributes INTEGER NOT NULL DEFAULT 0,FOREIGN KEY (disk_id) REFERENCES disks(id) ON DELETE CASCADE,FOREIGN KEY (folder_id) REFERENCES folders(id) ON DELETE CASCADE);") &&
         Exec("INSERT OR IGNORE INTO catalog_metadata(id,description) VALUES(1,'');") &&
         Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_disks_source_path ON disks(source_path COLLATE NOCASE);") &&
@@ -356,8 +357,8 @@ std::vector<wit::core::Disk> Database::GetDisksPage(int offset, int limit) {
 std::int64_t Database::InsertFolder(const wit::core::FolderEntry& folder) {
     if (!editable_) return 0;
     SQLiteStatement statement(db_,
-        "INSERT INTO folders(disk_id,parent_folder_id,path,name,created_at,modified_at,accessed_at,attributes)"
-        " VALUES(?,?,?,?,?,?,?,?);");
+        "INSERT INTO folders(disk_id,parent_folder_id,path,name,created_at,modified_at,accessed_at,attributes,content_size)"
+        " VALUES(?,?,?,?,?,?,?,?,?);");
     statement.BindInt64(1, folder.diskId);
     if (folder.hasParent) statement.BindInt64(2, folder.parentFolderId); else statement.BindNull(2);
     statement.BindText(3, wit::platform::ToUtf8(folder.path));
@@ -366,7 +367,16 @@ std::int64_t Database::InsertFolder(const wit::core::FolderEntry& folder) {
     statement.BindInt64(6, folder.modifiedAt);
     statement.BindInt64(7, folder.accessedAt);
     statement.BindInt64(8, folder.attributes);
+    statement.BindInt64(9, static_cast<long long>(folder.contentSize));
     return sqlite3_step(statement.Raw()) == SQLITE_DONE ? sqlite3_last_insert_rowid(db_) : 0;
+}
+
+bool Database::UpdateFolderContentSize(std::int64_t folderId, std::uint64_t contentSize) {
+    if (!editable_) return false;
+    SQLiteStatement statement(db_, "UPDATE folders SET content_size=? WHERE id=?;");
+    statement.BindInt64(1, static_cast<long long>(contentSize));
+    statement.BindInt64(2, folderId);
+    return sqlite3_step(statement.Raw()) == SQLITE_DONE && sqlite3_changes(db_) == 1;
 }
 
 bool Database::InsertFile(const wit::core::FileEntry& file) {
@@ -411,14 +421,12 @@ int Database::GetBrowserItemCount(const wit::core::BrowserLocation& location) {
         return sqlite3_step(statement.Raw()) == SQLITE_ROW ? sqlite3_column_int(statement.Raw(), 0) : 0;
     }
     SQLiteStatement statement(db_,
-        "SELECT (SELECT COUNT(*) FROM folders c JOIN folders p ON c.parent_folder_id=p.id "
-        "WHERE c.disk_id=? AND p.path=? COLLATE NOCASE) + "
-        "(SELECT COUNT(*) FROM files c JOIN folders p ON c.folder_id=p.id "
-        "WHERE c.disk_id=? AND p.path=? COLLATE NOCASE);");
+        "WITH parent(id) AS (SELECT id FROM folders WHERE disk_id=? AND path=? COLLATE NOCASE) "
+        "SELECT (SELECT COUNT(*) FROM folders c JOIN parent p ON c.parent_folder_id=p.id WHERE c.disk_id=?) + "
+        "(SELECT COUNT(*) FROM files f JOIN parent p ON f.folder_id=p.id);");
     statement.BindInt64(1, location.sourceId);
     statement.BindText(2, wit::platform::ToUtf8(location.path));
     statement.BindInt64(3, location.sourceId);
-    statement.BindText(4, wit::platform::ToUtf8(location.path));
     return sqlite3_step(statement.Raw()) == SQLITE_ROW ? sqlite3_column_int(statement.Raw(), 0) : 0;
 }
 
@@ -438,18 +446,18 @@ std::vector<wit::core::FileEntry> Database::GetBrowserItemsPage(
         return files;
     }
     SQLiteStatement statement(db_,
+        "WITH parent(id,path) AS (SELECT id,path FROM folders WHERE disk_id=? AND path=? COLLATE NOCASE) "
         "SELECT id,disk_id,parent_path,name,extension,size,modified_at,attributes,is_directory FROM ("
-        "SELECT c.id,c.disk_id,p.path AS parent_path,c.name,'' AS extension,0 AS size,c.modified_at,c.attributes,1 AS is_directory "
-        "FROM folders c JOIN folders p ON c.parent_folder_id=p.id WHERE c.disk_id=? AND p.path=? COLLATE NOCASE "
+        "SELECT c.id,c.disk_id,p.path AS parent_path,c.name,'' AS extension,c.content_size AS size,c.modified_at,c.attributes,1 AS is_directory "
+        "FROM folders c JOIN parent p ON c.parent_folder_id=p.id WHERE c.disk_id=? "
         "UNION ALL SELECT f.id,f.disk_id,p.path AS parent_path,f.name,f.extension,f.size,f.modified_at,f.attributes,0 AS is_directory "
-        "FROM files f JOIN folders p ON f.folder_id=p.id WHERE f.disk_id=? AND p.path=? COLLATE NOCASE)"
+        "FROM files f JOIN parent p ON f.folder_id=p.id)"
         " ORDER BY is_directory DESC,name LIMIT ? OFFSET ?;");
     statement.BindInt64(1, location.sourceId);
     statement.BindText(2, wit::platform::ToUtf8(location.path));
     statement.BindInt64(3, location.sourceId);
-    statement.BindText(4, wit::platform::ToUtf8(location.path));
-    statement.BindInt64(5, limit);
-    statement.BindInt64(6, offset);
+    statement.BindInt64(4, limit);
+    statement.BindInt64(5, offset);
     while (sqlite3_step(statement.Raw()) == SQLITE_ROW) {
         wit::core::FileEntry file;
         PopulateDisplayEntry(file, statement.Raw());
@@ -460,10 +468,11 @@ std::vector<wit::core::FileEntry> Database::GetBrowserItemsPage(
 
 bool Database::HasChildFolders(std::int64_t sourceId, const std::wstring& parentPath) {
     SQLiteStatement statement(db_,
-        "SELECT EXISTS(SELECT 1 FROM folders c JOIN folders p ON c.parent_folder_id=p.id "
-        "WHERE c.disk_id=? AND p.path=? COLLATE NOCASE);");
+        "WITH parent(id) AS (SELECT id FROM folders WHERE disk_id=? AND path=? COLLATE NOCASE) "
+        "SELECT EXISTS(SELECT 1 FROM folders c JOIN parent p ON c.parent_folder_id=p.id WHERE c.disk_id=?);");
     statement.BindInt64(1, sourceId);
     statement.BindText(2, wit::platform::ToUtf8(parentPath));
+    statement.BindInt64(3, sourceId);
     return sqlite3_step(statement.Raw()) == SQLITE_ROW && sqlite3_column_int(statement.Raw(), 0) != 0;
 }
 
@@ -471,11 +480,13 @@ std::vector<wit::core::FileEntry> Database::GetChildFolders(
     std::int64_t sourceId, const std::wstring& parentPath) {
     std::vector<wit::core::FileEntry> folders;
     SQLiteStatement statement(db_,
-        "SELECT c.id,c.disk_id,p.path,c.name,'',0,c.modified_at,c.attributes,1 "
-        "FROM folders c JOIN folders p ON c.parent_folder_id=p.id "
-        "WHERE c.disk_id=? AND p.path=? COLLATE NOCASE ORDER BY c.name;");
+        "WITH parent(id,path) AS (SELECT id,path FROM folders WHERE disk_id=? AND path=? COLLATE NOCASE) "
+        "SELECT c.id,c.disk_id,p.path,c.name,'',c.content_size,c.modified_at,c.attributes,1 "
+        "FROM folders c JOIN parent p ON c.parent_folder_id=p.id "
+        "WHERE c.disk_id=? ORDER BY c.name;");
     statement.BindInt64(1, sourceId);
     statement.BindText(2, wit::platform::ToUtf8(parentPath));
+    statement.BindInt64(3, sourceId);
     while (sqlite3_step(statement.Raw()) == SQLITE_ROW) {
         wit::core::FileEntry folder;
         PopulateDisplayEntry(folder, statement.Raw());
@@ -500,7 +511,7 @@ std::vector<wit::core::FileEntry> Database::GetItemSearchPage(const std::wstring
         "SELECT id,disk_id,parent_path,name,extension,size,modified_at,attributes,is_directory FROM ("
         "SELECT f.id,f.disk_id,p.path AS parent_path,f.name,f.extension,f.size,f.modified_at,f.attributes,0 AS is_directory "
         "FROM files f JOIN folders p ON f.folder_id=p.id WHERE f.name LIKE ? ESCAPE '\\' "
-        "UNION ALL SELECT c.id,c.disk_id,COALESCE(p.path,''),c.name,'',0,c.modified_at,c.attributes,1 "
+        "UNION ALL SELECT c.id,c.disk_id,COALESCE(p.path,''),c.name,'',c.content_size,c.modified_at,c.attributes,1 "
         "FROM folders c LEFT JOIN folders p ON c.parent_folder_id=p.id WHERE c.name LIKE ? ESCAPE '\\') "
         "ORDER BY is_directory DESC,name,parent_path LIMIT ? OFFSET ?;");
     const auto pattern = ItemNameLikePattern(nameTerm);

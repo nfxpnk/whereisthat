@@ -210,8 +210,7 @@ std::wstring BrowserController::FocusedItemStatus() {
         return text;
     }
     if (const auto* entry = index >= 0 ? files_.EntryAt(index) : nullptr) {
-        auto text = entry->name;
-        if (!entry->isDirectory) text += L" | " + CompactSize(entry->size);
+        auto text = entry->name + L" | " + CompactSize(entry->size);
         if (!entry->modifiedAt.empty()) text += L" | " + entry->modifiedAt;
         return text;
     }
@@ -229,7 +228,7 @@ std::wstring BrowserController::SelectionSummaryStatus() {
                 totalSize += disk->totalCapacity;
             } else if (const auto* entry = files_.EntryAt(index)) {
                 ++selected;
-                if (!entry->isDirectory) totalSize += entry->size;
+                totalSize += entry->size;
             }
         }
     }

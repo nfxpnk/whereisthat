@@ -111,61 +111,89 @@ bool FileScanner::ScanFolder(const std::wstring& rootPath, std::int64_t diskId, 
     if (rootId == 0) return fail();
     ++folderCount;
 
-    std::vector<std::pair<std::wstring, std::int64_t>> stack{{rootPath, rootId}};
+    struct FolderFrame {
+        std::wstring path;
+        std::int64_t id{};
+        std::vector<std::pair<std::wstring, std::int64_t>> children;
+        std::size_t nextChild{};
+        std::uint64_t contentSize{};
+        bool enumerated{};
+    };
+    std::vector<FolderFrame> stack{{rootPath, rootId}};
     while (!stack.empty()) {
         if (cancelled()) return false;
-        const auto [directory, folderId] = stack.back();
-        stack.pop_back();
-        WIN32_FIND_DATAW findData{};
-        const auto query = WildcardFor(directory);
-        HANDLE findHandle = FindFirstFileW(query.c_str(), &findData);
-        if (findHandle == INVALID_HANDLE_VALUE) continue;
-        do {
-            if (stopToken.stop_requested()) {
+        auto& frame = stack.back();
+        if (!frame.enumerated) {
+            frame.enumerated = true;
+            WIN32_FIND_DATAW findData{};
+            const auto query = WildcardFor(frame.path);
+            HANDLE findHandle = FindFirstFileW(query.c_str(), &findData);
+            if (findHandle != INVALID_HANDLE_VALUE) {
+                do {
+                    if (stopToken.stop_requested()) {
+                        FindClose(findHandle);
+                        return fail();
+                    }
+                    if (wcscmp(findData.cFileName, L".") == 0 || wcscmp(findData.cFileName, L"..") == 0) {
+                        continue;
+                    }
+                    const std::wstring fullPath = JoinPath(frame.path, findData.cFileName);
+                    const bool isDirectory = (findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+                    if (isDirectory) {
+                        auto folder = FolderFromData(diskId, frame.id, true, fullPath, findData.cFileName, findData);
+                        const auto childId = db.InsertFolder(folder);
+                        if (childId == 0) {
+                            FindClose(findHandle);
+                            return fail();
+                        }
+                        ++folderCount;
+                        if (!(findData.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)) {
+                            frame.children.emplace_back(fullPath, childId);
+                        }
+                    } else {
+                        wit::core::FileEntry entry{};
+                        entry.catalogId = diskId;
+                        entry.folderId = frame.id;
+                        entry.name = findData.cFileName;
+                        entry.extension = wit::platform::FileExtension(entry.name);
+                        entry.size = (static_cast<std::uint64_t>(findData.nFileSizeHigh) << 32) | findData.nFileSizeLow;
+                        entry.createdAt = wit::platform::FileTimeToUnixSeconds(findData.ftCreationTime);
+                        entry.modifiedAtValue = wit::platform::FileTimeToUnixSeconds(findData.ftLastWriteTime);
+                        entry.accessedAt = wit::platform::FileTimeToUnixSeconds(findData.ftLastAccessTime);
+                        entry.attributes = findData.dwFileAttributes;
+                        bool crcCancelled{};
+                        if (calculateCrc) entry.crc = FileCrc32(fullPath, stopToken, crcCancelled);
+                        if (crcCancelled || stopToken.stop_requested()) {
+                            FindClose(findHandle);
+                            return fail();
+                        }
+                        if (!db.InsertFile(entry)) {
+                            FindClose(findHandle);
+                            return fail();
+                        }
+                        frame.contentSize += entry.size;
+                        ++fileCount;
+                    }
+                    const auto total = fileCount + folderCount;
+                    if (onProgress && total % 250 == 0) onProgress({fileCount, folderCount, fullPath});
+                } while (FindNextFileW(findHandle, &findData));
                 FindClose(findHandle);
-                return fail();
             }
-            if (wcscmp(findData.cFileName, L".") == 0 || wcscmp(findData.cFileName, L"..") == 0) continue;
-            const std::wstring fullPath = JoinPath(directory, findData.cFileName);
-            const bool isDirectory = (findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
-            if (isDirectory) {
-                auto folder = FolderFromData(diskId, folderId, true, fullPath, findData.cFileName, findData);
-                const auto childId = db.InsertFolder(folder);
-                if (childId == 0) {
-                    FindClose(findHandle);
-                    return fail();
-                }
-                ++folderCount;
-                if (!(findData.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)) {
-                    stack.emplace_back(fullPath, childId);
-                }
-            } else {
-                wit::core::FileEntry entry{};
-                entry.catalogId = diskId;
-                entry.folderId = folderId;
-                entry.name = findData.cFileName;
-                entry.extension = wit::platform::FileExtension(entry.name);
-                entry.size = (static_cast<std::uint64_t>(findData.nFileSizeHigh) << 32) | findData.nFileSizeLow;
-                entry.createdAt = wit::platform::FileTimeToUnixSeconds(findData.ftCreationTime);
-                entry.modifiedAtValue = wit::platform::FileTimeToUnixSeconds(findData.ftLastWriteTime);
-                entry.accessedAt = wit::platform::FileTimeToUnixSeconds(findData.ftLastAccessTime);
-                entry.attributes = findData.dwFileAttributes;
-                bool crcCancelled{};
-                if (calculateCrc) entry.crc = FileCrc32(fullPath, stopToken, crcCancelled);
-                if (crcCancelled || stopToken.stop_requested()) {
-                    FindClose(findHandle);
-                    return fail();
-                }
-                if (!db.InsertFile(entry)) {
-                    FindClose(findHandle);
-                    return fail();
-                }
-                ++fileCount;
-            }
-            const auto total = fileCount + folderCount;
-            if (onProgress && total % 250 == 0) onProgress({fileCount, folderCount, fullPath});
-        } while (FindNextFileW(findHandle, &findData));
-        FindClose(findHandle);
+        }
+        if (frame.nextChild < frame.children.size()) {
+            const auto child = frame.children[frame.nextChild++];
+            stack.push_back({child.first, child.second});
+            continue;
+        }
+        const auto completedSize = frame.contentSize;
+        const auto completedId = frame.id;
+        if (!db.UpdateFolderContentSize(completedId, completedSize)) {
+            return fail();
+        }
+        stack.pop_back();
+        if (!stack.empty()) {
+            stack.back().contentSize += completedSize;
+        }
     }
     if (cancelled()) return false;
     if (manageTransaction && !db.Commit()) return fail();

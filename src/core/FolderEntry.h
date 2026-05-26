@@ -14,5 +14,6 @@ struct FolderEntry {
     std::int64_t modifiedAt{};
     std::int64_t accessedAt{};
     std::uint32_t attributes{};
+    std::uint64_t contentSize{};
 };
 }

@@ -41,6 +41,7 @@ public:
     int GetDiskCount();
     std::vector<wit::core::Disk> GetDisksPage(int offset, int limit);
     std::int64_t InsertFolder(const wit::core::FolderEntry& folder);
+    bool UpdateFolderContentSize(std::int64_t folderId, std::uint64_t contentSize);
     bool InsertFile(const wit::core::FileEntry& file);
     std::vector<wit::core::Catalog> GetCatalogs();
     int GetBrowserItemCount(const wit::core::BrowserLocation& location);

@@ -102,12 +102,17 @@ int wmain() {
     const auto mediaWithoutCrc = testRoot / L"media-no-crc";
     const auto catalogPath = testRoot / L"catalog.db";
     const auto oldPath = testRoot / L"old.db";
+    const auto normalizedWithoutSizePath = testRoot / L"normalized-without-size.db";
 
     std::filesystem::remove_all(testRoot);
     std::filesystem::create_directories(mediaWithCrc);
+    std::filesystem::create_directories(mediaWithCrc / L"container" / L"nested");
+    std::filesystem::create_directories(mediaWithCrc / L"empty");
     std::filesystem::create_directories(mediaWithoutCrc);
     {
         std::ofstream(mediaWithCrc / L"example.txt", std::ios::binary) << "abc";
+        std::ofstream(mediaWithCrc / L"container" / L"inside.bin", std::ios::binary) << "1234";
+        std::ofstream(mediaWithCrc / L"container" / L"nested" / L"deeper.bin", std::ios::binary) << "12345";
         std::ofstream(mediaWithoutCrc / L"plain", std::ios::binary) << "no crc";
     }
     SetFileAttributesW((mediaWithCrc / L"example.txt").c_str(), FILE_ATTRIBUTE_ARCHIVE | FILE_ATTRIBUTE_HIDDEN);
@@ -175,17 +180,27 @@ int wmain() {
         "staged edits do not mutate active catalog before save");
     Check(db.ReplaceCatalogDataFrom(staged), "staged save persistence");
     const auto summary = db.GetCatalogSummary();
-    Check(summary.totalDisks == 2 && summary.totalFiles == 2 && summary.totalFolders == 2,
+    Check(summary.totalDisks == 2 && summary.totalFiles == 4 && summary.totalFolders == 5,
         "derived disk/file/folder totals");
     Check(summary.totalStorageSpace == 1500 && summary.totalUsedSpace == 750,
         "derived capacity totals with non-negative used space");
     Check(summary.catalogFileSize > 0, "catalog size is read from the filesystem");
     Check(db.GetBrowserItemCount({}) == 2, "normalized root browsing");
+    std::filesystem::remove_all(mediaWithCrc);
     wit::core::BrowserLocation firstLocation{};
     firstLocation.isRoot = false;
     firstLocation.sourceId = first.id;
     firstLocation.path = first.sourcePath;
-    Check(db.GetBrowserItemsPage(firstLocation, 0, 10).size() == 1, "normalized disk browsing");
+    const auto firstItems = db.GetBrowserItemsPage(firstLocation, 0, 10);
+    Check(firstItems.size() == 3, "normalized disk browsing remains available without source media");
+    bool foundContainer{};
+    bool foundEmpty{};
+    for (const auto& item : firstItems) {
+        if (item.name == L"container") foundContainer = item.isDirectory && item.size == 9;
+        if (item.name == L"empty") foundEmpty = item.isDirectory && item.size == 0;
+    }
+    Check(foundContainer, "folder page exposes persisted recursive stored size");
+    Check(foundEmpty, "folder page exposes persisted empty-folder size");
     Check(db.GetItemSearchCount(L"example") == 1 && db.GetItemSearchPage(L"example", 0, 10).size() == 1,
         "normalized search paging");
     wit::storage::Database discarded;
@@ -293,6 +308,14 @@ int wmain() {
     Check(ScalarInt(catalogPath, "SELECT COUNT(*) FROM pragma_table_info('catalog_metadata') "
         "WHERE name IN ('catalog_file_size','total_disks','total_files','total_folders','total_storage_space','total_used_space');") == 0,
         "catalog derived values are not stored");
+    Check(ScalarInt(catalogPath, "SELECT content_size FROM folders WHERE name='media-crc';") == 12,
+        "stored root folder size includes direct and nested files");
+    Check(ScalarInt(catalogPath, "SELECT content_size FROM folders WHERE name='container';") == 9,
+        "stored child folder size includes nested files");
+    Check(ScalarInt(catalogPath, "SELECT content_size FROM folders WHERE name='nested';") == 5,
+        "stored nested folder size is persisted");
+    Check(ScalarInt(catalogPath, "SELECT content_size FROM folders WHERE name='empty';") == 0,
+        "stored empty folder size is persisted");
 
     Check(ExecRaw(oldPath, "CREATE TABLE catalogs(id INTEGER PRIMARY KEY);"
         "CREATE TABLE files(id INTEGER PRIMARY KEY,is_directory INTEGER);"), "old-format fixture creation");
@@ -300,6 +323,20 @@ int wmain() {
     Check(!old.OpenExisting(oldPath.wstring()), "old-format catalog rejection");
     Check(ScalarInt(oldPath, "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='disks';") == 0,
         "old-format rejection does not add replacement tables");
+
+    Check(ExecRaw(normalizedWithoutSizePath,
+        "CREATE TABLE catalog_metadata(description TEXT);"
+        "CREATE TABLE disks(disk_name TEXT,source_path TEXT,disk_type TEXT);"
+        "CREATE TABLE disk_scan_statistics(last_scanned_at INTEGER);"
+        "CREATE TABLE folders(parent_folder_id INTEGER,path TEXT);"
+        "CREATE TABLE files(folder_id INTEGER,extension TEXT,crc TEXT,accessed_at INTEGER);"),
+        "normalized-without-size fixture creation");
+    wit::storage::Database normalizedWithoutSize;
+    Check(!normalizedWithoutSize.OpenExisting(normalizedWithoutSizePath.wstring()),
+        "normalized catalog without stored folder size rejection");
+    Check(ScalarInt(normalizedWithoutSizePath,
+        "SELECT COUNT(*) FROM pragma_table_info('folders') WHERE name='content_size';") == 0,
+        "normalized catalog rejection does not backfill stored folder size");
 
     std::filesystem::remove_all(testRoot);
     if (failures != 0) return 1;

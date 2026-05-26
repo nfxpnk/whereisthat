@@ -47,11 +47,11 @@ Modal dialog presentation for General Settings belongs to a dedicated WTL/ATL-ho
 - A scan is initiated from the UI and performs filesystem enumeration without blocking interactive window message handling.
 - Scanned metadata is first staged in the selected destination open catalog session and is persisted to that user-selected SQLite catalog database only by explicit Save; `catalog.db` is not implicitly preferred over other filenames.
 - The main frame can have no active catalog at startup, or can restore the available catalog identified by `settings.ini`.
-- A catalog database stores catalog metadata, disk/media records, latest scan statistics, normalized folders, and file-only records; browsing them remains possible after the original source drive is unavailable.
-- The supported catalog format is deliberately new-format only and rejects earlier `catalogs`/mixed `files` databases rather than migrating them.
+- A catalog database stores catalog metadata, disk/media records, latest scan statistics, normalized folders with scan-time persisted recursive content sizes, and file-only records; browsing them remains possible after the original source drive is unavailable.
+- The supported catalog format is deliberately new-format only and rejects earlier `catalogs`/mixed `files` databases and normalized catalogs lacking required folder content sizes rather than migrating them.
 - Persisted catalog timestamps are Unix timestamp integers; user-facing formatting is performed outside SQLite.
 - Catalog-wide totals are queried from normalized rows and catalog file size is read from the filesystem, rather than persisted as summary metadata.
-- The main catalog browser presents a native TreeView with one top-level root per concurrently open database catalog and an owner-data ListView for the selected root or folder's immediate persisted contents, with Back/Forward and catalog-relative location display.
+- The main catalog browser presents a native TreeView with one top-level root per concurrently open database catalog and an owner-data ListView for the selected root or folder's immediate persisted contents, with Back/Forward and catalog-relative location display. File/folder pages read stored sizes through indexed immediate ownership relationships rather than browse-time descendant aggregation.
 - The selected TreeView root, or the owning root of a selected descendant, identifies the active catalog for scoped commands and status.
 - The catalog session component owns per-open-catalog editable/protected and pending/dirty state, exposes staged data to browsing through main-frame coordination, and supports independently closing catalogs or guarding shutdown when edits remain unsaved.
 - The native status bar contains five independently updated sections for catalog state, protection, focus, selection totals, and extensible application-status lights.

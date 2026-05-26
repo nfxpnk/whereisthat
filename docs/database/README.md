@@ -2,7 +2,7 @@
 
 ## Engine And Format
 
-Where Is That? uses SQLite through the native C API in `src/storage/Database.cpp`. Each user-selected SQLite file is one catalog. The current format is a replacement format: former databases containing the legacy `catalogs` and mixed folder/file `files` schema are rejected and are not migrated.
+Where Is That? uses SQLite through the native C API in `src/storage/Database.cpp`. Each user-selected SQLite file is one catalog. The current format is a replacement format: former databases containing the legacy `catalogs` and mixed folder/file `files` schema, and normalized catalogs without required stored folder content totals, are rejected and are not migrated.
 
 `Database::InitializeSchema()` is the executable schema authority for new catalog files. Add/Update work is staged in an in-memory database copy and becomes durable only when Save backs that replacement-format database into the active file.
 
@@ -13,7 +13,7 @@ Where Is That? uses SQLite through the native C API in `src/storage/Database.cpp
 | `catalog_metadata` | Singleton catalog-owned description metadata. | [schema/tables/catalog_metadata.sql](schema/tables/catalog_metadata.sql) | [tables/catalog_metadata.md](tables/catalog_metadata.md) |
 | `disks` | One added disk/media source and native/storage metadata. | [schema/tables/disks.sql](schema/tables/disks.sql) | [tables/disks.md](tables/disks.md) |
 | `disk_scan_statistics` | Latest successful scan statistics per disk. | [schema/tables/disk_scan_statistics.sql](schema/tables/disk_scan_statistics.sql) | [tables/disk_scan_statistics.md](tables/disk_scan_statistics.md) |
-| `folders` | Normalized folder hierarchy for offline browsing. | [schema/tables/folders.sql](schema/tables/folders.sql) | [tables/folders.md](tables/folders.md) |
+| `folders` | Normalized folder hierarchy and stored recursive file-byte totals for offline browsing. | [schema/tables/folders.sql](schema/tables/folders.sql) | [tables/folders.md](tables/folders.md) |
 | `files` | File-only metadata stored in folders. | [schema/tables/files.sql](schema/tables/files.sql) | [tables/files.md](tables/files.md) |
 
 ## Relationships
@@ -33,6 +33,7 @@ Where Is That? uses SQLite through the native C API in `src/storage/Database.cpp
 - File and folder attributes are stored as native Win32 bitmasks; relevant requested values are hidden, system, read-only, compressed, and archive flags.
 - File extensions are stored without a dot, for example `txt`; files without an extension store `''`.
 - `files.crc` is nullable and stores uppercase CRC-32 text only when CRC calculation succeeds during an enabled scan.
+- `folders.content_size` stores the sum of file sizes in each folder and all stored descendants, finalized while scanning.
 - `disks.disk_type` is constrained to `CD`, `DVD`, `BluRay`, `HardDisk`, `SolidStateDisk`, `RemovableUSB`, `VirtualDisk`, or `Other`. Mounted ISO sources are stored as `VirtualDisk`, Windows removable drives as `RemovableUSB`, and sources without a reliable subtype as `Other`.
 
 ## Stored And Derived Values
@@ -51,7 +52,7 @@ Stored disk scan results include `disks.total_files` and `disks.total_folders`, 
 ## Schema Creation And Access
 
 - New catalog creation initializes the tables and indexes above and inserts `catalog_metadata.id = 1`.
-- Existing catalog open validates replacement-format columns only; it includes no legacy upgrade branch.
+- Existing catalog open validates all required replacement-format columns, including `folders.content_size`; it includes no upgrade or backfill branch.
 - SQLite configuration PRAGMAs are listed in [schema/pragmas.sql](schema/pragmas.sql).
 - Defined indexes are listed in [schema/indexes.sql](schema/indexes.sql).
 - No application views or triggers are defined: [schema/views.sql](schema/views.sql), [schema/triggers.sql](schema/triggers.sql).

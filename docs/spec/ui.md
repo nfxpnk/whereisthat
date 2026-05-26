@@ -39,7 +39,7 @@ Each open catalog remains useful when its indexed original storage is disconnect
 - Search for Items (`Ctrl+F`) requires an active catalog and opens a native search window with a file/folder name input and Search action; matching indexed items from all media sources in that database appear below the controls with name, type, size, path, and modified metadata.
 - The main folder tree uses a native TreeView: each top-level node is an open catalog database label, its children are stored disks/media sources, and expanding a node loads only normalized persisted descendant folders from that root's database.
 - When the catalog root is selected, the native owner-data right-pane ListView displays one row per stored disk with columns `Disk Name`, `Media Type`, `Capacity`, `Free Space`, `Last Updated`, `Disk #`, `Description`, `Category`, and `Disk Location`, in that order; activating a disk navigates into its stored root contents.
-- When a disk or descendant folder is selected, the same right-pane ListView displays immediate folders and files with content-oriented columns; activating a folder navigates into it and updates the tree selection, address display, and Back/Forward history.
+- When a disk or descendant folder is selected, the same right-pane ListView displays immediate folders and files with content-oriented columns; folders display persisted recursive content size values captured by scanning. Activating a folder navigates into it and updates the tree selection, address display, and Back/Forward history.
 - The main contents area supports multi-selection so the status bar can report selected item count and aggregate stored size; focused item status includes filename, size, and stored date. `Ctrl+A` selects every displayed file and folder only while a file or folder row in the right-pane contents list has focus, and does not apply to the catalog-root disk inventory.
 - An active read-only or otherwise protected catalog remains browseable and shows a compact lock indicator, but does not accept Add/Update or Save mutations.
 - General Settings opens a dedicated WTL/ATL-hosted native settings dialog in `src/ui`; its initial `Show status bar` preference immediately controls status-bar visibility and defaults to enabled, and it displays the stored last-opened catalog path as read-only information.
@@ -59,6 +59,7 @@ Each open catalog remains useful when its indexed original storage is disconnect
 
 - Catalog contents must be viable for large scans.
 - The main right-pane view uses virtual/owner-data ListView behavior with database-backed paging for both catalog-root disk inventory and file/folder contents scoped to the current location.
+- Right-pane file/folder pages read stored file and folder sizes without recursively aggregating descendants while the list is displayed; page ordering remains owned by the database for later specified sort behavior.
 - The Search for Items result list uses virtual/owner-data ListView behavior with database-backed paging.
 - UI changes must not require loading all rows in a catalog into memory merely to display them.
 

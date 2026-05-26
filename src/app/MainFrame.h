@@ -3,11 +3,11 @@
 #include <Windows.h>
 #include <CommCtrl.h>
 #include <string>
+#include <vector>
 #include "WtlSupport.h"
 #include "BrowserController.h"
-#include "CatalogSession.h"
+#include "CatalogWorkflowController.h"
 #include "MainWindowChrome.h"
-#include "ScanCoordinator.h"
 #include "resource.h"
 
 class MainFrame : public WTL::CFrameWindowImpl<MainFrame>, public WTL::CMessageFilter {
@@ -42,10 +42,8 @@ public:
 private:
     wit::app::MainWindowChrome chrome_;
     wit::app::BrowserController browser_;
-    wit::app::CatalogSession session_;
-    wit::app::ScanCoordinator scans_;
-    wit::app::ScanId activeScanId_{};
-    bool closePending_{};
+    wit::app::CatalogWorkflowController controller_;
+    bool protectedCatalog_{};
 
     LRESULT OnFrameMessage(UINT message, WPARAM wparam, LPARAM lparam, BOOL& handled);
     LRESULT HandleMessage(UINT message, WPARAM wparam, LPARAM lparam, BOOL& handled);
@@ -53,27 +51,12 @@ private:
     void OnClose();
     void OnDestroy();
     void OnCommand(int id);
-    void OnNewCatalog();
-    void OnOpenCatalog();
-    void OnOpenRecentCatalog(int commandId);
-    void OnAddOrUpdateDiskImage();
-    bool OnSaveCatalog();
-    bool OnSaveCatalog(wit::app::OpenCatalog& catalog);
-    void OnCloseCatalog();
-    void OnSearchForItems();
-    void OnGeneralSettings();
     void OnExit();
     void OnAbout();
     LRESULT OnTreeRightClick();
-    bool ActivateCatalog(const std::wstring& path, bool createNew, bool persistPath);
-    wit::app::OpenCatalog* GetActiveCatalog();
-    bool ConfirmPendingChanges(wit::app::OpenCatalog& catalog);
-    bool ConfirmAllPendingChanges();
-    void DiscardPendingChanges(wit::app::OpenCatalog& catalog);
-    bool CloseCatalog(wit::app::OpenCatalog& catalog);
-    void RefreshOpenRecentMenu();
-    void RefreshCatalogStatus();
-    void RefreshBrowserStatus();
-    void RefreshCatalogCommands();
-    void SetScanControlsEnabled(bool enabled);
+    void ApplyControllerResult(wit::app::ControllerResult result);
+    void PerformRequest(const wit::app::RequestEffect& request);
+    void RenderRecentMenu(const std::vector<std::wstring>& paths);
+    void RenderPresentation(const wit::app::PresentationEffect& presentation);
+    void UpdateBrowserStatus();
 };

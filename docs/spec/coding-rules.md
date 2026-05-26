@@ -31,11 +31,13 @@ A proposal that would require any forbidden technology must first revise the can
 
 ## Main Frame Rule
 
-- Keep `MainFrame` limited to WTL-hosted top-level window lifetime, message-map command/message entry points, dialog launches, and explicit coordination across main-window components.
+- Keep `MainFrame` limited to WTL-hosted top-level window lifetime, message-map command/message entry points, requested dialog/message presentation, and mechanical rendering of controller effects.
 - Put child-control creation, toolbar, splitter/layout, status rendering, and presentation plumbing in `MainWindowChrome`.
 - Put tree/list browsing, current location, and Back/Forward navigation state in `BrowserController`.
+- Put catalog activation, Save/Discard/Close decisions, catalog command enablement, item-search eligibility, media scan initiation/adoption, and prompt continuations in `CatalogWorkflowController`.
 - Put open catalog database collection/identity, per-catalog pending and dirty/protected state, settings/recent paths, and Save/discard/remove transitions in `CatalogSession`.
 - Put scan worker lifetime, scan-in-progress state, staging work, and UI-thread completion payload ownership in `ScanCoordinator`.
+- `CatalogWorkflowController` owns `CatalogSession` and `ScanCoordinator`; `MainFrame` must not inspect their state to choose an outcome.
 - Add new main-window behavior to its owning component or justify a new focused component; do not grow unrelated responsibilities back into `MainFrame`.
 - Keep WTL hosting and control-wrapper work within these existing component boundaries; WTL adoption is not a reason to merge their ownership.
 

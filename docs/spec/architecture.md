@@ -22,7 +22,7 @@ Dependencies should flow from application/UI orchestration into core, storage, a
 
 ## Main Window Responsibilities
 
-`MainFrame` is the main-window composition root and top-level message/command coordinator. It SHALL remain thin: feature state and implementation for child-window chrome/layout, catalog browsing/navigation, active-catalog session lifecycle, and asynchronous scanning belong in focused collaborating classes rather than accumulating in `MainFrame`.
+`MainFrame` is the main-window composition root and top-level message/command entry point. It SHALL remain a reactive UI shell: it forwards workflow input to `CatalogWorkflowController`, presents requested native UI, and renders returned browser/chrome effects. It SHALL NOT decide catalog activation, Save/Discard/Close outcomes, media-scan eligibility or adoption, item-search eligibility, or catalog command availability.
 
 `MainFrame` SHALL be hosted by `WTL::CFrameWindowImpl` and route its top-level native messages through a WTL message map. Application dispatch SHALL use a registered `WTL::CMessageLoop` with frame accelerator translation.
 
@@ -32,12 +32,13 @@ The established main-window collaborators are:
 | --- | --- |
 | `MainWindowChrome` | Child controls, toolbar, splitter/layout, status rendering, and control-level presentation support. |
 | `BrowserController` | Tree/list adapters, browser location and history, and synchronized navigation behavior. |
+| `CatalogWorkflowController` | Main-window catalog/search/media workflow decisions, typed UI effects, and ownership of the session and scan collaborators. |
 | `CatalogSession` | Collection of open catalog database sessions, selected active identity, per-catalog pending/dirty/protected state, settings/recent catalogs, Save and discard state transitions. |
 | `ScanCoordinator` | Background scan worker lifetime, staged scan preparation, and UI-thread completion payloads. |
 
-New main-window behavior SHALL extend the component that owns that responsibility, or introduce a separately justified focused component. Cross-component workflow ordering and top-level native dispatch remain appropriate `MainFrame` responsibilities.
+New main-window behavior SHALL extend the component that owns that responsibility, or introduce a separately justified focused component. Business workflow ordering belongs to `CatalogWorkflowController`; top-level native dispatch and mechanical effect rendering remain appropriate `MainFrame` responsibilities.
 
-Modal dialog presentation for General Settings belongs to a dedicated WTL/ATL-hosted component in `src/ui`; `MainFrame` launches it and retains coordination of confirmed settings persistence and resulting chrome updates.
+Modal dialog presentation for General Settings belongs to a dedicated WTL/ATL-hosted component in `src/ui`; `MainFrame` displays it when requested and returns accepted input to `CatalogWorkflowController` for persistence and resulting presentation effects.
 
 ## Runtime Shape
 

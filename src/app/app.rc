@@ -22,6 +22,8 @@ IDB_BROWSER_DOCUMENT RCDATA "toolbar\\fugue\\document.png"
 IDB_BROWSER_ARCHIVE RCDATA "toolbar\\fugue\\vise-drawer.png"
 IDB_BROWSER_DATABASE RCDATA "toolbar\\fugue\\database-sql.png"
 IDB_BROWSER_DRIVE RCDATA "toolbar\\fugue\\drive.png"
+IDB_BROWSER_PHP RCDATA "toolbar\\fugue\\php.png"
+IDB_BROWSER_HTML RCDATA "toolbar\\fugue\\html.png"
 
 IDR_MAINMENU MENU
 BEGIN

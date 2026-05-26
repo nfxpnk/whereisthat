@@ -208,14 +208,15 @@ bool MainWindowChrome::CreateToolbar() {
 }
 
 bool MainWindowChrome::CreateBrowserImages() {
-    browserImages_ = ImageList_Create(kToolbarIconSize, kToolbarIconSize, ILC_COLOR32, 5, 0);
+    browserImages_ = ImageList_Create(kToolbarIconSize, kToolbarIconSize, ILC_COLOR32, 7, 0);
     if (!browserImages_) return false;
     IWICImagingFactory* factory{};
     if (FAILED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
         IID_PPV_ARGS(&factory)))) return false;
-    constexpr std::array<UINT, 5> imageIds = {
+        constexpr std::array<UINT, 7> imageIds = {
         IDB_BROWSER_FOLDER, IDB_BROWSER_DOCUMENT, IDB_BROWSER_ARCHIVE,
-        IDB_BROWSER_DATABASE, IDB_BROWSER_DRIVE
+        IDB_BROWSER_DATABASE, IDB_BROWSER_DRIVE,
+        IDB_BROWSER_PHP, IDB_BROWSER_HTML
     };
     for (const auto id : imageIds) {
         const auto bitmap = LoadPngBitmap(factory, id);

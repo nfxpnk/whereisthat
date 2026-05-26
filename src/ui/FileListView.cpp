@@ -110,7 +110,13 @@ int FileListView::ImageFor(int row) {
     const auto* entry = EntryAt(row);
     if (!entry) return I_IMAGENONE;
     if (entry->isDirectory) return entry->isArchive ? BrowserArchiveImage : BrowserFolderImage;
-    return IsArchiveFileExtension(entry->extension) ? BrowserArchiveImage : BrowserDocumentImage;
+    if (IsArchiveFileExtension(entry->extension)) return BrowserArchiveImage;
+        auto extension = entry->extension;
+    std::transform(extension.begin(), extension.end(), extension.begin(),
+        [](wchar_t c) { return static_cast<wchar_t>(std::towlower(c)); });
+    if (extension == L"php") return BrowserPhpImage;
+    if (extension == L"html" || extension == L"htm") return BrowserHtmlImage;
+    return BrowserDocumentImage;
 }
 
 std::wstring FileListView::TextFor(int row, int column) {

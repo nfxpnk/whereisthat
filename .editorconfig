@@ -1,10 +1,83 @@
-# .editorconfig
+﻿# EditorConfig - https://editorconfig.org
 root = true
 
-[.cs]
+# ── Default settings for all text files ─────────────────────────
+[*]
+charset = utf-8
+end_of_line = crlf
 indent_style = space
 indent_size = 4
-end_of_line = crlf
-charset = utf-8
+tab_width = 4
 trim_trailing_whitespace = true
 insert_final_newline = true
+
+# ── C/C++ / C# source files ─────────────────────────────────────
+# [*.{c,cc,cpp,cxx,h,hh,hpp,hxx,inl,ipp,tlh,tli,cs}]
+# max_line_length = 120
+
+# ── Visual Studio C++ project files ─────────────────────────────
+# [*.{vcxproj,vcxproj.filters,vcxproj.user}]
+# indent_size = 2
+# tab_width = 2
+
+[*.sln]
+indent_size = 4
+tab_width = 4
+
+# ── XML files (.props, .targets, .vsconfig, .resx, etc.) ────────
+# [*.{xml,props,targets,vsconfig,resx,appxmanifest,natvis,ruleset}]
+# indent_size = 2
+# tab_width = 2
+
+# ── Windows Resource files ──────────────────────────────────────
+[*.rc]
+indent_size = 2
+tab_width = 2
+
+# ── Markdown files ──────────────────────────────────────────────
+[*.md]
+trim_trailing_whitespace = false
+max_line_length = 0
+
+# ── YAML files ──────────────────────────────────────────────────
+# YAML indentation must use spaces, not tabs.
+[*.{yml,yaml}]
+indent_style = space
+indent_size = 2
+tab_width = 2
+
+# ── Makefiles ───────────────────────────────────────────────────
+# Make recipes require real tab characters.
+[Makefile*, makefile*, *.mk]
+indent_style = tab
+indent_size = 4
+tab_width = 4
+
+# ── Shell scripts ───────────────────────────────────────────────
+[*.sh]
+indent_size = 4
+tab_width = 4
+
+# ── Windows batch files ─────────────────────────────────────────
+[*.{bat,cmd}]
+indent_style = tab
+indent_size = 4
+tab_width = 4
+
+# ── Git config files ────────────────────────────────────────────
+[.{gitignore,gitattributes,gitmodules}]
+indent_size = 4
+
+# ── Plain text headers / notices ────────────────────────────────
+[{LICENSE,README*,NOTICE*}]
+trim_trailing_whitespace = false
+insert_final_newline = false
+
+# ── Binary / generated files – do not format as text ────────────
+[*.{ico,png,jpg,jpeg,gif,bmp,exe,dll,lib,obj,pdb,exp,ilk,res,pch}]
+charset = unset
+indent_style = unset
+indent_size = unset
+tab_width = unset
+trim_trailing_whitespace = false
+insert_final_newline = false

@@ -105,9 +105,12 @@ int wmain() {
 
     std::filesystem::remove_all(testRoot);
     std::filesystem::create_directories(mediaWithCrc);
+    std::filesystem::create_directories(mediaWithCrc / L"container" / L"nested");
     std::filesystem::create_directories(mediaWithoutCrc);
     {
         std::ofstream(mediaWithCrc / L"example.txt", std::ios::binary) << "abc";
+        std::ofstream(mediaWithCrc / L"container" / L"inside.bin", std::ios::binary) << "1234";
+        std::ofstream(mediaWithCrc / L"container" / L"nested" / L"deeper.bin", std::ios::binary) << "12345";
         std::ofstream(mediaWithoutCrc / L"plain", std::ios::binary) << "no crc";
     }
     SetFileAttributesW((mediaWithCrc / L"example.txt").c_str(), FILE_ATTRIBUTE_ARCHIVE | FILE_ATTRIBUTE_HIDDEN);
@@ -175,7 +178,7 @@ int wmain() {
         "staged edits do not mutate active catalog before save");
     Check(db.ReplaceCatalogDataFrom(staged), "staged save persistence");
     const auto summary = db.GetCatalogSummary();
-    Check(summary.totalDisks == 2 && summary.totalFiles == 2 && summary.totalFolders == 2,
+    Check(summary.totalDisks == 2 && summary.totalFiles == 4 && summary.totalFolders == 4,
         "derived disk/file/folder totals");
     Check(summary.totalStorageSpace == 1500 && summary.totalUsedSpace == 750,
         "derived capacity totals with non-negative used space");
@@ -185,7 +188,11 @@ int wmain() {
     firstLocation.isRoot = false;
     firstLocation.sourceId = first.id;
     firstLocation.path = first.sourcePath;
-    Check(db.GetBrowserItemsPage(firstLocation, 0, 10).size() == 1, "normalized disk browsing");
+    const auto firstItems = db.GetBrowserItemsPage(firstLocation, 0, 10);
+    Check(firstItems.size() == 2, "normalized disk browsing");
+    Check(!firstItems.empty() && firstItems[0].isDirectory &&
+        firstItems[0].name == L"container" && firstItems[0].size == 9,
+        "folder browsing exposes recursive stored size");
     Check(db.GetItemSearchCount(L"example") == 1 && db.GetItemSearchPage(L"example", 0, 10).size() == 1,
         "normalized search paging");
     wit::storage::Database discarded;

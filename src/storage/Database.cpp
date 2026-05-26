@@ -439,7 +439,11 @@ std::vector<wit::core::FileEntry> Database::GetBrowserItemsPage(
     }
     SQLiteStatement statement(db_,
         "SELECT id,disk_id,parent_path,name,extension,size,modified_at,attributes,is_directory FROM ("
-        "SELECT c.id,c.disk_id,p.path AS parent_path,c.name,'' AS extension,0 AS size,c.modified_at,c.attributes,1 AS is_directory "
+        "SELECT c.id,c.disk_id,p.path AS parent_path,c.name,'' AS extension,"
+        "COALESCE((WITH RECURSIVE descendants(id) AS (SELECT c.id UNION ALL "
+        "SELECT child.id FROM folders child JOIN descendants parent ON child.parent_folder_id=parent.id "
+        "WHERE child.disk_id=c.disk_id) SELECT SUM(f.size) FROM files f "
+        "JOIN descendants d ON f.folder_id=d.id),0) AS size,c.modified_at,c.attributes,1 AS is_directory "
         "FROM folders c JOIN folders p ON c.parent_folder_id=p.id WHERE c.disk_id=? AND p.path=? COLLATE NOCASE "
         "UNION ALL SELECT f.id,f.disk_id,p.path AS parent_path,f.name,f.extension,f.size,f.modified_at,f.attributes,0 AS is_directory "
         "FROM files f JOIN folders p ON f.folder_id=p.id WHERE f.disk_id=? AND p.path=? COLLATE NOCASE)"

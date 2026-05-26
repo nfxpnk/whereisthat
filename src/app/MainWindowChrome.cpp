@@ -262,7 +262,7 @@ void MainWindowChrome::OnSize(int width, int height) {
         const int selectionStart = (std::max)(lockEnd, lightsStart - 260);
         const int parts[] = {stateEnd, lockEnd, selectionStart, lightsStart, -1};
         SendMessageW(statusHandle_, SB_SETPARTS, 5, reinterpret_cast<LPARAM>(parts));
-        SendMessageW(statusHandle_, SB_SETTEXTW, 0, reinterpret_cast<LPARAM>(statusText_[0].c_str()));
+        SendMessageW(statusHandle_, SB_SETTEXTW, 0 | SBT_OWNERDRAW, 0);
         SendMessageW(statusHandle_, SB_SETTEXTW, 1 | SBT_OWNERDRAW, 1);
         SendMessageW(statusHandle_, SB_SETTEXTW, 2, reinterpret_cast<LPARAM>(statusText_[2].c_str()));
         SendMessageW(statusHandle_, SB_SETTEXTW, 3 | SBT_OWNERDRAW, 3);
@@ -345,7 +345,7 @@ void MainWindowChrome::SetStatusText(int part, const std::wstring& text) {
         return;
     }
     statusText_[part] = text;
-    if (part == 3) {
+    if (part == 0 || part == 3) {
         InvalidateStatusPart(part);
         return;
     }
@@ -391,7 +391,15 @@ void MainWindowChrome::InvalidateStatusPart(int part) {
 bool MainWindowChrome::DrawStatusPart(LPDRAWITEMSTRUCT drawItem, bool protectedCatalog) {
     if (!drawItem || drawItem->hwndItem != statusHandle_) return false;
     FillRect(drawItem->hDC, &drawItem->rcItem, GetSysColorBrush(COLOR_BTNFACE));
-    if (drawItem->itemData == 1 && protectedCatalog) {
+    if (drawItem->itemData == 0) {
+        RECT textRect = drawItem->rcItem;
+        textRect.left += 6;
+        textRect.right -= 6;
+        SetBkMode(drawItem->hDC, TRANSPARENT);
+        SetTextColor(drawItem->hDC, GetSysColor(COLOR_BTNTEXT));
+        DrawTextW(drawItem->hDC, statusText_[0].c_str(), -1, &textRect,
+            DT_SINGLELINE | DT_VCENTER | DT_CENTER | DT_END_ELLIPSIS);
+    } else if (drawItem->itemData == 1 && protectedCatalog) {
         RECT body{drawItem->rcItem.left + 12, drawItem->rcItem.top + 9,
             drawItem->rcItem.left + 22, drawItem->rcItem.top + 17};
         Rectangle(drawItem->hDC, body.left, body.top, body.right, body.bottom);

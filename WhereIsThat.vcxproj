@@ -110,31 +110,32 @@ copy /Y "$(ProjectDir)third_party\libarchive\bin\*.dll" "$(OutDir)"</Command>
     </ItemGroup>
     <ItemGroup>
         <Image Include="src\app\app.ico" />
-        <Image Include="src\app\toolbar\fugue\document.png" />
-        <Image Include="src\app\toolbar\fugue\folder.png" />
-        <Image Include="src\app\toolbar\fugue\vise-drawer.png" />
-        <Image Include="src\app\toolbar\fugue\database-sql.png" />
-        <Image Include="src\app\toolbar\fugue\drive.png" />
-        <Image Include="src\app\toolbar\fugue\folder-horizontal-open.png" />
-        <Image Include="src\app\toolbar\fugue\disk.png" />
-        <Image Include="src\app\toolbar\fugue\printer.png" />
-        <Image Include="src\app\toolbar\fugue\drive--arrow.png" />
-        <Image Include="src\app\toolbar\fugue\magnifier-left.png" />
-        <Image Include="src\app\toolbar\fugue\document--pencil.png" />
-        <Image Include="src\app\toolbar\fugue\application-detail.png" />
-        <Image Include="src\app\toolbar\fugue\folder-horizontal-open.png" />
-        <Image Include="src\app\toolbar\fugue\blue-document-view.png" />
-        <Image Include="src\app\toolbar\fugue\application-list.png" />
-        <Image Include="src\app\toolbar\fugue\sort-alphabet.png" />
-        <Image Include="src\app\toolbar\fugue\document-attribute.png" />
-        <Image Include="src\app\toolbar\fugue\sort-number.png" />
-        <Image Include="src\app\toolbar\fugue\sort-date.png" />
-        <Image Include="src\app\toolbar\fugue\arrow-switch.png" />
-        <Image Include="src\app\toolbar\fugue\php.png" />
-        <Image Include="src\app\toolbar\fugue\html.png" />
+        <Image Include="src\app\fugue\toolbar\new-catalog.png" />
+        <Image Include="src\app\fugue\toolbar\open-catalog.png" />
+        <Image Include="src\app\fugue\toolbar\save-catalog.png" />
+        <Image Include="src\app\fugue\toolbar\print-report.png" />
+        <Image Include="src\app\fugue\toolbar\add-disk-image.png" />
+        <Image Include="src\app\fugue\toolbar\search.png" />
+        <Image Include="src\app\fugue\toolbar\edit-description.png" />
+        <Image Include="src\app\fugue\toolbar\properties.png" />
+        <Image Include="src\app\fugue\toolbar\open-explorer.png" />
+        <Image Include="src\app\fugue\toolbar\view-file.png" />
+        <Image Include="src\app\fugue\toolbar\view-details.png" />
+        <Image Include="src\app\fugue\toolbar\sort-name.png" />
+        <Image Include="src\app\fugue\toolbar\sort-extension.png" />
+        <Image Include="src\app\fugue\toolbar\sort-size.png" />
+        <Image Include="src\app\fugue\toolbar\sort-date.png" />
+        <Image Include="src\app\fugue\toolbar\sort-reverse.png" />
+        <Image Include="src\app\fugue\browser-items\folder.png" />
+        <Image Include="src\app\fugue\browser-items\document.png" />
+        <Image Include="src\app\fugue\browser-items\archive.png" />
+        <Image Include="src\app\fugue\browser-items\database.png" />
+        <Image Include="src\app\fugue\browser-items\drive.png" />
+        <Image Include="src\app\fugue\browser-items\file-php.png" />
+        <Image Include="src\app\fugue\browser-items\file-html.png" />
     </ItemGroup>
     <ItemGroup>
-        <None Include="src\app\toolbar\fugue\NOTICE.txt" />
+        <None Include="src\app\fugue\NOTICE.txt" />
     </ItemGroup>
     <ItemGroup>
         <ResourceCompile Include="src\app\app.rc" />

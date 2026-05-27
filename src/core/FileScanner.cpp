@@ -19,7 +19,7 @@
 
 namespace wit::core {
 namespace {
-constexpr bool kEnableScanFileDelay = false;
+constexpr bool kEnableScanFileDelay = true;
 constexpr std::int64_t kScanFileDelayMicroseconds = 50000;
 constexpr std::uint64_t kProgressReportItemInterval = 250;
 
@@ -324,11 +324,48 @@ void ReportArchiveFailure(const FileScanner::DiagnosticCallback& onDiagnostic, c
 }
 }
 
+bool FileScanner::CountFiles(const std::wstring& rootPath, std::uint64_t& totalFiles,
+    std::stop_token stopToken) const {
+    totalFiles = 0;
+    std::vector<std::wstring> folders{rootPath};
+    while (!folders.empty()) {
+        if (stopToken.stop_requested()) return false;
+        const auto path = std::move(folders.back());
+        folders.pop_back();
+        WIN32_FIND_DATAW findData{};
+        const auto query = WildcardFor(path);
+        HANDLE findHandle = FindFirstFileExW(query.c_str(), FindExInfoBasic, &findData, FindExSearchNameMatch,
+            nullptr, FIND_FIRST_EX_LARGE_FETCH);
+        if (findHandle == INVALID_HANDLE_VALUE && GetLastError() == ERROR_INVALID_PARAMETER) {
+            findHandle = FindFirstFileExW(query.c_str(), FindExInfoBasic, &findData, FindExSearchNameMatch,
+                nullptr, 0);
+        }
+        if (findHandle == INVALID_HANDLE_VALUE) continue;
+        do {
+            if (stopToken.stop_requested()) {
+                FindClose(findHandle);
+                return false;
+            }
+            if (wcscmp(findData.cFileName, L".") == 0 || wcscmp(findData.cFileName, L"..") == 0) continue;
+            if ((findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0) {
+                if (!(findData.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)) {
+                    folders.push_back(JoinPath(path, findData.cFileName));
+                }
+            } else {
+                ++totalFiles;
+            }
+        } while (FindNextFileW(findHandle, &findData));
+        FindClose(findHandle);
+    }
+    return true;
+}
+
 bool FileScanner::ScanFolder(const std::wstring& rootPath, std::int64_t diskId, wit::storage::Database& db,
     const ProgressCallback& onProgress, Result& result, bool calculateCrc, bool manageTransaction,
     std::stop_token stopToken, bool browseArchives, const DiagnosticCallback& onDiagnostic) {
     const auto start = std::chrono::steady_clock::now();
     std::uint64_t fileCount = 0;
+    std::uint64_t scannedFiles = 0;
     std::uint64_t folderCount = 0;
     std::uint64_t archiveCount = 0;
     std::uint64_t archiveFileCount = 0;
@@ -356,7 +393,7 @@ bool FileScanner::ScanFolder(const std::wstring& rootPath, std::int64_t diskId, 
     const auto rootId = db.InsertFolder(root);
     if (rootId == 0) return fail();
     ++folderCount;
-    if (onProgress) onProgress({fileCount, folderCount, rootPath});
+    if (onProgress) onProgress({scannedFiles, folderCount, rootPath});
 
     struct FolderFrame {
         std::wstring path;
@@ -455,10 +492,11 @@ bool FileScanner::ScanFolder(const std::wstring& rootPath, std::int64_t diskId, 
                             frame.contentSize += entry.size;
                             ++fileCount;
                         }
+                        ++scannedFiles;
                     }
-                    const auto total = fileCount + folderCount;
+                    const auto total = scannedFiles + folderCount;
                     if (onProgress && (kEnableScanFileDelay || total % kProgressReportItemInterval == 0)) {
-                        onProgress({fileCount, folderCount, fullPath});
+                        onProgress({scannedFiles, folderCount, fullPath});
                     }
                 } while (FindNextFileW(findHandle, &findData));
                 FindClose(findHandle);
@@ -484,7 +522,7 @@ bool FileScanner::ScanFolder(const std::wstring& rootPath, std::int64_t diskId, 
     result.archiveFolders = archiveFolderCount;
     result.elapsedMilliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now() - start).count();
-    if (onProgress) onProgress({fileCount, folderCount, rootPath});
+    if (onProgress) onProgress({scannedFiles, folderCount, rootPath});
     return true;
 }
 }

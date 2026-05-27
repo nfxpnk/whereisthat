@@ -44,10 +44,15 @@ HTREEITEM CatalogTreeView::InsertNode(HTREEITEM parent, wit::core::CatalogId cat
     auto* nodePointer = node.get();
     nodes_.push_back(std::move(node));
 
-    TVINSERTSTRUCTW insert{};
+        TVINSERTSTRUCTW insert{};
     insert.hParent = parent;
     insert.hInsertAfter = TVI_LAST;
     insert.item.mask = TVIF_TEXT | TVIF_PARAM | TVIF_CHILDREN | TVIF_IMAGE | TVIF_SELECTEDIMAGE;
+    if (catalogRoot) {
+        insert.item.mask |= TVIF_STATE;
+        insert.item.stateMask = TVIS_BOLD;
+        insert.item.state = TVIS_BOLD;
+    }
     insert.item.pszText = const_cast<LPWSTR>(text.c_str());
     insert.item.lParam = reinterpret_cast<LPARAM>(nodePointer);
     insert.item.cChildren = mayHaveChildren ? 1 : 0;
@@ -68,8 +73,10 @@ const CatalogTreeView::Root* CatalogTreeView::FindRoot(wit::core::CatalogId id) 
 
 void CatalogTreeView::PopulateRoot(Root& root, const std::wstring& label,
     const std::vector<wit::core::Catalog>& sources) {
-    TVITEMW text{};
-    text.mask = TVIF_TEXT | TVIF_CHILDREN;
+        TVITEMW text{};
+    text.mask = TVIF_TEXT | TVIF_CHILDREN | TVIF_STATE;
+    text.stateMask = TVIS_BOLD;
+    text.state = TVIS_BOLD;
     text.hItem = root.item;
     text.pszText = const_cast<LPWSTR>(label.c_str());
     text.cChildren = sources.empty() ? 0 : 1;

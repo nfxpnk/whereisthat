@@ -69,7 +69,8 @@ void BrowserController::UpdateNavigationControls() {
         historyIndex_ + 1 < static_cast<int>(history_.size()));
 }
 
-void BrowserController::NavigateTo(const wit::core::BrowserTarget& target, bool addToHistory) {
+void BrowserController::NavigateTo(const wit::core::BrowserTarget& target, bool addToHistory,
+    bool syncTreeSelection) {
     auto* database = databaseResolver_ ? databaseResolver_(target.catalogId) : nullptr;
     if (!database || !database->IsOpen()) return;
     if (addToHistory) {
@@ -83,9 +84,11 @@ void BrowserController::NavigateTo(const wit::core::BrowserTarget& target, bool 
     files_.SetLocation(target.location, database);
     const auto address = AddressFor(target);
     SetWindowTextW(addressHandle_, address.c_str());
-    selectingTree_ = true;
-    tree_.SelectLocation(target);
-    selectingTree_ = false;
+    if (syncTreeSelection) {
+        selectingTree_ = true;
+        tree_.SelectLocation(target);
+        selectingTree_ = false;
+    }
     UpdateNavigationControls();
 }
 
@@ -145,7 +148,7 @@ wit::core::CatalogId BrowserController::OnTreeSelectionChanged(LPNMHDR header) {
     const auto* notification = reinterpret_cast<NMTREEVIEWW*>(header);
     const auto* target = tree_.TargetFor(notification->itemNew.hItem);
     if (!target) return 0;
-    if (!selectingTree_) NavigateTo(*target, true);
+    if (!selectingTree_) NavigateTo(*target, true, false);
     return target->catalogId;
 }
 
@@ -213,8 +216,9 @@ std::wstring BrowserController::FocusedItemStatus() {
         return text;
     }
     if (const auto* entry = index >= 0 ? files_.EntryAt(index) : nullptr) {
-        auto text = entry->name + L" | " + CompactSize(entry->size);
-        if (!entry->modifiedAt.empty()) text += L" | " + entry->modifiedAt;
+        auto text = entry->name + L", " + CompactSize(entry->size);
+        const auto modifiedAt = wit::platform::FormatUnixDate(entry->modifiedAtValue);
+        if (!modifiedAt.empty()) text += L", " + modifiedAt;
         return text;
     }
     return {};

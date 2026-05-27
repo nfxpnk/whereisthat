@@ -10,6 +10,7 @@
 #include "MainWindowChrome.h"
 #include "resource.h"
 #include "../ui/ProgressDialog.h"
+#include "../ui/SearchDialog.h"
 
 class MainFrame : public WTL::CFrameWindowImpl<MainFrame>, public WTL::CMessageFilter {
 public:
@@ -19,6 +20,7 @@ public:
     void Show(int command);
     HWND WindowHandle() const { return m_hWnd; }
     BOOL PreTranslateMessage(MSG* message) override {
+        if (searchDialog_.PreTranslateMessage(message)) return TRUE;
         return WTL::CFrameWindowImpl<MainFrame>::PreTranslateMessage(message);
     }
 
@@ -45,6 +47,7 @@ private:
     wit::app::BrowserController browser_;
     wit::app::CatalogWorkflowController controller_;
     wit::ui::ProgressDialog scanProgressDialog_;
+    wit::ui::SearchDialog searchDialog_;
     bool protectedCatalog_{};
 
     LRESULT OnFrameMessage(UINT message, WPARAM wparam, LPARAM lparam, BOOL& handled);

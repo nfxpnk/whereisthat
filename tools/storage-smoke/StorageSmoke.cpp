@@ -384,6 +384,9 @@ int wmain() {
     archiveDisk.updatedAt = 300;
     archiveDisk.id = archiveDb.AddDisk(archiveDisk);
     Check(archiveDisk.id != 0, "archive disk insert");
+    std::uint64_t physicalArchiveFiles{};
+    Check(scanner.CountFiles(archiveDisk.sourcePath, physicalArchiveFiles) && physicalArchiveFiles == 5,
+        "progress pre-count treats each archive as one physical file");
     std::stop_source cancelledArchiveScan;
     cancelledArchiveScan.request_stop();
     wit::core::FileScanner::Result cancelledArchiveResult{};
@@ -396,14 +399,20 @@ int wmain() {
     Check(archiveDb.GetBrowserItemCount(cancelledArchiveLocation) == 0,
         "archive-enabled cancelled scan publishes no virtual content");
     std::vector<std::wstring> diagnostics;
+    wit::core::FileScanner::Progress finalArchiveProgress{};
     wit::core::FileScanner::Result archiveResult{};
-    Check(scanner.ScanFolder(archiveDisk.sourcePath, archiveDisk.id, archiveDb, {}, archiveResult, true, true, {},
-        true, [&diagnostics](const std::wstring& message) { diagnostics.push_back(message); }),
+    Check(scanner.ScanFolder(archiveDisk.sourcePath, archiveDisk.id, archiveDb,
+        [&finalArchiveProgress](const wit::core::FileScanner::Progress& progress) {
+            finalArchiveProgress = progress;
+        }, archiveResult, true, true, {}, true,
+        [&diagnostics](const std::wstring& message) { diagnostics.push_back(message); }),
         "archive-enabled scan");
     Check(archiveResult.scannedArchives == 2 && archiveResult.archiveFiles == 2 &&
         archiveResult.archiveFolders == 1, "archive result counts readable containers and member hierarchy");
     Check(archiveResult.totalFiles == 5 && archiveResult.totalFolders == 4,
         "archive representation replaces readable container files in ordinary totals");
+    Check(finalArchiveProgress.scannedFiles == physicalArchiveFiles,
+        "archive scan progress decrements once per physical file");
     Check(diagnostics.size() >= 2, "unreadable and unsafe archives produce nonfatal diagnostics");
     wit::core::DiskScanStatistics archiveStats{archiveDisk.id, 301, archiveResult.elapsedMilliseconds, 0, true,
         static_cast<std::int64_t>(archiveResult.scannedArchives),

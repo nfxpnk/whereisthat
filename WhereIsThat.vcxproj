@@ -1,32 +1,244 @@
-<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
-  <ItemGroup Label="ProjectConfigurations">
-    <ProjectConfiguration Include="Debug|x64"><Configuration>Debug</Configuration><Platform>x64</Platform></ProjectConfiguration>
-    <ProjectConfiguration Include="Release|x64"><Configuration>Release</Configuration><Platform>x64</Platform></ProjectConfiguration>
-  </ItemGroup>
-  <PropertyGroup Label="Globals"><ProjectGuid>{6D570A83-8E8A-4F3A-95CF-BF311821DD3A}</ProjectGuid><Keyword>Win32Proj</Keyword><ProjectName>WhereIsThat</ProjectName><WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion></PropertyGroup>
-  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration"><ConfigurationType>Application</ConfigurationType><UseDebugLibraries>true</UseDebugLibraries><PlatformToolset>v143</PlatformToolset><CharacterSet>Unicode</CharacterSet></PropertyGroup>
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration"><ConfigurationType>Application</ConfigurationType><UseDebugLibraries>false</UseDebugLibraries><PlatformToolset>v143</PlatformToolset><WholeProgramOptimization>true</WholeProgramOptimization><CharacterSet>Unicode</CharacterSet></PropertyGroup>
-  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
-  <ItemDefinitionGroup>
-    <ClCompile>
-      <LanguageStandard>stdcpp20</LanguageStandard>
-      <AdditionalIncludeDirectories>.;src;third_party\sqlite;third_party\libarchive\include;third_party\wtl\Include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-    </ClCompile>
-    <Link>
-      <SubSystem>Windows</SubSystem>
-      <AdditionalLibraryDirectories>third_party\sqlite;third_party\libarchive\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>sqlite3.lib;archive.lib;comctl32.lib;ole32.lib;uuid.lib;windowscodecs.lib;%(AdditionalDependencies)</AdditionalDependencies>
-    </Link>
-    <PostBuildEvent>
-      <Command>copy /Y "$(ProjectDir)third_party\sqlite\sqlite3.dll" "$(OutDir)sqlite3.dll"
+<Project DefaultTargets="Build"
+    xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+    <ItemGroup Label="ProjectConfigurations">
+        <ProjectConfiguration Include="Debug|x64">
+            <Configuration>Debug</Configuration>
+            <Platform>x64</Platform>
+        </ProjectConfiguration>
+        <ProjectConfiguration Include="Release|x64">
+            <Configuration>Release</Configuration>
+            <Platform>x64</Platform>
+        </ProjectConfiguration>
+    </ItemGroup>
+    <PropertyGroup Label="Globals">
+        <ProjectGuid>{6D570A83-8E8A-4F3A-95CF-BF311821DD3A}</ProjectGuid>
+        <Keyword>Win32Proj</Keyword>
+        <ProjectName>WhereIsThat</ProjectName>
+        <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+    </PropertyGroup>
+    <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+    <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
+        <ConfigurationType>Application</ConfigurationType>
+        <UseDebugLibraries>true</UseDebugLibraries>
+        <PlatformToolset>v143</PlatformToolset>
+        <CharacterSet>Unicode</CharacterSet>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
+        <ConfigurationType>Application</ConfigurationType>
+        <UseDebugLibraries>false</UseDebugLibraries>
+        <PlatformToolset>v143</PlatformToolset>
+        <WholeProgramOptimization>true</WholeProgramOptimization>
+        <CharacterSet>Unicode</CharacterSet>
+    </PropertyGroup>
+    <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+    <ItemDefinitionGroup>
+        <ClCompile>
+            <LanguageStandard>stdcpp20</LanguageStandard>
+            <AdditionalIncludeDirectories>.;src;third_party\sqlite;third_party\libarchive\include;third_party\wtl\Include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+        </ClCompile>
+        <Link>
+            <SubSystem>Windows</SubSystem>
+            <AdditionalLibraryDirectories>third_party\sqlite;third_party\libarchive\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+            <AdditionalDependencies>sqlite3.lib;archive.lib;comctl32.lib;ole32.lib;uuid.lib;windowscodecs.lib;%(AdditionalDependencies)</AdditionalDependencies>
+        </Link>
+        <PostBuildEvent>
+            <Command>copy /Y "$(ProjectDir)third_party\sqlite\sqlite3.dll" "$(OutDir)sqlite3.dll"
 copy /Y "$(ProjectDir)third_party\libarchive\bin\*.dll" "$(OutDir)"</Command>
-    </PostBuildEvent>
-  </ItemDefinitionGroup>
-  <ItemGroup><ClCompile Include="src\app\App.cpp"/><ClCompile Include="src\app\BrowserController.cpp"/><ClCompile Include="src\app\CatalogSession.cpp"/><ClCompile Include="src\app\CatalogWorkflowController.cpp"/><ClCompile Include="src\app\main.cpp"/><ClCompile Include="src\app\MainFrame.cpp"/><ClCompile Include="src\app\MainWindowChrome.cpp"/><ClCompile Include="src\app\ScanCoordinator.cpp"/><ClCompile Include="src\core\Catalog.cpp"/><ClCompile Include="src\core\FileEntry.cpp"/><ClCompile Include="src\core\FileScanner.cpp"/><ClCompile Include="src\core\SizeFormat.cpp"/><ClCompile Include="src\platform\AppSettings.cpp"/><ClCompile Include="src\platform\PathHelpers.cpp"/><ClCompile Include="src\platform\VolumeInfo.cpp"/><ClCompile Include="src\platform\Win32Helpers.cpp"/><ClCompile Include="src\storage\Database.cpp"/><ClCompile Include="src\storage\SQLiteStatement.cpp"/><ClCompile Include="src\ui\AddNewDiskMediaDialog.cpp"/><ClCompile Include="src\ui\CatalogFileDialog.cpp"/><ClCompile Include="src\ui\CatalogListView.cpp"/><ClCompile Include="src\ui\CatalogTreeView.cpp"/><ClCompile Include="src\ui\FileListView.cpp"/><ClCompile Include="src\ui\GeneralSettingsDialog.cpp"/><ClCompile Include="src\ui\ProgressDialog.cpp"/><ClCompile Include="src\ui\SearchDialog.cpp"/></ItemGroup>
-  <ItemGroup><ClInclude Include="src\app\App.h"/><ClInclude Include="src\app\BrowserController.h"/><ClInclude Include="src\app\CatalogSession.h"/><ClInclude Include="src\app\CatalogWorkflowController.h"/><ClInclude Include="src\app\MainFrame.h"/><ClInclude Include="src\app\MainWindowChrome.h"/><ClInclude Include="src\app\ScanCoordinator.h"/><ClInclude Include="src\app\resource.h"/><ClInclude Include="src\app\WtlSupport.h"/><ClInclude Include="src\core\BrowserLocation.h"/><ClInclude Include="src\core\CatalogIdentity.h"/><ClInclude Include="src\core\Catalog.h"/><ClInclude Include="src\core\Disk.h"/><ClInclude Include="src\core\FileEntry.h"/><ClInclude Include="src\core\FileScanner.h"/><ClInclude Include="src\core\FolderEntry.h"/><ClInclude Include="src\core\SizeFormat.h"/><ClInclude Include="src\platform\AppSettings.h"/><ClInclude Include="src\platform\PathHelpers.h"/><ClInclude Include="src\platform\VolumeInfo.h"/><ClInclude Include="src\platform\Win32Helpers.h"/><ClInclude Include="src\storage\Database.h"/><ClInclude Include="src\storage\SQLiteStatement.h"/><ClInclude Include="src\ui\AddNewDiskMediaDialog.h"/><ClInclude Include="src\ui\BrowserItemIcons.h"/><ClInclude Include="src\ui\CatalogFileDialog.h"/><ClInclude Include="src\ui\CatalogListView.h"/><ClInclude Include="src\ui\FileListView.h"/><ClInclude Include="src\ui\CatalogTreeView.h"/><ClInclude Include="src\ui\GeneralSettingsDialog.h"/><ClInclude Include="src\ui\ProgressDialog.h"/><ClInclude Include="src\ui\SearchDialog.h"/></ItemGroup>
-  <ItemGroup><Image Include="src\app\app.ico" /><Image Include="src\app\toolbar\fugue\document.png" /><Image Include="src\app\toolbar\fugue\folder.png" /><Image Include="src\app\toolbar\fugue\vise-drawer.png" /><Image Include="src\app\toolbar\fugue\database-sql.png" /><Image Include="src\app\toolbar\fugue\drive.png" /><Image Include="src\app\toolbar\fugue\folder-horizontal-open.png" /><Image Include="src\app\toolbar\fugue\disk.png" /><Image Include="src\app\toolbar\fugue\printer.png" /><Image Include="src\app\toolbar\fugue\drive--arrow.png" /><Image Include="src\app\toolbar\fugue\magnifier-left.png" /><Image Include="src\app\toolbar\fugue\document--pencil.png" /><Image Include="src\app\toolbar\fugue\application-detail.png" /><Image Include="src\app\toolbar\fugue\folder-horizontal-open.png" /><Image Include="src\app\toolbar\fugue\blue-document-view.png" /><Image Include="src\app\toolbar\fugue\application-list.png" /><Image Include="src\app\toolbar\fugue\sort-alphabet.png" /><Image Include="src\app\toolbar\fugue\document-attribute.png" /><Image Include="src\app\toolbar\fugue\sort-number.png" /><Image Include="src\app\toolbar\fugue\sort-date.png" /><Image Include="src\app\toolbar\fugue\arrow-switch.png" /></ItemGroup>
-  <ItemGroup><None Include="src\app\toolbar\fugue\NOTICE.txt" /></ItemGroup>
-  <ItemGroup><ResourceCompile Include="src\app\app.rc" /></ItemGroup>
-  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+        </PostBuildEvent>
+    </ItemDefinitionGroup>
+    <ItemGroup>
+        <ClCompile Include="src\app\App.cpp"/>
+        <ClCompile Include="src\app\BrowserController.cpp"/>
+        <ClCompile Include="src\app\CatalogSession.cpp"/>
+        <ClCompile Include="src\app\CatalogWorkflowController.cpp"/>
+        <ClCompile Include="src\app\main.cpp"/>
+        <ClCompile Include="src\app\MainFrame.cpp"/>
+        <ClCompile Include="src\app\MainWindowChrome.cpp"/>
+        <ClCompile Include="src\app\ScanCoordinator.cpp"/>
+        <ClCompile Include="src\core\Catalog.cpp"/>
+        <ClCompile Include="src\core\FileEntry.cpp"/>
+        <ClCompile Include="src\core\FileScanner.cpp"/>
+        <ClCompile Include="src\core\SizeFormat.cpp"/>
+        <ClCompile Include="src\platform\AppSettings.cpp"/>
+        <ClCompile Include="src\platform\PathHelpers.cpp"/>
+        <ClCompile Include="src\platform\VolumeInfo.cpp"/>
+        <ClCompile Include="src\platform\Win32Helpers.cpp"/>
+        <ClCompile Include="src\storage\Database.cpp"/>
+        <ClCompile Include="src\storage\SQLiteStatement.cpp"/>
+        <ClCompile Include="src\ui\AddNewDiskMediaDialog.cpp"/>
+        <ClCompile Include="src\ui\AboutDialog.cpp"/>
+        <ClCompile Include="src\ui\CatalogFileDialog.cpp"/>
+        <ClCompile Include="src\ui\CatalogListView.cpp"/>
+        <ClCompile Include="src\ui\CatalogTreeView.cpp"/>
+        <ClCompile Include="src\ui\FileListView.cpp"/>
+        <ClCompile Include="src\ui\GeneralSettingsDialog.cpp"/>
+        <ClCompile Include="src\ui\ProgressDialog.cpp"/>
+        <ClCompile Include="src\ui\SearchDialog.cpp"/>
+    </ItemGroup>
+    <ItemGroup>
+        <ClInclude Include="src\app\App.h"/>
+        <ClInclude Include="src\app\BrowserController.h"/>
+        <ClInclude Include="src\app\CatalogSession.h"/>
+        <ClInclude Include="src\app\CatalogWorkflowController.h"/>
+        <ClInclude Include="src\app\MainFrame.h"/>
+        <ClInclude Include="src\app\MainWindowChrome.h"/>
+        <ClInclude Include="src\app\ScanCoordinator.h"/>
+        <ClInclude Include="src\app\resource.h"/>
+        <ClInclude Include="src\app\WtlSupport.h"/>
+        <ClInclude Include="src\core\BrowserLocation.h"/>
+        <ClInclude Include="src\core\CatalogIdentity.h"/>
+        <ClInclude Include="src\core\Catalog.h"/>
+        <ClInclude Include="src\core\Disk.h"/>
+        <ClInclude Include="src\core\FileEntry.h"/>
+        <ClInclude Include="src\core\FileScanner.h"/>
+        <ClInclude Include="src\core\FolderEntry.h"/>
+        <ClInclude Include="src\core\SizeFormat.h"/>
+        <ClInclude Include="src\platform\AppSettings.h"/>
+        <ClInclude Include="src\platform\PathHelpers.h"/>
+        <ClInclude Include="src\platform\VolumeInfo.h"/>
+        <ClInclude Include="src\platform\Win32Helpers.h"/>
+        <ClInclude Include="src\storage\Database.h"/>
+        <ClInclude Include="src\storage\SQLiteStatement.h"/>
+        <ClInclude Include="src\ui\AddNewDiskMediaDialog.h"/>
+        <ClInclude Include="src\ui\AboutDialog.h"/>
+        <ClInclude Include="src\ui\BrowserItemIcons.h"/>
+        <ClInclude Include="src\ui\CatalogFileDialog.h"/>
+        <ClInclude Include="src\ui\CatalogListView.h"/>
+        <ClInclude Include="src\ui\FileListView.h"/>
+        <ClInclude Include="src\ui\CatalogTreeView.h"/>
+        <ClInclude Include="src\ui\GeneralSettingsDialog.h"/>
+        <ClInclude Include="src\ui\ProgressDialog.h"/>
+        <ClInclude Include="src\ui\SearchDialog.h"/>
+    </ItemGroup>
+    <ItemGroup>
+        <Image Include="src\app\app.ico" />
+        <Image Include="src\app\fugue\toolbar\new-catalog.png" />
+        <Image Include="src\app\fugue\toolbar\open-catalog.png" />
+        <Image Include="src\app\fugue\toolbar\save-catalog.png" />
+        <Image Include="src\app\fugue\toolbar\print-report.png" />
+        <Image Include="src\app\fugue\toolbar\add-disk-image.png" />
+        <Image Include="src\app\fugue\toolbar\search.png" />
+        <Image Include="src\app\fugue\toolbar\edit-description.png" />
+        <Image Include="src\app\fugue\toolbar\properties.png" />
+        <Image Include="src\app\fugue\toolbar\open-explorer.png" />
+        <Image Include="src\app\fugue\toolbar\view-file.png" />
+        <Image Include="src\app\fugue\toolbar\view-details.png" />
+        <Image Include="src\app\fugue\toolbar\sort-name.png" />
+        <Image Include="src\app\fugue\toolbar\sort-extension.png" />
+        <Image Include="src\app\fugue\toolbar\sort-size.png" />
+        <Image Include="src\app\fugue\toolbar\sort-date.png" />
+        <Image Include="src\app\fugue\toolbar\sort-reverse.png" />
+        <Image Include="src\app\fugue\browser-items\folder.png" />
+        <Image Include="src\app\fugue\browser-items\document.png" />
+        <Image Include="src\app\fugue\browser-items\archive.png" />
+        <Image Include="src\app\fugue\browser-items\database.png" />
+        <Image Include="src\app\fugue\browser-items\drive.png" />
+        <Image Include="src\app\fugue\browser-items\file-txt.png" />
+        <Image Include="src\app\fugue\browser-items\file-doc.png" />
+        <Image Include="src\app\fugue\browser-items\file-docx.png" />
+        <Image Include="src\app\fugue\browser-items\file-rtf.png" />
+        <Image Include="src\app\fugue\browser-items\file-pdf.png" />
+        <Image Include="src\app\fugue\browser-items\file-odt.png" />
+        <Image Include="src\app\fugue\browser-items\file-xls.png" />
+        <Image Include="src\app\fugue\browser-items\file-xlsx.png" />
+        <Image Include="src\app\fugue\browser-items\file-csv.png" />
+        <Image Include="src\app\fugue\browser-items\file-ppt.png" />
+        <Image Include="src\app\fugue\browser-items\file-pptx.png" />
+        <Image Include="src\app\fugue\browser-items\file-pps.png" />
+        <Image Include="src\app\fugue\browser-items\file-ppsx.png" />
+        <Image Include="src\app\fugue\browser-items\file-mdb.png" />
+        <Image Include="src\app\fugue\browser-items\file-accdb.png" />
+        <Image Include="src\app\fugue\browser-items\file-jpg.png" />
+        <Image Include="src\app\fugue\browser-items\file-jpeg.png" />
+        <Image Include="src\app\fugue\browser-items\file-png.png" />
+        <Image Include="src\app\fugue\browser-items\file-gif.png" />
+        <Image Include="src\app\fugue\browser-items\file-bmp.png" />
+        <Image Include="src\app\fugue\browser-items\file-tif.png" />
+        <Image Include="src\app\fugue\browser-items\file-tiff.png" />
+        <Image Include="src\app\fugue\browser-items\file-webp.png" />
+        <Image Include="src\app\fugue\browser-items\file-svg.png" />
+        <Image Include="src\app\fugue\browser-items\file-ico.png" />
+        <Image Include="src\app\fugue\browser-items\file-heic.png" />
+        <Image Include="src\app\fugue\browser-items\file-raw.png" />
+        <Image Include="src\app\fugue\browser-items\file-psd.png" />
+        <Image Include="src\app\fugue\browser-items\file-ai.png" />
+        <Image Include="src\app\fugue\browser-items\file-eps.png" />
+        <Image Include="src\app\fugue\browser-items\file-mp3.png" />
+        <Image Include="src\app\fugue\browser-items\file-wav.png" />
+        <Image Include="src\app\fugue\browser-items\file-wma.png" />
+        <Image Include="src\app\fugue\browser-items\file-aac.png" />
+        <Image Include="src\app\fugue\browser-items\file-flac.png" />
+        <Image Include="src\app\fugue\browser-items\file-ogg.png" />
+        <Image Include="src\app\fugue\browser-items\file-m4a.png" />
+        <Image Include="src\app\fugue\browser-items\file-mid.png" />
+        <Image Include="src\app\fugue\browser-items\file-midi.png" />
+        <Image Include="src\app\fugue\browser-items\file-aiff.png" />
+        <Image Include="src\app\fugue\browser-items\file-mp4.png" />
+        <Image Include="src\app\fugue\browser-items\file-avi.png" />
+        <Image Include="src\app\fugue\browser-items\file-mkv.png" />
+        <Image Include="src\app\fugue\browser-items\file-mov.png" />
+        <Image Include="src\app\fugue\browser-items\file-wmv.png" />
+        <Image Include="src\app\fugue\browser-items\file-flv.png" />
+        <Image Include="src\app\fugue\browser-items\file-webm.png" />
+        <Image Include="src\app\fugue\browser-items\file-mpeg.png" />
+        <Image Include="src\app\fugue\browser-items\file-mpg.png" />
+        <Image Include="src\app\fugue\browser-items\file-m4v.png" />
+        <Image Include="src\app\fugue\browser-items\file-zip.png" />
+        <Image Include="src\app\fugue\browser-items\file-rar.png" />
+        <Image Include="src\app\fugue\browser-items\file-7z.png" />
+        <Image Include="src\app\fugue\browser-items\file-tar.png" />
+        <Image Include="src\app\fugue\browser-items\file-gz.png" />
+        <Image Include="src\app\fugue\browser-items\file-bz2.png" />
+        <Image Include="src\app\fugue\browser-items\file-xz.png" />
+        <Image Include="src\app\fugue\browser-items\file-iso.png" />
+        <Image Include="src\app\fugue\browser-items\file-cab.png" />
+        <Image Include="src\app\fugue\browser-items\file-dmg.png" />
+        <Image Include="src\app\fugue\browser-items\file-exe.png" />
+        <Image Include="src\app\fugue\browser-items\file-msi.png" />
+        <Image Include="src\app\fugue\browser-items\file-bat.png" />
+        <Image Include="src\app\fugue\browser-items\file-cmd.png" />
+        <Image Include="src\app\fugue\browser-items\file-com.png" />
+        <Image Include="src\app\fugue\browser-items\file-scr.png" />
+        <Image Include="src\app\fugue\browser-items\file-dll.png" />
+        <Image Include="src\app\fugue\browser-items\file-sys.png" />
+        <Image Include="src\app\fugue\browser-items\file-drv.png" />
+        <Image Include="src\app\fugue\browser-items\file-ocx.png" />
+        <Image Include="src\app\fugue\browser-items\file-ini.png" />
+        <Image Include="src\app\fugue\browser-items\file-cfg.png" />
+        <Image Include="src\app\fugue\browser-items\file-conf.png" />
+        <Image Include="src\app\fugue\browser-items\file-log.png" />
+        <Image Include="src\app\fugue\browser-items\file-tmp.png" />
+        <Image Include="src\app\fugue\browser-items\file-bak.png" />
+        <Image Include="src\app\fugue\browser-items\file-dat.png" />
+        <Image Include="src\app\fugue\browser-items\file-db.png" />
+        <Image Include="src\app\fugue\browser-items\file-sqlite.png" />
+        <Image Include="src\app\fugue\browser-items\file-reg.png" />
+        <Image Include="src\app\fugue\browser-items\file-html.png" />
+        <Image Include="src\app\fugue\browser-items\file-htm.png" />
+        <Image Include="src\app\fugue\browser-items\file-css.png" />
+        <Image Include="src\app\fugue\browser-items\file-js.png" />
+        <Image Include="src\app\fugue\browser-items\file-json.png" />
+        <Image Include="src\app\fugue\browser-items\file-xml.png" />
+        <Image Include="src\app\fugue\browser-items\file-yaml.png" />
+        <Image Include="src\app\fugue\browser-items\file-yml.png" />
+        <Image Include="src\app\fugue\browser-items\file-php.png" />
+        <Image Include="src\app\fugue\browser-items\file-asp.png" />
+        <Image Include="src\app\fugue\browser-items\file-py.png" />
+        <Image Include="src\app\fugue\browser-items\file-java.png" />
+        <Image Include="src\app\fugue\browser-items\file-class.png" />
+        <Image Include="src\app\fugue\browser-items\file-c.png" />
+        <Image Include="src\app\fugue\browser-items\file-cpp.png" />
+        <Image Include="src\app\fugue\browser-items\file-h.png" />
+        <Image Include="src\app\fugue\browser-items\file-cs.png" />
+        <Image Include="src\app\fugue\browser-items\file-rb.png" />
+        <Image Include="src\app\fugue\browser-items\file-go.png" />
+        <Image Include="src\app\fugue\browser-items\file-sh.png" />
+    </ItemGroup>
+    <ItemGroup>
+        <None Include="src\app\fugue\NOTICE.txt" />
+    </ItemGroup>
+    <ItemGroup>
+        <ResourceCompile Include="src\app\app.rc" />
+    </ItemGroup>
+    <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>

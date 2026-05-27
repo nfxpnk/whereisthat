@@ -1,15 +1,31 @@
 #include "SearchDialog.h"
 #include "../core/SizeFormat.h"
 #include <CommCtrl.h>
+#include <utility>
 
 namespace wit::ui {
-void SearchDialog::Show(HWND owner, wit::storage::Database* database) {
+bool SearchDialog::Show(HWND owner, wit::storage::Database* database, std::function<void()> onClose) {
+    launchOwner_ = owner;
     db_ = database;
-    DoModal(owner);
+    onClose_ = std::move(onClose);
+    if (!m_hWnd && Create(nullptr) == nullptr) return false;
+    ShowWindow(IsIconic() ? SW_RESTORE : SW_SHOW);
+    SetForegroundWindow(m_hWnd);
+    return true;
+}
+
+void SearchDialog::Close() {
+    if (m_hWnd) DestroyWindow();
+}
+
+BOOL SearchDialog::PreTranslateMessage(MSG* message) {
+    return m_hWnd != nullptr && IsDialogMessage(message);
 }
 
 LRESULT SearchDialog::OnInitDialog(UINT, WPARAM, LPARAM, BOOL&) {
     Initialize();
+    DlgResize_Init(false, true);
+    CenterWindow(launchOwner_);
     return TRUE;
 }
 
@@ -18,8 +34,27 @@ LRESULT SearchDialog::OnExecuteSearch(WORD, WORD, HWND, BOOL&) {
     return 0;
 }
 
-LRESULT SearchDialog::OnClose(WORD, WORD, HWND, BOOL&) {
-    EndDialog(IDCANCEL);
+LRESULT SearchDialog::OnWindowClose(UINT, WPARAM, LPARAM, BOOL&) {
+    DestroyWindow();
+    return 0;
+}
+
+LRESULT SearchDialog::OnDestroy(UINT, WPARAM, LPARAM, BOOL&) {
+    results_ = nullptr;
+    launchOwner_ = nullptr;
+    db_ = nullptr;
+    nameTerm_.clear();
+    total_ = 0;
+    pageStart_ = -1;
+    page_.clear();
+    auto onClose = std::move(onClose_);
+    onClose_ = {};
+    if (onClose) onClose();
+    return 0;
+}
+
+LRESULT SearchDialog::OnCloseCommand(WORD, WORD, HWND, BOOL&) {
+    DestroyWindow();
     return 0;
 }
 

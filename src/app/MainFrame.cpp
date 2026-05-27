@@ -2,9 +2,9 @@
 #include <algorithm>
 #include <optional>
 #include "../ui/AddNewDiskMediaDialog.h"
+#include "../ui/AboutDialog.h"
 #include "../ui/CatalogFileDialog.h"
 #include "../ui/GeneralSettingsDialog.h"
-#include "../ui/SearchDialog.h"
 #include "resource.h"
 
 bool MainFrame::Create() {
@@ -128,6 +128,7 @@ void MainFrame::OnClose() {
 }
 
 void MainFrame::OnDestroy() {
+    searchDialog_.Close();
     scanProgressDialog_.Close();
     controller_.DetachTarget();
     chrome_.Destroy();
@@ -139,7 +140,8 @@ void MainFrame::OnExit() {
 }
 
 void MainFrame::OnAbout() {
-    ::MessageBoxW(m_hWnd, L"Where Is That?\nNative Win32 build.", L"About", MB_OK);
+    wit::ui::AboutDialog dialog;
+    dialog.Show(m_hWnd);
 }
 
 void MainFrame::OnCommand(int id) {
@@ -228,7 +230,8 @@ void MainFrame::ApplyControllerResult(wit::app::ControllerResult result) {
         });
         break;
     case wit::app::ScanDialogAction::Update:
-        scanProgressDialog_.Update(result.scanDialog.files, result.scanDialog.folders);
+        scanProgressDialog_.Update(result.scanDialog.files, result.scanDialog.folders, result.scanDialog.totalFiles,
+            result.scanDialog.remainingFiles, result.scanDialog.totalKnown, result.scanDialog.counting);
         break;
     case wit::app::ScanDialogAction::Cancelling:
         scanProgressDialog_.SetCancelling();
@@ -274,9 +277,13 @@ void MainFrame::PerformRequest(const wit::app::RequestEffect& request) {
             L"Save changes?", L"Unsaved Catalog Changes", MB_YESNOCANCEL | MB_ICONWARNING)));
         break;
     case wit::app::RequestKind::ShowSearch: {
-        wit::ui::SearchDialog dialog;
-        dialog.Show(m_hWnd, request.database);
-        ApplyControllerResult(controller_.SearchClosed());
+        if (!searchDialog_.Show(m_hWnd, request.database, [this]() {
+            ApplyControllerResult(controller_.SearchClosed());
+        })) {
+            ApplyControllerResult(controller_.SearchClosed());
+            ::MessageBoxW(m_hWnd, L"Unable to open the Search for Items window.",
+                L"Search for Items", MB_OK | MB_ICONERROR);
+        }
         break;
     }
     case wit::app::RequestKind::ShowAddOrUpdateMedia: {

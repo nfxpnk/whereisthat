@@ -9,6 +9,11 @@
 
 namespace wit::ui {
 namespace {
+struct FileExtensionImage {
+    const wchar_t* extension;
+    int image;
+};
+
 const wchar_t* DiskTypeLabel(wit::core::DiskType type) {
     switch (type) {
     case wit::core::DiskType::CD: return L"CD";
@@ -38,6 +43,115 @@ bool IsArchiveFileExtension(std::wstring extension) {
     };
     return std::any_of(extensions.begin(), extensions.end(),
         [&extension](const wchar_t* candidate) { return extension == candidate; });
+}
+
+int ImageForFileExtension(const std::wstring& extension) {
+    constexpr std::array<FileExtensionImage, 100> kFileExtensionImages{{
+        { L"txt", BrowserFileTxtImage },
+        { L"doc", BrowserFileDocImage },
+        { L"docx", BrowserFileDocxImage },
+        { L"rtf", BrowserFileRtfImage },
+        { L"pdf", BrowserFilePdfImage },
+        { L"odt", BrowserFileOdtImage },
+        { L"xls", BrowserFileXlsImage },
+        { L"xlsx", BrowserFileXlsxImage },
+        { L"csv", BrowserFileCsvImage },
+        { L"ppt", BrowserFilePptImage },
+        { L"pptx", BrowserFilePptxImage },
+        { L"pps", BrowserFilePpsImage },
+        { L"ppsx", BrowserFilePpsxImage },
+        { L"mdb", BrowserFileMdbImage },
+        { L"accdb", BrowserFileAccdbImage },
+        { L"jpg", BrowserFileJpgImage },
+        { L"jpeg", BrowserFileJpegImage },
+        { L"png", BrowserFilePngImage },
+        { L"gif", BrowserFileGifImage },
+        { L"bmp", BrowserFileBmpImage },
+        { L"tif", BrowserFileTifImage },
+        { L"tiff", BrowserFileTiffImage },
+        { L"webp", BrowserFileWebpImage },
+        { L"svg", BrowserFileSvgImage },
+        { L"ico", BrowserFileIcoImage },
+        { L"heic", BrowserFileHeicImage },
+        { L"raw", BrowserFileRawImage },
+        { L"psd", BrowserFilePsdImage },
+        { L"ai", BrowserFileAiImage },
+        { L"eps", BrowserFileEpsImage },
+        { L"mp3", BrowserFileMp3Image },
+        { L"wav", BrowserFileWavImage },
+        { L"wma", BrowserFileWmaImage },
+        { L"aac", BrowserFileAacImage },
+        { L"flac", BrowserFileFlacImage },
+        { L"ogg", BrowserFileOggImage },
+        { L"m4a", BrowserFileM4aImage },
+        { L"mid", BrowserFileMidImage },
+        { L"midi", BrowserFileMidiImage },
+        { L"aiff", BrowserFileAiffImage },
+        { L"mp4", BrowserFileMp4Image },
+        { L"avi", BrowserFileAviImage },
+        { L"mkv", BrowserFileMkvImage },
+        { L"mov", BrowserFileMovImage },
+        { L"wmv", BrowserFileWmvImage },
+        { L"flv", BrowserFileFlvImage },
+        { L"webm", BrowserFileWebmImage },
+        { L"mpeg", BrowserFileMpegImage },
+        { L"mpg", BrowserFileMpgImage },
+        { L"m4v", BrowserFileM4vImage },
+        { L"zip", BrowserFileZipImage },
+        { L"rar", BrowserFileRarImage },
+        { L"7z", BrowserFile7ZImage },
+        { L"tar", BrowserFileTarImage },
+        { L"gz", BrowserFileGzImage },
+        { L"bz2", BrowserFileBz2Image },
+        { L"xz", BrowserFileXzImage },
+        { L"iso", BrowserFileIsoImage },
+        { L"cab", BrowserFileCabImage },
+        { L"dmg", BrowserFileDmgImage },
+        { L"exe", BrowserFileExeImage },
+        { L"msi", BrowserFileMsiImage },
+        { L"bat", BrowserFileBatImage },
+        { L"cmd", BrowserFileCmdImage },
+        { L"com", BrowserFileComImage },
+        { L"scr", BrowserFileScrImage },
+        { L"dll", BrowserFileDllImage },
+        { L"sys", BrowserFileSysImage },
+        { L"drv", BrowserFileDrvImage },
+        { L"ocx", BrowserFileOcxImage },
+        { L"ini", BrowserFileIniImage },
+        { L"cfg", BrowserFileCfgImage },
+        { L"conf", BrowserFileConfImage },
+        { L"log", BrowserFileLogImage },
+        { L"tmp", BrowserFileTmpImage },
+        { L"bak", BrowserFileBakImage },
+        { L"dat", BrowserFileDatImage },
+        { L"db", BrowserFileDbImage },
+        { L"sqlite", BrowserFileSqliteImage },
+        { L"reg", BrowserFileRegImage },
+        { L"html", BrowserFileHtmlImage },
+        { L"htm", BrowserFileHtmImage },
+        { L"css", BrowserFileCssImage },
+        { L"js", BrowserFileJsImage },
+        { L"json", BrowserFileJsonImage },
+        { L"xml", BrowserFileXmlImage },
+        { L"yaml", BrowserFileYamlImage },
+        { L"yml", BrowserFileYmlImage },
+        { L"php", BrowserFilePhpImage },
+        { L"asp", BrowserFileAspImage },
+        { L"py", BrowserFilePyImage },
+        { L"java", BrowserFileJavaImage },
+        { L"class", BrowserFileClassImage },
+        { L"c", BrowserFileCImage },
+        { L"cpp", BrowserFileCppImage },
+        { L"h", BrowserFileHImage },
+        { L"cs", BrowserFileCsImage },
+        { L"rb", BrowserFileRbImage },
+        { L"go", BrowserFileGoImage },
+        { L"sh", BrowserFileShImage },
+    }};
+
+    const auto match = std::find_if(kFileExtensionImages.begin(), kFileExtensionImages.end(),
+        [&extension](const FileExtensionImage& item) { return extension == item.extension; });
+    return match != kFileExtensionImages.end() ? match->image : I_IMAGENONE;
 }
 }
 
@@ -110,12 +224,12 @@ int FileListView::ImageFor(int row) {
     const auto* entry = EntryAt(row);
     if (!entry) return I_IMAGENONE;
     if (entry->isDirectory) return entry->isArchive ? BrowserArchiveImage : BrowserFolderImage;
-    if (IsArchiveFileExtension(entry->extension)) return BrowserArchiveImage;
-        auto extension = entry->extension;
+    auto extension = entry->extension;
     std::transform(extension.begin(), extension.end(), extension.begin(),
         [](wchar_t c) { return static_cast<wchar_t>(std::towlower(c)); });
-    if (extension == L"php") return BrowserPhpImage;
-    if (extension == L"html" || extension == L"htm") return BrowserHtmlImage;
+    const int fileImage = ImageForFileExtension(extension);
+    if (fileImage != I_IMAGENONE) return fileImage;
+    if (IsArchiveFileExtension(extension)) return BrowserArchiveImage;
     return BrowserDocumentImage;
 }
 

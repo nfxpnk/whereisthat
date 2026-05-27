@@ -208,17 +208,25 @@ bool MainWindowChrome::CreateToolbar() {
 }
 
 bool MainWindowChrome::CreateBrowserImages() {
-    browserImages_ = ImageList_Create(kToolbarIconSize, kToolbarIconSize, ILC_COLOR32, 7, 0);
+    browserImages_ = ImageList_Create(kToolbarIconSize, kToolbarIconSize, ILC_COLOR32, 105, 0);
     if (!browserImages_) return false;
     IWICImagingFactory* factory{};
     if (FAILED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
         IID_PPV_ARGS(&factory)))) return false;
-        constexpr std::array<UINT, 7> imageIds = {
+    constexpr std::array<UINT, 5> baseImageIds = {
         IDB_BROWSER_FOLDER, IDB_BROWSER_DOCUMENT, IDB_BROWSER_ARCHIVE,
-        IDB_BROWSER_DATABASE, IDB_BROWSER_DRIVE,
-        IDB_BROWSER_PHP, IDB_BROWSER_HTML
+        IDB_BROWSER_DATABASE, IDB_BROWSER_DRIVE
     };
-    for (const auto id : imageIds) {
+    for (const auto id : baseImageIds) {
+        const auto bitmap = LoadPngBitmap(factory, id);
+        if (!bitmap || ImageList_Add(browserImages_, bitmap, nullptr) == -1) {
+            if (bitmap) DeleteObject(bitmap);
+            factory->Release();
+            return false;
+        }
+        DeleteObject(bitmap);
+    }
+    for (UINT id = IDB_BROWSER_FILE_TXT; id <= IDB_BROWSER_FILE_SH; ++id) {
         const auto bitmap = LoadPngBitmap(factory, id);
         if (!bitmap || ImageList_Add(browserImages_, bitmap, nullptr) == -1) {
             if (bitmap) DeleteObject(bitmap);

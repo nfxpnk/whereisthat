@@ -17,7 +17,8 @@ enum class AppStatus {
 
 class MainWindowChrome {
 public:
-    bool Create(HWND parent, bool showStatusBar, std::function<void()> selectAllAction);
+    bool Create(HWND parent, bool showStatusBar, int splitterPosition,
+        std::function<void()> selectAllAction, std::function<void(int)> splitterMovedAction);
     void Destroy();
 
     HWND TreeHandle() const { return treeHandle_; }
@@ -86,6 +87,7 @@ private:
     HIMAGELIST browserImages_{};
     int splitterPosition_{-1};
     int splitterDragOffset_{};
+    int splitterDragStartPosition_{};
     int contentHeight_{};
     int toolbarHeight_{};
     bool splitterDragging_{};
@@ -93,6 +95,7 @@ private:
     AppStatus appStatus_{AppStatus::Idle};
     std::array<std::wstring, 5> statusText_{};
     std::function<void()> selectAllAction_;
+    std::function<void(int)> splitterMovedAction_;
     ContentsListSubclass filesSubclass_;
 
     bool CreateToolbar();

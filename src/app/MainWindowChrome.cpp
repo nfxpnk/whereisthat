@@ -108,10 +108,13 @@ const wchar_t* ToolbarTooltipText(int commandId) {
 }
 }
 
-bool MainWindowChrome::Create(HWND parent, bool showStatusBar, std::function<void()> selectAllAction) {
+bool MainWindowChrome::Create(HWND parent, bool showStatusBar, int splitterPosition,
+    std::function<void()> selectAllAction, std::function<void(int)> splitterMovedAction) {
     parent_ = parent;
     statusVisible_ = showStatusBar;
+    splitterPosition_ = splitterPosition;
     selectAllAction_ = std::move(selectAllAction);
+    splitterMovedAction_ = std::move(splitterMovedAction);
     if (!CreateToolbar()) return false;
     DWORD statusStyle = WS_CHILD;
     if (statusVisible_) statusStyle |= WS_VISIBLE;
@@ -317,6 +320,7 @@ bool MainWindowChrome::OnLeftButtonDown(int x, int y) {
     if (!IsOverSplitter(x, y)) return false;
     splitterDragging_ = true;
     splitterDragOffset_ = x - splitterPosition_;
+    splitterDragStartPosition_ = splitterPosition_;
     SetCapture(parent_);
     SetCursor(LoadCursorW(nullptr, IDC_SIZEWE));
     return true;
@@ -335,10 +339,16 @@ bool MainWindowChrome::OnLeftButtonUp() {
     if (!splitterDragging_) return false;
     splitterDragging_ = false;
     if (GetCapture() == parent_) ReleaseCapture();
+    if (splitterPosition_ != splitterDragStartPosition_ && splitterMovedAction_) {
+        splitterMovedAction_(splitterPosition_);
+    }
     return true;
 }
 
 void MainWindowChrome::OnCaptureChanged() {
+    if (splitterDragging_ && splitterPosition_ != splitterDragStartPosition_ && splitterMovedAction_) {
+        splitterMovedAction_(splitterPosition_);
+    }
     splitterDragging_ = false;
 }
 

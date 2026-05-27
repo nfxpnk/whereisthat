@@ -25,6 +25,7 @@ ControllerResult CatalogWorkflowController::Initialize() {
     ControllerResult result;
     result.presentation.updateStatusVisibility = true;
     result.presentation.statusVisible = session_.Settings().showStatusBar;
+    result.presentation.splitterPosition = session_.Settings().splitterPosition;
     PopulatePresentation(result, true);
     if (!session_.Settings().lastCatalogPath.empty()) {
         Append(result, ActivateCatalog(session_.Settings().lastCatalogPath, false, false,
@@ -440,6 +441,12 @@ ControllerResult CatalogWorkflowController::GeneralSettingsCompleted(
     }
     PopulatePresentation(result);
     return result;
+}
+
+bool CatalogWorkflowController::SaveSplitterPosition(int splitterPosition) {
+    auto settings = session_.Settings();
+    settings.splitterPosition = splitterPosition;
+    return session_.SaveSettings(settings);
 }
 
 ControllerResult CatalogWorkflowController::OnScanProgress(ScanId scanId) {

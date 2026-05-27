@@ -109,9 +109,12 @@ LRESULT MainFrame::HandleMessage(UINT message, WPARAM wparam, LPARAM lparam, BOO
 bool MainFrame::OnCreate() {
     if (!controller_.AttachTarget(m_hWnd)) return false;
     auto initial = controller_.Initialize();
-    if (!chrome_.Create(m_hWnd, initial.presentation.statusVisible, [this]() {
+    if (!chrome_.Create(m_hWnd, initial.presentation.statusVisible,
+        initial.presentation.splitterPosition, [this]() {
         browser_.SelectAll();
         UpdateBrowserStatus();
+    }, [this](int splitterPosition) {
+        controller_.SaveSplitterPosition(splitterPosition);
     })) return false;
     browser_.Attach(chrome_.TreeHandle(), chrome_.FilesHandle(), chrome_.BackHandle(),
         chrome_.ForwardHandle(), chrome_.AddressHandle(),

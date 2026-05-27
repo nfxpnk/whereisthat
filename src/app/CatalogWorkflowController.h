@@ -62,6 +62,7 @@ struct PresentationEffect {
     std::vector<std::wstring> recentCatalogPaths;
     bool updateStatusVisibility{};
     bool statusVisible{true};
+    int splitterPosition{-1};
     bool updateAppStatus{};
     AppStatus appStatus{AppStatus::Idle};
     bool flushStatus{};
@@ -118,6 +119,7 @@ public:
     ControllerResult RequestCancelScan();
     ControllerResult RequestGeneralSettings();
     ControllerResult GeneralSettingsCompleted(const std::optional<wit::platform::AppSettings>& settings);
+    bool SaveSplitterPosition(int splitterPosition);
     ControllerResult OnScanProgress(ScanId scanId);
     ControllerResult OnScanComplete(ScanId scanId);
 

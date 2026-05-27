@@ -22,6 +22,13 @@ static std::wstring SystemTimeToIso(const SYSTEMTIME& st) {
     swprintf_s(buffer, L"%04u-%02u-%02uT%02u:%02u:%02uZ", st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);
     return buffer;
 }
+static bool UnixTimestampToSystemTime(std::int64_t timestamp, SYSTEMTIME& utc) {
+    constexpr std::uint64_t epochDifference = 116444736000000000ULL;
+    ULARGE_INTEGER value{};
+    value.QuadPart = epochDifference + static_cast<std::uint64_t>((std::max)(timestamp, std::int64_t{})) * 10000000ULL;
+    FILETIME fileTime{value.LowPart, value.HighPart};
+    return FileTimeToSystemTime(&fileTime, &utc) != FALSE;
+}
 std::int64_t FileTimeToUnixSeconds(const FILETIME& fileTime) {
     ULARGE_INTEGER value{};
     value.LowPart = fileTime.dwLowDateTime;
@@ -36,12 +43,15 @@ std::int64_t NowUnixSeconds() {
     return FileTimeToUnixSeconds(fileTime);
 }
 std::wstring FormatUnixTimestamp(std::int64_t timestamp) {
-    constexpr std::uint64_t epochDifference = 116444736000000000ULL;
-    ULARGE_INTEGER value{};
-    value.QuadPart = epochDifference + static_cast<std::uint64_t>((std::max)(timestamp, std::int64_t{})) * 10000000ULL;
-    FILETIME fileTime{value.LowPart, value.HighPart};
     SYSTEMTIME utc{};
-    if (!FileTimeToSystemTime(&fileTime, &utc)) return {};
+    if (!UnixTimestampToSystemTime(timestamp, utc)) return {};
     return SystemTimeToIso(utc);
+}
+std::wstring FormatUnixDate(std::int64_t timestamp) {
+    SYSTEMTIME utc{};
+    if (!UnixTimestampToSystemTime(timestamp, utc)) return {};
+    wchar_t buffer[16]{};
+    swprintf_s(buffer, L"%u/%02u/%04u", utc.wMonth, utc.wDay, utc.wYear);
+    return buffer;
 }
 }

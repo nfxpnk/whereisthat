@@ -11,6 +11,12 @@ namespace {
 constexpr int kToolbarIconSize = 16;
 constexpr int kToolbarButtonSize = 25;
 constexpr int kNavigationHeight = 32;
+constexpr int kCatalogStateStatusWidth = 88;
+constexpr int kCatalogLockStatusWidth = 25;
+constexpr int kSelectedItemsStatusMaxWidth = 456;
+constexpr int kProgramStatusWidth = 38;
+constexpr int kProgramStatusLightSize = 13;
+constexpr int kProgramStatusLightSpacing = 1;
 
 template<typename T>
 void ReleaseIfPresent(T*& value) {
@@ -266,10 +272,11 @@ void MainWindowChrome::OnSize(int width, int height) {
     int statusHeight = 0;
     if (statusHandle_) {
         SendMessageW(statusHandle_, WM_SIZE, 0, 0);
-        const int stateEnd = (std::min)(90, width);
-        const int lockEnd = (std::min)(stateEnd + 34, width);
-        const int lightsStart = (std::max)(lockEnd, width - 76);
-        const int selectionStart = (std::max)(lockEnd, lightsStart - 260);
+        const int stateEnd = (std::min)(kCatalogStateStatusWidth, width);
+        const int lockEnd = (std::min)(stateEnd + kCatalogLockStatusWidth, width);
+        const int lightsStart = (std::max)(lockEnd, width - kProgramStatusWidth);
+        const int selectedItemsWidth = (std::min)(kSelectedItemsStatusMaxWidth, lightsStart - lockEnd);
+        const int selectionStart = lightsStart - selectedItemsWidth;
         const int parts[] = {stateEnd, lockEnd, selectionStart, lightsStart, -1};
         SendMessageW(statusHandle_, SB_SETPARTS, 5, reinterpret_cast<LPARAM>(parts));
         SendMessageW(statusHandle_, SB_SETTEXTW, 0 | SBT_OWNERDRAW, 0);
@@ -416,14 +423,19 @@ bool MainWindowChrome::DrawStatusPart(LPDRAWITEMSTRUCT drawItem, bool protectedC
         Arc(drawItem->hDC, body.left + 2, drawItem->rcItem.top + 4, body.right - 2, body.top + 5,
             body.left + 2, body.top, body.right - 2, body.top);
     } else if (drawItem->itemData == 4) {
-        const int top = drawItem->rcItem.top + 5;
-        const int left = drawItem->rcItem.left + 18;
+        const int lightsWidth = kProgramStatusLightSize * 2 + kProgramStatusLightSpacing;
+        const int left = drawItem->rcItem.left +
+            ((drawItem->rcItem.right - drawItem->rcItem.left - lightsWidth) / 2);
+        const int top = drawItem->rcItem.top +
+            ((drawItem->rcItem.bottom - drawItem->rcItem.top - kProgramStatusLightSize) / 2);
         auto grey = CreateSolidBrush(RGB(150, 150, 150));
         auto green = CreateSolidBrush(RGB(47, 164, 73));
         const auto oldBrush = SelectObject(drawItem->hDC, grey);
-        Ellipse(drawItem->hDC, left, top, left + 11, top + 11);
+        Ellipse(drawItem->hDC, left, top, left + kProgramStatusLightSize, top + kProgramStatusLightSize);
         SelectObject(drawItem->hDC, green);
-        Ellipse(drawItem->hDC, left + 20, top, left + 31, top + 11);
+        const int secondLeft = left + kProgramStatusLightSize + kProgramStatusLightSpacing;
+        Ellipse(drawItem->hDC, secondLeft, top,
+            secondLeft + kProgramStatusLightSize, top + kProgramStatusLightSize);
         SelectObject(drawItem->hDC, oldBrush);
         DeleteObject(grey);
         DeleteObject(green);
@@ -434,7 +446,7 @@ bool MainWindowChrome::DrawStatusPart(LPDRAWITEMSTRUCT drawItem, bool protectedC
         SetBkMode(drawItem->hDC, TRANSPARENT);
         SetTextColor(drawItem->hDC, GetSysColor(COLOR_BTNTEXT));
         DrawTextW(drawItem->hDC, statusText_[3].c_str(), -1, &textRect,
-            DT_SINGLELINE | DT_VCENTER | DT_RIGHT | DT_END_ELLIPSIS);
+            DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS);
     }
     return true;
 }

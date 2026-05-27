@@ -216,8 +216,9 @@ std::wstring BrowserController::FocusedItemStatus() {
         return text;
     }
     if (const auto* entry = index >= 0 ? files_.EntryAt(index) : nullptr) {
-        auto text = entry->name + L" | " + CompactSize(entry->size);
-        if (!entry->modifiedAt.empty()) text += L" | " + entry->modifiedAt;
+        auto text = entry->name + L", " + CompactSize(entry->size);
+        const auto modifiedAt = wit::platform::FormatUnixDate(entry->modifiedAtValue);
+        if (!modifiedAt.empty()) text += L", " + modifiedAt;
         return text;
     }
     return {};

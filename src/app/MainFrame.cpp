@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <optional>
 #include "../ui/AddNewDiskMediaDialog.h"
+#include "../ui/AboutDialog.h"
 #include "../ui/CatalogFileDialog.h"
 #include "../ui/GeneralSettingsDialog.h"
 #include "resource.h"
@@ -139,7 +140,8 @@ void MainFrame::OnExit() {
 }
 
 void MainFrame::OnAbout() {
-    ::MessageBoxW(m_hWnd, L"Where Is That?\nNative Win32 build.", L"About", MB_OK);
+    wit::ui::AboutDialog dialog;
+    dialog.Show(m_hWnd);
 }
 
 void MainFrame::OnCommand(int id) {

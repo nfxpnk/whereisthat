@@ -66,6 +66,7 @@ copy /Y "$(ProjectDir)third_party\libarchive\bin\*.dll" "$(OutDir)"</Command>
         <ClCompile Include="src\storage\Database.cpp"/>
         <ClCompile Include="src\storage\SQLiteStatement.cpp"/>
         <ClCompile Include="src\ui\AddNewDiskMediaDialog.cpp"/>
+        <ClCompile Include="src\ui\AboutDialog.cpp"/>
         <ClCompile Include="src\ui\CatalogFileDialog.cpp"/>
         <ClCompile Include="src\ui\CatalogListView.cpp"/>
         <ClCompile Include="src\ui\CatalogTreeView.cpp"/>
@@ -99,6 +100,7 @@ copy /Y "$(ProjectDir)third_party\libarchive\bin\*.dll" "$(OutDir)"</Command>
         <ClInclude Include="src\storage\Database.h"/>
         <ClInclude Include="src\storage\SQLiteStatement.h"/>
         <ClInclude Include="src\ui\AddNewDiskMediaDialog.h"/>
+        <ClInclude Include="src\ui\AboutDialog.h"/>
         <ClInclude Include="src\ui\BrowserItemIcons.h"/>
         <ClInclude Include="src\ui\CatalogFileDialog.h"/>
         <ClInclude Include="src\ui\CatalogListView.h"/>

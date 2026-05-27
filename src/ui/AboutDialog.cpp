@@ -46,8 +46,8 @@ LRESULT AboutDialog::OnInitDialog(UINT, WPARAM, LPARAM, BOOL&) {
         MAKEINTRESOURCEW(IDI_APPICON), IMAGE_ICON, 48, 48, LR_DEFAULTCOLOR));
     SendDlgItemMessageW(IDC_ABOUT_ICON, STM_SETICON, reinterpret_cast<WPARAM>(icon_), 0);
 
-    titleFont_ = CreateBoldDialogFont(m_hWnd, 3);
-    versionFont_ = CreateBoldDialogFont(m_hWnd, 1);
+    titleFont_ = CreateBoldDialogFont(m_hWnd, 0);
+    versionFont_ = CreateBoldDialogFont(m_hWnd, 0);
     if (titleFont_ != nullptr) {
         SendDlgItemMessageW(IDC_ABOUT_TITLE, WM_SETFONT, reinterpret_cast<WPARAM>(titleFont_), TRUE);
     }
@@ -97,6 +97,7 @@ void AboutDialog::ShowActivePage() {
     GetDlgItem(IDC_ABOUT_PAGE_INFO).ShowWindow(showInfo ? SW_SHOW : SW_HIDE);
     GetDlgItem(IDC_ABOUT_ICON).ShowWindow(showInfo ? SW_SHOW : SW_HIDE);
     GetDlgItem(IDC_ABOUT_TITLE).ShowWindow(showInfo ? SW_SHOW : SW_HIDE);
+    GetDlgItem(IDC_ABOUT_COPYRIGHT).ShowWindow(showInfo ? SW_SHOW : SW_HIDE);
     GetDlgItem(IDC_ABOUT_VERSION).ShowWindow(showInfo ? SW_SHOW : SW_HIDE);
     GetDlgItem(IDC_ABOUT_LINK_LABEL).ShowWindow(showInfo ? SW_SHOW : SW_HIDE);
     GetDlgItem(IDC_ABOUT_LINK).ShowWindow(showInfo ? SW_SHOW : SW_HIDE);

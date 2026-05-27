@@ -322,7 +322,8 @@ BEGIN
     CONTROL "", IDC_ABOUT_TABS, "SysTabControl32", WS_TABSTOP, 7, 7, 250, 118
     LTEXT "", IDC_ABOUT_PAGE_INFO, 14, 27, 236, 84
     ICON "", IDC_ABOUT_ICON, 19, 38, 48, 48, SS_CENTERIMAGE
-    LTEXT "Where Is That? (c) 2026 Andrii Shevchenko <nfxpnk@gmail.com>", IDC_ABOUT_TITLE, 76, 38, 166, 24
+    LTEXT "Where Is That?", IDC_ABOUT_TITLE, 76, 38, 166, 10
+    LTEXT "\xA9 2026 Andrii Shevchenko <nfxpnk@gmail.com>", IDC_ABOUT_COPYRIGHT, 76, 50, 166, 10
     LTEXT "Version: 0.1 (64-bit)", IDC_ABOUT_VERSION, 76, 66, 120, 10
     LTEXT "Links:", IDC_ABOUT_LINK_LABEL, 76, 84, 30, 10
     CONTROL "<a>https://nfxpnk.github.io/whereisthat/</a>", IDC_ABOUT_LINK, "SysLink", WS_TABSTOP, 76, 95, 160, 12

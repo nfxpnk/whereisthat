@@ -42,7 +42,10 @@ LRESULT ProgressDialog::OnInitDialog(UINT, WPARAM, LPARAM, BOOL&) {
 }
 
 LRESULT ProgressDialog::OnCancel(WORD, WORD, HWND, BOOL&) {
-    if (onCancel_) onCancel_();
+    if (::MessageBoxW(m_hWnd, L"Are you sure you want to cancel?", L"Scanning Disk/Media",
+        MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2) == IDYES && onCancel_) {
+        onCancel_();
+    }
     return 0;
 }
 

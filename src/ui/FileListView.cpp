@@ -9,10 +9,20 @@
 
 namespace wit::ui {
 namespace {
+constexpr const wchar_t* kHoveredRowProperty = L"WitHoveredRow";
+
 struct FileExtensionImage {
     const wchar_t* extension;
     int image;
 };
+
+COLORREF BlendColor(COLORREF foreground, COLORREF background, int foregroundWeight, int totalWeight) {
+    const int backgroundWeight = totalWeight - foregroundWeight;
+    return RGB(
+        (GetRValue(foreground) * foregroundWeight + GetRValue(background) * backgroundWeight) / totalWeight,
+        (GetGValue(foreground) * foregroundWeight + GetGValue(background) * backgroundWeight) / totalWeight,
+        (GetBValue(foreground) * foregroundWeight + GetBValue(background) * backgroundWeight) / totalWeight);
+}
 
 const wchar_t* DiskTypeLabel(wit::core::DiskType type) {
     switch (type) {
@@ -183,6 +193,7 @@ void FileListView::SetLocation(const wit::core::BrowserLocation& newLocation, wi
     pageStart = -1;
     page.clear();
     diskPage.clear();
+    RemovePropW(hwnd, kHoveredRowProperty);
     ListView_SetItemCountEx(hwnd, 0, LVSICF_NOINVALIDATEALL);
     ConfigureColumns();
     total = db ? (ShowsDisks() ? db->GetDiskCount() : db->GetBrowserItemCount(location)) : 0;
@@ -266,6 +277,25 @@ std::wstring FileListView::TextFor(int row, int column) {
         return file.modifiedAt;
     default:
         return L"";
+    }
+}
+
+LRESULT FileListView::OnCustomDraw(LPNMHDR header) const {
+    auto* customDraw = reinterpret_cast<NMLVCUSTOMDRAW*>(header);
+    switch (customDraw->nmcd.dwDrawStage) {
+    case CDDS_PREPAINT:
+        return CDRF_NOTIFYITEMDRAW;
+    case CDDS_ITEMPREPAINT: {
+        const int hoveredRow = static_cast<int>(
+            reinterpret_cast<INT_PTR>(GetPropW(hwnd, kHoveredRowProperty))) - 1;
+        if (static_cast<int>(customDraw->nmcd.dwItemSpec) == hoveredRow &&
+            (customDraw->nmcd.uItemState & CDIS_SELECTED) == 0) {
+            customDraw->clrTextBk = BlendColor(GetSysColor(COLOR_HIGHLIGHT), GetSysColor(COLOR_WINDOW), 1, 8);
+        }
+        return CDRF_DODEFAULT;
+    }
+    default:
+        return CDRF_DODEFAULT;
     }
 }
 }

@@ -74,6 +74,9 @@ LRESULT MainFrame::HandleMessage(UINT message, WPARAM wparam, LPARAM lparam, BOO
         if (header->idFrom == IDC_FILES && header->code == LVN_GETDISPINFOW) {
             return browser_.OnFileGetDispInfo(header);
         }
+        if (header->idFrom == IDC_FILES && header->code == NM_CUSTOMDRAW) {
+            return browser_.OnFileCustomDraw(header);
+        }
         if (header->idFrom == IDC_FILES && header->code == LVN_ITEMACTIVATE) {
             const auto result = browser_.OnFileActivate(header);
             UpdateBrowserStatus();

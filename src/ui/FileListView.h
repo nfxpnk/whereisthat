@@ -26,6 +26,7 @@ public:
     const wit::core::Disk* DiskAt(int row);
     int ImageFor(int row);
     std::wstring TextFor(int row, int column);
+    LRESULT OnCustomDraw(LPNMHDR header) const;
 
 private:
     void ConfigureColumns();

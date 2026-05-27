@@ -35,6 +35,7 @@ public:
     wit::core::CatalogId OnTreeSelectionChanged(LPNMHDR header);
     LRESULT OnTreeExpanding(LPNMHDR header);
     LRESULT OnFileGetDispInfo(LPNMHDR header);
+    LRESULT OnFileCustomDraw(LPNMHDR header) const;
     LRESULT OnFileActivate(LPNMHDR header);
     bool FileItemStateChanged(LPNMHDR header) const;
     void SelectAll();

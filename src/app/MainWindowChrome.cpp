@@ -295,15 +295,17 @@ void MainWindowChrome::OnSize(int width, int height) {
     const int minimumWidth = (std::min)(kMinPaneWidth, availableWidth / 2);
     if (splitterPosition_ < 0) splitterPosition_ = width / 3;
     splitterPosition_ = std::clamp(splitterPosition_, minimumWidth, availableWidth - minimumWidth);
-    MoveWindow(treeHandle_, 0, toolbarHeight_, splitterPosition_, contentHeight_, TRUE);
+    MoveWindow(treeHandle_, 0, toolbarHeight_, splitterPosition_, contentHeight_, FALSE);
     const int rightLeft = splitterPosition_ + kSplitterWidth;
     const int rightWidth = availableWidth - splitterPosition_;
     const int controlTop = toolbarHeight_ + 3;
-    MoveWindow(backHandle_, rightLeft + 3, controlTop, 30, 24, TRUE);
-    MoveWindow(forwardHandle_, rightLeft + 37, controlTop, 30, 24, TRUE);
-    MoveWindow(addressHandle_, rightLeft + 72, controlTop, (std::max)(0, rightWidth - 75), 24, TRUE);
+    MoveWindow(backHandle_, rightLeft + 3, controlTop, 30, 24, FALSE);
+    MoveWindow(forwardHandle_, rightLeft + 37, controlTop, 30, 24, FALSE);
+    MoveWindow(addressHandle_, rightLeft + 72, controlTop, (std::max)(0, rightWidth - 75), 24, FALSE);
     MoveWindow(filesHandle_, rightLeft, toolbarHeight_ + kNavigationHeight, rightWidth,
-        (std::max)(0, contentHeight_ - kNavigationHeight), TRUE);
+        (std::max)(0, contentHeight_ - kNavigationHeight), FALSE);
+    RedrawWindow(parent_, nullptr, nullptr,
+        RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN | RDW_ERASE);
 }
 
 bool MainWindowChrome::IsOverSplitter(int x, int y) const {

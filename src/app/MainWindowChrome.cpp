@@ -127,6 +127,7 @@ bool MainWindowChrome::Create(HWND parent, bool showStatusBar, std::function<voi
     if (!statusHandle_ || !treeHandle_ || !backHandle_ || !forwardHandle_ || !addressHandle_ || !filesHandle_) {
         return false;
     }
+    TreeView_SetExtendedStyle(treeHandle_, TVS_EX_DOUBLEBUFFER, TVS_EX_DOUBLEBUFFER);
     if (!CreateBrowserImages()) return false;
     ListView_SetExtendedListViewStyle(filesHandle_, LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER);
     filesSubclass_.SetAction(&selectAllAction_);

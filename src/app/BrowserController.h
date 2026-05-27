@@ -58,7 +58,7 @@ private:
     bool selectingTree_{};
     bool hasTarget_{};
 
-    void NavigateTo(const wit::core::BrowserTarget& target, bool addToHistory);
+    void NavigateTo(const wit::core::BrowserTarget& target, bool addToHistory, bool syncTreeSelection = true);
     void UpdateNavigationControls();
     std::wstring AddressFor(const wit::core::BrowserTarget& target) const;
 };

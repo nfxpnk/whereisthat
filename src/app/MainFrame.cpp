@@ -79,6 +79,7 @@ LRESULT MainFrame::HandleMessage(UINT message, WPARAM wparam, LPARAM lparam, BOO
             UpdateBrowserStatus();
             return result;
         }
+        if (header->idFrom == IDC_FILES && header->code == NM_RCLICK) return OnFileRightClick();
         if (header->idFrom == IDC_FILES && header->code == LVN_ITEMCHANGED) {
             if (browser_.FileItemStateChanged(header)) UpdateBrowserStatus();
             return 0;
@@ -197,6 +198,34 @@ LRESULT MainFrame::OnTreeRightClick() {
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(menu, MF_STRING, ID_EDIT_CATALOG_MANAGER, L"Catalog Manager");
     AppendMenuW(menu, MF_STRING, ID_EDIT_CATALOG_SETUP, L"Catalog Setup");
+    AppendMenuW(menu, MF_STRING, ID_ACTIONS_PROPERTIES, L"Properties");
+    const auto command = TrackPopupMenuEx(menu, TPM_RETURNCMD | TPM_LEFTALIGN | TPM_TOPALIGN,
+        screenPoint.x, screenPoint.y, m_hWnd, nullptr);
+    DestroyMenu(menu);
+    if (command) OnCommand(command);
+    return 0;
+}
+
+LRESULT MainFrame::OnFileRightClick() {
+    POINT screenPoint{};
+    GetCursorPos(&screenPoint);
+    auto listPoint = screenPoint;
+    ::ScreenToClient(chrome_.FilesHandle(), &listPoint);
+    LVHITTESTINFO hitTest{};
+    hitTest.pt = listPoint;
+    const int item = ListView_HitTest(chrome_.FilesHandle(), &hitTest);
+    if (item < 0) return 0;
+
+    const UINT state = ListView_GetItemState(chrome_.FilesHandle(), item, LVIS_SELECTED);
+    if ((state & LVIS_SELECTED) == 0) {
+        ListView_SetItemState(chrome_.FilesHandle(), -1, 0, LVIS_SELECTED);
+        ListView_SetItemState(chrome_.FilesHandle(), item, LVIS_SELECTED, LVIS_SELECTED);
+    }
+    ListView_SetItemState(chrome_.FilesHandle(), item, LVIS_FOCUSED, LVIS_FOCUSED);
+    ::SetFocus(chrome_.FilesHandle());
+
+    const auto menu = CreatePopupMenu();
+    if (!menu) return 0;
     AppendMenuW(menu, MF_STRING, ID_ACTIONS_PROPERTIES, L"Properties");
     const auto command = TrackPopupMenuEx(menu, TPM_RETURNCMD | TPM_LEFTALIGN | TPM_TOPALIGN,
         screenPoint.x, screenPoint.y, m_hWnd, nullptr);

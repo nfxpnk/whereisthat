@@ -59,6 +59,7 @@ private:
     void OnExit();
     void OnAbout();
     LRESULT OnTreeRightClick();
+    LRESULT OnFileRightClick();
     void ApplyControllerResult(wit::app::ControllerResult result);
     void PerformRequest(const wit::app::RequestEffect& request);
     void RenderRecentMenu(const std::vector<std::wstring>& paths);

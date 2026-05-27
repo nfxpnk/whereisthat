@@ -152,8 +152,14 @@ void ScanCoordinator::RunScan(std::stop_token stopToken, ScanId scanId, std::wst
         return true;
     };
 
+    wit::core::FileScanner scanner;
+    std::uint64_t totalFiles{};
+    PublishProgress(scanId, {0, 0, 0, 0, false, true});
+    bool success = !cancelled() && scanner.CountFiles(root, totalFiles, stopToken);
+    if (success && !cancelled()) PublishProgress(scanId, {0, 0, totalFiles, totalFiles, true, false});
+
     std::int64_t id{};
-    bool success = !cancelled() && staged->BeginTransaction();
+    success = success && !cancelled() && staged->BeginTransaction();
     wit::core::Disk disk;
     disk.diskName = diskName;
     disk.diskNumber = diskNumber;
@@ -177,11 +183,13 @@ void ScanCoordinator::RunScan(std::stop_token stopToken, ScanId scanId, std::wst
         }
     }
     if (success && !cancelled()) {
-        wit::core::FileScanner scanner;
         wit::core::FileScanner::Result scanResult;
         success = scanner.ScanFolder(root, id, *staged,
-            [this, scanId](const wit::core::FileScanner::Progress& progress) {
-                PublishProgress(scanId, {progress.scannedFiles, progress.scannedFolders});
+            [this, scanId, totalFiles](const wit::core::FileScanner::Progress& progress) {
+                const auto remaining = progress.scannedFiles < totalFiles
+                    ? totalFiles - progress.scannedFiles : 0;
+                PublishProgress(scanId, {progress.scannedFiles, progress.scannedFolders, totalFiles,
+                    remaining, true, false});
             }, scanResult, media.calculateCrc, false, stopToken, media.browseArchives);
         if (success && !cancelled()) {
             disk.totalFiles = static_cast<std::int64_t>(scanResult.totalFiles);

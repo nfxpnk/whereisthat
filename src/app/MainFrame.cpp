@@ -230,7 +230,8 @@ void MainFrame::ApplyControllerResult(wit::app::ControllerResult result) {
         });
         break;
     case wit::app::ScanDialogAction::Update:
-        scanProgressDialog_.Update(result.scanDialog.files, result.scanDialog.folders);
+        scanProgressDialog_.Update(result.scanDialog.files, result.scanDialog.folders, result.scanDialog.totalFiles,
+            result.scanDialog.remainingFiles, result.scanDialog.totalKnown, result.scanDialog.counting);
         break;
     case wit::app::ScanDialogAction::Cancelling:
         scanProgressDialog_.SetCancelling();

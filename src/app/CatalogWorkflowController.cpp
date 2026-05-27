@@ -446,7 +446,8 @@ ControllerResult CatalogWorkflowController::OnScanProgress(ScanId scanId) {
     ControllerResult result;
     if (scanId != 0 && scanId == activeScanId_) {
         if (const auto progress = scans_.TakeProgress(scanId)) {
-            result.scanDialog = {ScanDialogAction::Update, progress->files, progress->folders};
+            result.scanDialog = {ScanDialogAction::Update, progress->files, progress->folders,
+                progress->totalFiles, progress->remainingFiles, progress->totalKnown, progress->counting};
         }
     } else {
         scans_.TakeProgress(scanId);

@@ -10,7 +10,8 @@ public:
     enum { IDD = IDD_SCAN_PROGRESS };
 
     bool Show(HWND owner, std::function<void()> onCancel);
-    void Update(std::uint64_t files, std::uint64_t folders);
+    void Update(std::uint64_t files, std::uint64_t folders, std::uint64_t totalFiles,
+        std::uint64_t remainingFiles, bool totalKnown, bool counting);
     void SetCancelling();
     void Close();
 

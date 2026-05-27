@@ -23,6 +23,7 @@ public:
     };
     using ProgressCallback = std::function<void(const Progress&)>;
     using DiagnosticCallback = std::function<void(const std::wstring&)>;
+    bool CountFiles(const std::wstring& rootPath, std::uint64_t& totalFiles, std::stop_token stopToken = {}) const;
     bool ScanFolder(const std::wstring& rootPath, std::int64_t diskId, wit::storage::Database& db,
         const ProgressCallback& onProgress, Result& result, bool calculateCrc, bool manageTransaction = true,
         std::stop_token stopToken = {}, bool browseArchives = false,

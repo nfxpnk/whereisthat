@@ -26,7 +26,12 @@ void ReleaseIfPresent(T*& value) {
     }
 }
 
-HBITMAP LoadPngBitmap(IWICImagingFactory* factory, UINT resourceId) {
+int ToolbarScaleForDpi(HWND window) {
+    const UINT dpi = GetDpiForWindow(window);
+    return dpi > USER_DEFAULT_SCREEN_DPI ? 2 : 1;
+}
+
+HBITMAP LoadPngBitmap(IWICImagingFactory* factory, UINT resourceId, int targetSize) {
     const auto instance = GetModuleHandleW(nullptr);
     const auto resource = FindResourceW(instance, MAKEINTRESOURCEW(resourceId), RT_RCDATA);
     if (!resource) return nullptr;
@@ -53,6 +58,8 @@ HBITMAP LoadPngBitmap(IWICImagingFactory* factory, UINT resourceId) {
     IWICBitmapDecoder* decoder{};
     IWICBitmapFrameDecode* frame{};
     IWICFormatConverter* converter{};
+    IWICBitmapScaler* scaler{};
+    IWICBitmapSource* source{};
     HBITMAP bitmap{};
     void* pixels{};
     if (SUCCEEDED(factory->CreateDecoderFromStream(stream, nullptr, WICDecodeMetadataCacheOnLoad, &decoder)) &&
@@ -63,21 +70,31 @@ HBITMAP LoadPngBitmap(IWICImagingFactory* factory, UINT resourceId) {
             SUCCEEDED(factory->CreateFormatConverter(&converter)) &&
             SUCCEEDED(converter->Initialize(frame, GUID_WICPixelFormat32bppPBGRA,
                 WICBitmapDitherTypeNone, nullptr, 0.0, WICBitmapPaletteTypeCustom))) {
-            BITMAPINFO info{};
-            info.bmiHeader.biSize = sizeof(info.bmiHeader);
-            info.bmiHeader.biWidth = kToolbarIconSize;
-            info.bmiHeader.biHeight = -kToolbarIconSize;
-            info.bmiHeader.biPlanes = 1;
-            info.bmiHeader.biBitCount = 32;
-            info.bmiHeader.biCompression = BI_RGB;
-            bitmap = CreateDIBSection(nullptr, &info, DIB_RGB_COLORS, &pixels, nullptr, 0);
-            if (!bitmap || FAILED(converter->CopyPixels(nullptr, kToolbarIconSize * 4,
-                kToolbarIconSize * kToolbarIconSize * 4, static_cast<BYTE*>(pixels)))) {
-                if (bitmap) DeleteObject(bitmap);
-                bitmap = nullptr;
+            if (targetSize == kToolbarIconSize) {
+                source = converter;
+            } else if (SUCCEEDED(factory->CreateBitmapScaler(&scaler)) &&
+                SUCCEEDED(scaler->Initialize(converter, targetSize, targetSize,
+                    WICBitmapInterpolationModeNearestNeighbor))) {
+                source = scaler;
+            }
+            if (source) {
+                BITMAPINFO info{};
+                info.bmiHeader.biSize = sizeof(info.bmiHeader);
+                info.bmiHeader.biWidth = targetSize;
+                info.bmiHeader.biHeight = -targetSize;
+                info.bmiHeader.biPlanes = 1;
+                info.bmiHeader.biBitCount = 32;
+                info.bmiHeader.biCompression = BI_RGB;
+                bitmap = CreateDIBSection(nullptr, &info, DIB_RGB_COLORS, &pixels, nullptr, 0);
+                if (!bitmap || FAILED(source->CopyPixels(nullptr, targetSize * 4,
+                    targetSize * targetSize * 4, static_cast<BYTE*>(pixels)))) {
+                    if (bitmap) DeleteObject(bitmap);
+                    bitmap = nullptr;
+                }
             }
         }
     }
+    ReleaseIfPresent(scaler);
     ReleaseIfPresent(converter);
     ReleaseIfPresent(frame);
     ReleaseIfPresent(decoder);
@@ -141,15 +158,18 @@ bool MainWindowChrome::Create(HWND parent, bool showStatusBar, std::function<voi
 }
 
 bool MainWindowChrome::CreateToolbar() {
+    const int toolbarScale = ToolbarScaleForDpi(parent_);
+    const int toolbarIconSize = kToolbarIconSize * toolbarScale;
+    const int toolbarButtonSize = kToolbarButtonSize * toolbarScale;
     toolbarHandle_ = CreateWindowExW(0, TOOLBARCLASSNAMEW, nullptr,
         WS_CHILD | WS_VISIBLE | TBSTYLE_FLAT | TBSTYLE_TOOLTIPS | CCS_TOP | CCS_NODIVIDER,
         0, 0, 0, 0, parent_, reinterpret_cast<HMENU>(IDC_TOOLBAR), GetModuleHandleW(nullptr), nullptr);
     if (!toolbarHandle_) return false;
     SendMessageW(toolbarHandle_, TB_BUTTONSTRUCTSIZE, sizeof(TBBUTTON), 0);
     SendMessageW(toolbarHandle_, TB_SETEXTENDEDSTYLE, 0, TBSTYLE_EX_DRAWDDARROWS);
-    SendMessageW(toolbarHandle_, TB_SETBITMAPSIZE, 0, MAKELONG(kToolbarIconSize, kToolbarIconSize));
-    SendMessageW(toolbarHandle_, TB_SETBUTTONSIZE, 0, MAKELONG(kToolbarButtonSize, kToolbarButtonSize));
-    toolbarImages_ = ImageList_Create(kToolbarIconSize, kToolbarIconSize, ILC_COLOR32, 16, 0);
+    SendMessageW(toolbarHandle_, TB_SETBITMAPSIZE, 0, MAKELONG(toolbarIconSize, toolbarIconSize));
+    SendMessageW(toolbarHandle_, TB_SETBUTTONSIZE, 0, MAKELONG(toolbarButtonSize, toolbarButtonSize));
+    toolbarImages_ = ImageList_Create(toolbarIconSize, toolbarIconSize, ILC_COLOR32, 16, 0);
     if (!toolbarImages_) return false;
     IWICImagingFactory* factory{};
     if (FAILED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
@@ -162,7 +182,7 @@ bool MainWindowChrome::CreateToolbar() {
         IDB_TOOLBAR_SORT_DATE, IDB_TOOLBAR_SORT_REVERSE
     };
     for (const auto id : imageIds) {
-        const auto bitmap = LoadPngBitmap(factory, id);
+        const auto bitmap = LoadPngBitmap(factory, id, toolbarIconSize);
         if (!bitmap || ImageList_Add(toolbarImages_, bitmap, nullptr) == -1) {
             if (bitmap) DeleteObject(bitmap);
             factory->Release();
@@ -182,10 +202,10 @@ bool MainWindowChrome::CreateToolbar() {
         button.iString = -1;
         buttons.push_back(button);
     };
-    const auto addSeparator = [&buttons]() {
+    const auto addSeparator = [&buttons, toolbarScale]() {
         TBBUTTON separator{};
         separator.fsStyle = BTNS_SEP;
-        separator.iBitmap = 8;
+        separator.iBitmap = 8 * toolbarScale;
         buttons.push_back(separator);
     };
     addButton(0, ID_FILE_NEWCATALOG, BTNS_BUTTON);
@@ -225,7 +245,7 @@ bool MainWindowChrome::CreateBrowserImages() {
         IDB_BROWSER_DATABASE, IDB_BROWSER_DRIVE
     };
     for (const auto id : baseImageIds) {
-        const auto bitmap = LoadPngBitmap(factory, id);
+        const auto bitmap = LoadPngBitmap(factory, id, kToolbarIconSize);
         if (!bitmap || ImageList_Add(browserImages_, bitmap, nullptr) == -1) {
             if (bitmap) DeleteObject(bitmap);
             factory->Release();
@@ -234,7 +254,7 @@ bool MainWindowChrome::CreateBrowserImages() {
         DeleteObject(bitmap);
     }
     for (UINT id = IDB_BROWSER_FILE_TXT; id <= IDB_BROWSER_FILE_SH; ++id) {
-        const auto bitmap = LoadPngBitmap(factory, id);
+        const auto bitmap = LoadPngBitmap(factory, id, kToolbarIconSize);
         if (!bitmap || ImageList_Add(browserImages_, bitmap, nullptr) == -1) {
             if (bitmap) DeleteObject(bitmap);
             factory->Release();

@@ -648,8 +648,6 @@ def validate_plan(plan: ImportPlan) -> None:
                 f"File XML item #{file.xml_index} references missing folder {file.folder_path!r}."
             )
 
-    if plan.disk_groups and plan.disks:
-        plan.warnings["XML has DiskGroup records but no disk-to-group relationship fields"] += len(plan.disks)
     for field_name, count in plan.unmapped_fields.items():
         plan.warnings[f"unmapped XML field {field_name}"] += count
 
@@ -662,7 +660,18 @@ def create_schema(connection: sqlite3.Connection) -> None:
 
 
 def create_indexes(connection: sqlite3.Connection) -> None:
-    connection.executescript((SQL_ROOT / "indexes.sql").read_text(encoding="utf-8"))
+    statement_lines: list[str] = []
+    for line in (SQL_ROOT / "indexes.sql").read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("--"):
+            continue
+        statement_lines.append(line)
+        statement = "\n".join(statement_lines)
+        if sqlite3.complete_statement(statement):
+            connection.execute(statement)
+            statement_lines.clear()
+    if statement_lines:
+        raise ImportErrorWithContext("indexes.sql ended with an incomplete SQL statement.")
 
 
 def validate_schema(connection: sqlite3.Connection) -> None:
@@ -701,6 +710,7 @@ def import_to_database(plan: ImportPlan, db_path: Path) -> ImportSummary:
                 )
                 inserted["disk_groups"] += 1
 
+            LOG.debug("Inserting %d disk row(s).", len(plan.disks))
             for disk in plan.disks:
                 cursor = connection.execute(
                     "INSERT INTO disks("
@@ -732,6 +742,7 @@ def import_to_database(plan: ImportPlan, db_path: Path) -> ImportSummary:
                 disk_id_by_key[disk_key(disk.name, disk.disk_number)] = disk_id
                 inserted["disks"] += 1
 
+            LOG.debug("Inserting %d folder row(s).", len(plan.folders))
             for folder in sorted(plan.folders, key=lambda f: (f.disk_key, f.path.count("\\"), f.path.casefold())):
                 disk_id = disk_id_by_key[folder.disk_key]
                 parent_id = None
@@ -758,6 +769,7 @@ def import_to_database(plan: ImportPlan, db_path: Path) -> ImportSummary:
                 folder_id_by_key_path[(folder.disk_key, folder.path.casefold())] = int(cursor.lastrowid)
                 inserted["folders"] += 1
 
+            LOG.debug("Inserting %d file row(s).", len(plan.files))
             for file in plan.files:
                 disk_id = disk_id_by_key[file.disk_key]
                 folder_id = folder_id_by_key_path[(file.disk_key, file.folder_path.casefold())]
@@ -782,10 +794,14 @@ def import_to_database(plan: ImportPlan, db_path: Path) -> ImportSummary:
                 )
                 inserted["files"] += 1
 
-            update_rollups(connection)
-            inserted["disk_scan_statistics"] = insert_scan_statistics(connection)
+            LOG.debug("Creating indexes.")
             create_indexes(connection)
+            LOG.debug("Updating rollups.")
+            update_rollups(connection)
+            LOG.debug("Inserting scan statistics.")
+            inserted["disk_scan_statistics"] = insert_scan_statistics(connection)
             validate_schema(connection)
+            LOG.debug("Checking database integrity.")
             check_database(connection)
             connection.execute("COMMIT;")
         except Exception:
@@ -807,15 +823,21 @@ def import_to_database(plan: ImportPlan, db_path: Path) -> ImportSummary:
 
 
 def update_rollups(connection: sqlite3.Connection) -> None:
-    connection.execute(
-        "UPDATE folders SET content_size=("
-        "SELECT COALESCE(SUM(size),0) FROM files "
-        "WHERE files.disk_id=folders.disk_id AND ("
-        "files.folder_id=folders.id OR files.folder_id IN ("
-        "SELECT child.id FROM folders child "
-        "WHERE child.disk_id=folders.disk_id "
-        "AND child.path LIKE folders.path || '\\%'"
-        "))) WHERE content_size=0;"
+    folders = {
+        int(folder_id): parent_folder_id
+        for folder_id, parent_folder_id in connection.execute(
+            "SELECT id,parent_folder_id FROM folders;"
+        )
+    }
+    folder_sizes: Counter[int] = Counter()
+    for folder_id, size in connection.execute("SELECT folder_id,size FROM files;"):
+        current_id = int(folder_id)
+        while current_id is not None:
+            folder_sizes[current_id] += int(size)
+            current_id = folders[current_id]
+    connection.executemany(
+        "UPDATE folders SET content_size=? WHERE id=? AND content_size=0;",
+        ((size, folder_id) for folder_id, size in folder_sizes.items()),
     )
     connection.execute(
         "UPDATE disks SET "

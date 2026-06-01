@@ -253,6 +253,14 @@ bool Database::DeleteContentForDisk(std::int64_t diskId) {
     return sqlite3_step(statement.Raw()) == SQLITE_DONE;
 }
 
+bool Database::MoveDiskToGroup(std::int64_t diskId, std::int64_t diskGroupId) {
+    if (!editable_ || diskId == 0 || diskGroupId == 0) return false;
+    SQLiteStatement statement(connection_.Raw(), "UPDATE disks SET disk_group_id=? WHERE id=?;");
+    statement.BindInt64(1, diskGroupId);
+    statement.BindInt64(2, diskId);
+    return sqlite3_step(statement.Raw()) == SQLITE_DONE && sqlite3_changes(connection_.Raw()) == 1;
+}
+
 bool Database::UpdateDisk(const wit::core::Disk& disk) {
     if (!editable_) return false;
     SQLiteStatement statement(connection_.Raw(),

@@ -126,6 +126,8 @@ public:
     ControllerResult SearchClosed();
     ControllerResult RequestAddOrUpdateMedia();
     ControllerResult CreateDiskGroup(const std::wstring& name);
+    ControllerResult MoveDiskToGroup(wit::core::CatalogId catalogId, std::int64_t diskId,
+        std::int64_t diskGroupId);
     ControllerResult MediaSelectionCompleted(const std::optional<wit::core::ScanRequest>& request);
     ControllerResult RequestCancelScan();
     ControllerResult RequestGeneralSettings();

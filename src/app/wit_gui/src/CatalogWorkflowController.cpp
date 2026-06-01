@@ -162,6 +162,10 @@ ControllerResult CatalogWorkflowController::SaveCatalog(wit::core::CatalogId id)
         PopulatePresentation(result);
         return result;
     }
+    if (!catalog->HasPendingChanges()) {
+        PopulatePresentation(result);
+        return result;
+    }
     if (scans_.Targets(id)) {
         result.messages.push_back(Message(L"A scan is still preparing changes for this catalog.",
             L"Scan in progress", MB_OK | MB_ICONINFORMATION));
@@ -416,6 +420,45 @@ ControllerResult CatalogWorkflowController::CreateDiskGroup(const std::wstring& 
     return result;
 }
 
+ControllerResult CatalogWorkflowController::MoveDiskToGroup(wit::core::CatalogId catalogId,
+    std::int64_t diskId, std::int64_t diskGroupId) {
+    ControllerResult result;
+    auto* catalog = session_.Find(catalogId);
+    auto* database = catalog ? catalog->WorkingDatabase() : nullptr;
+    if (!database || !database->IsEditable()) {
+        result.messages.push_back(Message(L"Open an editable catalog before moving a disk image.",
+            L"Move to Group", MB_OK | MB_ICONINFORMATION));
+        PopulatePresentation(result);
+        return result;
+    }
+    if (scans_.Targets(catalogId)) {
+        result.messages.push_back(Message(L"A scan is still preparing changes for this catalog.",
+            L"Scan in progress", MB_OK | MB_ICONINFORMATION));
+        PopulatePresentation(result);
+        return result;
+    }
+    auto pending = std::make_unique<wit::storage::Database>();
+    if (!pending->CreateWorkingCopy(*database)) {
+        result.messages.push_back(Message(L"Unable to prepare pending catalog changes.",
+            L"Move to Group", MB_OK | MB_ICONERROR));
+        PopulatePresentation(result);
+        return result;
+    }
+    if (!pending->MoveDiskToGroup(diskId, diskGroupId)) {
+        result.messages.push_back(Message(L"Unable to move the disk image to the selected group.",
+            L"Move to Group", MB_OK | MB_ICONWARNING));
+        PopulatePresentation(result);
+        return result;
+    }
+    session_.AcceptPending(catalogId, std::move(pending));
+    const bool active = ActiveCatalog() && ActiveCatalog()->id == catalogId;
+    result.browserEffects.push_back({BrowserEffectKind::RefreshCatalog, catalogId, catalog->label,
+        catalog->WorkingDatabase(), active});
+    result.presentation.refreshBrowserStatus = true;
+    PopulatePresentation(result);
+    return result;
+}
+
 ControllerResult CatalogWorkflowController::MediaSelectionCompleted(
     const std::optional<wit::core::ScanRequest>& request) {
     ControllerResult result;
@@ -589,7 +632,8 @@ void CatalogWorkflowController::PopulatePresentation(ControllerResult& result, b
         if (catalog->IsEditable()) hasEditable = true;
     }
     result.presentation.canScan = hasEditable && !scans_.IsRunning();
-    result.presentation.canSave = active && active->IsEditable() && !scans_.Targets(active->id);
+    result.presentation.canSave = active && active->IsEditable() && active->HasPendingChanges() &&
+        !scans_.Targets(active->id);
     result.presentation.canClose = active && !scans_.Targets(active->id);
     result.presentation.statusVisible = session_.Settings().showStatusBar;
     result.presentation.toolbarVisible = session_.Settings().showToolbar;

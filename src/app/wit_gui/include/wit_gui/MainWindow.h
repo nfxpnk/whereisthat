@@ -58,6 +58,7 @@ private:
     void OnCommand(int id);
     void OnExit();
     void OnAbout();
+    void OnMoveSelectedDiskToGroup();
     LRESULT OnTreeRightClick();
     void ApplyControllerResult(wit::app::ControllerResult result);
     void PerformRequest(const wit::app::RequestEffect& request);

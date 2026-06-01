@@ -38,6 +38,7 @@ public:
     std::int64_t FindDiskBySourcePath(const std::wstring& sourcePath,
         const std::wstring& originalLocation = L"");
     bool DeleteContentForDisk(std::int64_t diskId);
+    bool MoveDiskToGroup(std::int64_t diskId, std::int64_t diskGroupId);
     bool UpdateDisk(const wit::core::Disk& disk);
     bool UpdateDiskScanStatistics(const wit::core::DiskScanStatistics& statistics);
     int GetDiskCount();

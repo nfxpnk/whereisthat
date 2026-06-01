@@ -3,6 +3,7 @@
 #include <Windows.h>
 #include <CommCtrl.h>
 #include <functional>
+#include <optional>
 #include <string>
 #include <vector>
 #include "wit_types/CatalogIdentity.h"
@@ -28,6 +29,8 @@ public:
     bool SelectCatalogRoot(wit::core::CatalogId id);
     bool SelectFirstCatalogRoot();
     bool IsCatalogRoot(HTREEITEM item) const { return tree_.IsCatalogRoot(item); }
+    std::optional<wit::core::BrowserTarget> TargetForTreeItem(HTREEITEM item) const;
+    std::optional<wit::core::BrowserTarget> SelectedTreeTarget() const;
     wit::core::CatalogId SelectedCatalogId() const;
     void NavigateBack();
     void NavigateForward();

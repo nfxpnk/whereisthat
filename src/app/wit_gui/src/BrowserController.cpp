@@ -134,6 +134,16 @@ wit::core::CatalogId BrowserController::SelectedCatalogId() const {
     return tree_.CatalogIdFor(TreeView_GetSelection(treeHandle_));
 }
 
+std::optional<wit::core::BrowserTarget> BrowserController::TargetForTreeItem(HTREEITEM item) const {
+    const auto* target = tree_.TargetFor(item);
+    if (!target) return std::nullopt;
+    return *target;
+}
+
+std::optional<wit::core::BrowserTarget> BrowserController::SelectedTreeTarget() const {
+    return TargetForTreeItem(TreeView_GetSelection(treeHandle_));
+}
+
 void BrowserController::NavigateBack() {
     if (historyIndex_ <= 0) return;
     --historyIndex_;

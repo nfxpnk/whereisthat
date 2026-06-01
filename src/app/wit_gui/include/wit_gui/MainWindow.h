@@ -6,7 +6,7 @@
 #include <vector>
 #include "wit_win32/BaseWindow.h"
 #include "wit_catalog/BrowserController.h"
-#include <wit_catalog/CatalogWorkflowController.h>
+#include <wit_gui/CatalogWorkflowController.h>
 #include <wit_gui/MainWindowChrome.h>
 #include "resource.h"
 #include "wit_gui/ProgressDialog.h"

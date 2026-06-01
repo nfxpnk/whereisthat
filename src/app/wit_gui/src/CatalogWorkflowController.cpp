@@ -1,4 +1,4 @@
-#include <wit_catalog/CatalogWorkflowController.h>
+#include <wit_gui/CatalogWorkflowController.h>
 #include <iterator>
 #include <utility>
 

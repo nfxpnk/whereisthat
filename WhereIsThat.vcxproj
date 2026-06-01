@@ -47,7 +47,7 @@ copy /Y "$(ProjectDir)third_party\libarchive\bin\*.dll" "$(OutDir)"</Command>
         </PostBuildEvent>
     </ItemDefinitionGroup>
     <ItemGroup>
-        <ClCompile Include="src\modules\wit_catalog\src\CatalogWorkflowController.cpp"/>
+        <ClCompile Include="src\app\wit_gui\src\CatalogWorkflowController.cpp"/>
         <ClCompile Include="src\app\wit_gui\src\AddDiskDialog.cpp"/>
         <ClCompile Include="src\app\wit_gui\src\AboutDialog.cpp"/>
         <ClCompile Include="src\app\wit_gui\src\App.cpp"/>
@@ -83,7 +83,7 @@ copy /Y "$(ProjectDir)third_party\libarchive\bin\*.dll" "$(OutDir)"</Command>
         <ClCompile Include="src\modules\wit_infra\src\Win32Helpers.cpp"/>
     </ItemGroup>
     <ItemGroup>
-        <ClInclude Include="src\modules\wit_catalog\include\wit_catalog\CatalogWorkflowController.h"/>
+        <ClInclude Include="src\app\wit_gui\include\wit_gui\CatalogWorkflowController.h"/>
         <ClInclude Include="src\app\wit_gui\include\wit_gui\AboutDialog.h"/>
         <ClInclude Include="src\app\wit_gui\include\wit_gui\AddDiskDialog.h"/>
         <ClInclude Include="src\app\wit_gui\include\wit_gui\App.h"/>

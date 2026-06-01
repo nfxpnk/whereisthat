@@ -2,7 +2,7 @@
 """Import a WhereIsIt XML report into the current Where Is That? SQLite format.
 
 Usage:
-    python import.py --xml home.xml --db home.db --overwrite --verbose
+    python import.py --xml catalog.xml --db catalog.db --overwrite --verbose
     python import.py --overwrite --verbose
 
 The importer uses only the Python standard library. It writes the database to a
@@ -27,11 +27,11 @@ from pathlib import Path, PureWindowsPath
 from typing import Iterable
 
 
-LOG = logging.getLogger("import_home_xml")
-SCRIPT_DIR = Path(__file__).resolve().parent
-PROJECT_ROOT = SCRIPT_DIR.parent.parent
-DEFAULT_XML_PATH = SCRIPT_DIR / "home.xml"
-DEFAULT_DB_PATH = PROJECT_ROOT / "home.db"
+LOG = logging.getLogger("import_xml")
+SCRIPT_DIR = Path.cwd()
+PROJECT_ROOT = SCRIPT_DIR
+DEFAULT_XML_PATH = SCRIPT_DIR / "catalog.xml"
+DEFAULT_DB_PATH = PROJECT_ROOT / "catalog.db"
 
 SCHEMA_TABLES = [
     "CREATE TABLE IF NOT EXISTS catalog_metadata ("

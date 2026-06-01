@@ -7,6 +7,7 @@
 #include <wit_catalog/CatalogSession.h>
 #include <wit_gui/MainWindowChrome.h>
 #include <wit_scanner/ScanCoordinator.h>
+#include <wit_scanner/ScanRequest.h>
 
 namespace wit::app {
 
@@ -32,6 +33,12 @@ struct MessageEffect {
     UINT type{MB_OK};
 };
 
+struct CatalogChoice {
+    wit::core::CatalogId id{};
+    std::wstring label;
+    std::wstring path;
+};
+
 enum class RequestKind {
     None,
     ChooseNewCatalog,
@@ -46,7 +53,7 @@ enum class RequestKind {
 struct RequestEffect {
     RequestKind kind{RequestKind::None};
     wit::storage::Database* database{};
-    std::vector<wit::ui::CatalogChoice> catalogChoices;
+    std::vector<CatalogChoice> catalogChoices;
     wit::core::CatalogId preferredCatalogId{};
     wit::platform::AppSettings settings;
 };
@@ -114,7 +121,7 @@ public:
     ControllerResult RequestSearch();
     ControllerResult SearchClosed();
     ControllerResult RequestAddOrUpdateMedia();
-    ControllerResult MediaSelectionCompleted(const std::optional<wit::ui::AddNewDiskMediaResult>& media);
+    ControllerResult MediaSelectionCompleted(const std::optional<wit::core::ScanRequest>& request);
     ControllerResult RequestCancelScan();
     ControllerResult RequestGeneralSettings();
     ControllerResult GeneralSettingsCompleted(const std::optional<wit::platform::AppSettings>& settings);

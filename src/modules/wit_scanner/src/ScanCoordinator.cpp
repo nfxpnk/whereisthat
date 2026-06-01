@@ -52,29 +52,29 @@ void ScanCoordinator::DetachTarget() {
     targetWindow_ = nullptr;
 }
 
-bool ScanCoordinator::Start(wit::storage::Database* source, const wit::ui::AddNewDiskMediaResult& media,
+bool ScanCoordinator::Start(wit::storage::Database* source, const wit::core::ScanRequest& request,
     ScanId& scanId) {
     if (IsRunning() || !deliveryWindow_ || !source) return false;
     auto candidate = std::make_unique<wit::storage::Database>();
     if (!candidate->CreateWorkingCopy(*source)) return false;
-    const auto rootPath = std::filesystem::absolute(media.scanRoot);
+    const auto rootPath = std::filesystem::absolute(request.scanRoot);
     const std::wstring root = rootPath.wstring();
-    const std::wstring diskName = media.diskName.empty()
-        ? wit::platform::DisplayNameForPath(rootPath) : media.diskName;
+    const std::wstring diskName = request.diskName.empty()
+        ? wit::platform::DisplayNameForPath(rootPath) : request.diskName;
     std::int64_t diskNumber{};
     try {
-        if (!media.diskNumber.empty()) diskNumber = std::stoll(media.diskNumber);
+        if (!request.diskNumber.empty()) diskNumber = std::stoll(request.diskNumber);
     } catch (...) {
         diskNumber = 0;
     }
     scanId = nextScanId_++;
     if (scanId == 0) scanId = nextScanId_++;
     activeScanId_ = scanId;
-    activeCatalogId_ = media.destinationCatalogId;
+    activeCatalogId_ = request.destinationCatalogId;
     cancellationRequested_ = false;
-    worker_ = std::jthread([this, scanId, root, diskName, diskNumber, media,
+    worker_ = std::jthread([this, scanId, root, diskName, diskNumber, request,
         staged = std::move(candidate)](std::stop_token stopToken) mutable {
-        RunScan(stopToken, scanId, root, diskName, diskNumber, media, std::move(staged));
+        RunScan(stopToken, scanId, root, diskName, diskNumber, request, std::move(staged));
     });
     return true;
 }
@@ -137,11 +137,11 @@ LRESULT ScanCoordinator::DispatchNotification(UINT message, WPARAM wparam, LPARA
 }
 
 void ScanCoordinator::RunScan(std::stop_token stopToken, ScanId scanId, std::wstring root, std::wstring diskName,
-    std::int64_t diskNumber, wit::ui::AddNewDiskMediaResult media,
+    std::int64_t diskNumber, wit::core::ScanRequest request,
     std::unique_ptr<wit::storage::Database> staged) {
     ScanResult result;
     result.id = scanId;
-    result.destinationCatalogId = media.destinationCatalogId;
+    result.destinationCatalogId = request.destinationCatalogId;
     result.outcome = ScanOutcome::Failed;
     result.error = L"The scan could not be staged. The saved catalog was not changed.";
     const auto cancelled = [&]() {
@@ -164,15 +164,15 @@ void ScanCoordinator::RunScan(std::stop_token stopToken, ScanId scanId, std::wst
     disk.diskName = diskName;
     disk.diskNumber = diskNumber;
     disk.sourcePath = root;
-    disk.location = media.originalPath;
-    disk.diskType = media.kind == wit::ui::MediaSourceKind::Iso
+    disk.location = request.originalPath;
+    disk.diskType = request.kind == wit::core::MediaSourceKind::Iso
         ? wit::core::DiskType::VirtualDisk : wit::core::DiskType::Other;
     disk.addedAt = wit::platform::NowUnixSeconds();
     disk.updatedAt = disk.addedAt;
     if (success && !cancelled()) wit::platform::PopulateVolumeMetadata(root, disk);
     if (success && !cancelled()) {
         id = staged->FindDiskBySourcePath(root,
-            media.kind == wit::ui::MediaSourceKind::Iso ? media.originalPath : L"");
+            request.kind == wit::core::MediaSourceKind::Iso ? request.originalPath : L"");
         if (id != 0) {
             disk.id = id;
             success = staged->DeleteContentForDisk(id);
@@ -190,7 +190,7 @@ void ScanCoordinator::RunScan(std::stop_token stopToken, ScanId scanId, std::wst
                     ? totalFiles - progress.scannedFiles : 0;
                 PublishProgress(scanId, {progress.scannedFiles, progress.scannedFolders, totalFiles,
                     remaining, true, false});
-            }, scanResult, media.calculateCrc, false, stopToken, media.browseArchives);
+            }, scanResult, request.calculateCrc, false, stopToken, request.browseArchives);
         if (success && !cancelled()) {
             disk.totalFiles = static_cast<std::int64_t>(scanResult.totalFiles);
             disk.totalFolders = static_cast<std::int64_t>(scanResult.totalFolders);
@@ -199,7 +199,7 @@ void ScanCoordinator::RunScan(std::stop_token stopToken, ScanId scanId, std::wst
             statistics.diskId = id;
             statistics.lastScannedAt = disk.updatedAt;
             statistics.imageScanningTimeMs = scanResult.elapsedMilliseconds;
-            statistics.calculatedFileCrcs = media.calculateCrc;
+            statistics.calculatedFileCrcs = request.calculateCrc;
             statistics.scannedArchives = static_cast<std::int64_t>(scanResult.scannedArchives);
             statistics.archiveFilesCount = static_cast<std::int64_t>(scanResult.archiveFiles);
             statistics.archiveFoldersCount = static_cast<std::int64_t>(scanResult.archiveFolders);

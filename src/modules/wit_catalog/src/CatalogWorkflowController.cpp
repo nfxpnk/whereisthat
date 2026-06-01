@@ -379,13 +379,13 @@ ControllerResult CatalogWorkflowController::RequestAddOrUpdateMedia() {
 }
 
 ControllerResult CatalogWorkflowController::MediaSelectionCompleted(
-    const std::optional<wit::ui::AddNewDiskMediaResult>& media) {
+    const std::optional<wit::core::ScanRequest>& request) {
     ControllerResult result;
-    if (!media) {
+    if (!request) {
         PopulatePresentation(result);
         return result;
     }
-    auto* target = session_.Find(media->destinationCatalogId);
+    auto* target = session_.Find(request->destinationCatalogId);
     if (!target || !target->IsEditable()) {
         result.messages.push_back(Message(L"The selected destination catalog is no longer editable.",
             L"Add/Update Disk Image", MB_OK | MB_ICONWARNING));
@@ -396,7 +396,7 @@ ControllerResult CatalogWorkflowController::MediaSelectionCompleted(
     result.presentation.updateAppStatus = true;
     result.presentation.appStatus = AppStatus::Busy;
     result.presentation.flushStatus = true;
-    if (!scans_.Start(target->WorkingDatabase(), *media, scanId)) {
+    if (!scans_.Start(target->WorkingDatabase(), *request, scanId)) {
         result.presentation.appStatus = AppStatus::Idle;
         result.messages.push_back(Message(L"Unable to prepare pending catalog changes.",
             L"Add/Update Disk Image", MB_OK | MB_ICONERROR));

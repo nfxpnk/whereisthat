@@ -5,7 +5,47 @@
 #include "wit_gui/AboutDialog.h"
 #include "wit_gui/CatalogFileDialog.h"
 #include "wit_gui/GeneralSettingsDialog.h"
+#include "wit_scanner/ScanRequest.h"
 #include "resource.h"
+
+namespace {
+
+wit::core::MediaSourceKind ToScanMediaSourceKind(wit::ui::MediaSourceKind kind) {
+    switch (kind) {
+    case wit::ui::MediaSourceKind::Drive:
+        return wit::core::MediaSourceKind::Drive;
+    case wit::ui::MediaSourceKind::Iso:
+        return wit::core::MediaSourceKind::Iso;
+    case wit::ui::MediaSourceKind::Folder:
+    case wit::ui::MediaSourceKind::None:
+    default:
+        return wit::core::MediaSourceKind::Folder;
+    }
+}
+
+wit::core::ScanRequest ToScanRequest(const wit::ui::AddNewDiskMediaResult& media) {
+    return {
+        media.destinationCatalogId,
+        ToScanMediaSourceKind(media.kind),
+        media.scanRoot,
+        media.originalPath,
+        media.diskName,
+        media.diskNumber,
+        media.calculateCrc,
+        media.browseArchives
+    };
+}
+
+std::vector<wit::ui::CatalogChoice> ToDialogCatalogChoices(const std::vector<wit::app::CatalogChoice>& choices) {
+    std::vector<wit::ui::CatalogChoice> dialogChoices;
+    dialogChoices.reserve(choices.size());
+    for (const auto& choice : choices) {
+        dialogChoices.push_back({choice.id, choice.label, choice.path});
+    }
+    return dialogChoices;
+}
+
+}
 
 bool MainFrame::Create() {
     const HMENU menu = LoadMenuW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDR_MAINMENU));
@@ -289,10 +329,11 @@ void MainFrame::PerformRequest(const wit::app::RequestEffect& request) {
     case wit::app::RequestKind::ShowAddOrUpdateMedia: {
         wit::ui::AddNewDiskMediaResult media;
         wit::ui::AddNewDiskMediaDialog dialog;
-        const bool accepted = dialog.Show(m_hWnd, GetModuleHandleW(nullptr), request.catalogChoices,
+        const auto catalogChoices = ToDialogCatalogChoices(request.catalogChoices);
+        const bool accepted = dialog.Show(m_hWnd, GetModuleHandleW(nullptr), catalogChoices,
             request.preferredCatalogId, media);
         ApplyControllerResult(controller_.MediaSelectionCompleted(
-            accepted ? std::optional<wit::ui::AddNewDiskMediaResult>(media) : std::nullopt));
+            accepted ? std::optional<wit::core::ScanRequest>(ToScanRequest(media)) : std::nullopt));
         break;
     }
     case wit::app::RequestKind::ShowGeneralSettings: {

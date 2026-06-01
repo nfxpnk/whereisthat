@@ -120,6 +120,7 @@ copy /Y "$(ProjectDir)third_party\libarchive\bin\*.dll" "$(OutDir)"</Command>
         <ClInclude Include="src\modules\wit_scanner\include\wit_scanner\IFileScanner.h"/>
         <ClInclude Include="src\modules\wit_scanner\include\wit_scanner\IMetadataExtractor.h"/>
         <ClInclude Include="src\modules\wit_scanner\include\wit_scanner\ScanCoordinator.h"/>
+        <ClInclude Include="src\modules\wit_scanner\include\wit_scanner\ScanRequest.h"/>
         <ClInclude Include="src\modules\wit_search\include\wit_search\ISearchExecutor.h"/>
         <ClInclude Include="src\modules\wit_search\include\wit_search\SearchResult.h"/>
         <ClInclude Include="src\modules\wit_types\include\wit_types\BrowserLocation.h"/>

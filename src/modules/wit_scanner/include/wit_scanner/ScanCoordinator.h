@@ -12,7 +12,7 @@
 #include <vector>
 #include "wit_types/CatalogIdentity.h"
 #include "wit_database/Database.h"
-#include "wit_gui/AddDiskDialog.h"
+#include "wit_scanner/ScanRequest.h"
 #include "wit_types/ScanProgress.h"
 
 namespace wit::app {
@@ -47,7 +47,7 @@ public:
     bool IsRunning() const { return activeScanId_ != 0; }
     bool IsCancelling() const { return cancellationRequested_; }
     bool Targets(wit::core::CatalogId id) const { return IsRunning() && activeCatalogId_ == id; }
-    bool Start(wit::storage::Database* source, const wit::ui::AddNewDiskMediaResult& media, ScanId& scanId);
+    bool Start(wit::storage::Database* source, const wit::core::ScanRequest& request, ScanId& scanId);
     bool RequestCancel();
     std::optional<ScanProgress> TakeProgress(ScanId scanId);
     std::optional<ScanResult> TakeResult(ScanId scanId);
@@ -57,7 +57,7 @@ private:
     static LRESULT CALLBACK DeliveryWindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lparam);
     LRESULT DispatchNotification(UINT message, WPARAM wparam, LPARAM lparam);
     void RunScan(std::stop_token stopToken, ScanId scanId, std::wstring root, std::wstring diskName,
-        std::int64_t diskNumber, wit::ui::AddNewDiskMediaResult media,
+        std::int64_t diskNumber, wit::core::ScanRequest request,
         std::unique_ptr<wit::storage::Database> staged);
     void PublishProgress(ScanId scanId, const ScanProgress& progress);
     void PublishResult(ScanResult result);

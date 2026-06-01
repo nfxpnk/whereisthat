@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import re
 import shutil
 import sqlite3
 import sys
@@ -33,6 +34,8 @@ PROJECT_ROOT = SCRIPT_DIR.parent.parent
 DEFAULT_XML_PATH = SCRIPT_DIR / "catalog.xml"
 DEFAULT_DB_PATH = SCRIPT_DIR / "catalog.db"
 SQL_ROOT = PROJECT_ROOT / "sql"
+MOJIBAKE_CHARS_RE = re.compile(r"[\u00C0-\u00FF\u00A8\u00B8\u201A-\u201E\u2020-\u2026\u2030\u2039\u203A\u20AC\u2122]")
+CYRILLIC_RE = re.compile(r"[\u0400-\u04FF]")
 SCHEMA_TABLE_FILES = [
     "catalog_metadata.sql",
     "disk_groups.sql",
@@ -163,6 +166,16 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         action="store_true",
         help="Parse and validate without writing a database.",
     )
+    parser.add_argument(
+        "--fix-xml-output",
+        type=Path,
+        help="Write a UTF-8 XML copy with repaired Cyrillic mojibake and exit.",
+    )
+    parser.add_argument(
+        "--mojibake-demo",
+        action="store_true",
+        help="Run a small Cyrillic mojibake repair demo and exit.",
+    )
     parser.add_argument("--verbose", action="store_true", help="Enable detailed logging.")
     return parser.parse_args(argv)
 
@@ -180,6 +193,90 @@ def text_of(item: ET.Element) -> dict[str, str]:
         value = child.text if child.text is not None else ""
         result[child.tag] = value.strip()
     return result
+
+
+def looks_like_cyrillic_mojibake(s: str) -> bool:
+    if not s or s.isascii():
+        return False
+    mojibake_chars = MOJIBAKE_CHARS_RE.findall(s)
+    if not mojibake_chars:
+        return False
+    if CYRILLIC_RE.search(s):
+        return False
+    return len(mojibake_chars) >= 2
+
+
+def cyrillic_score(s: str) -> int:
+    return len(CYRILLIC_RE.findall(s))
+
+
+def cyrillic_ratio(s: str) -> float:
+    letters = [char for char in s if char.isalpha()]
+    if not letters:
+        return 0.0
+    return cyrillic_score(s) / len(letters)
+
+
+def fix_cyrillic_mojibake(s: str) -> str:
+    if not looks_like_cyrillic_mojibake(s):
+        return s
+
+    candidates: list[tuple[int, str, str]] = []
+    for encoding in ("latin1", "cp1252"):
+        try:
+            repaired = s.encode(encoding).decode("cp1251")
+        except UnicodeError as exc:
+            LOG.warning("Could not repair suspected Cyrillic mojibake %r via %s: %s", s, encoding, exc)
+            continue
+        score = cyrillic_score(repaired)
+        if score >= 3 and cyrillic_ratio(repaired) >= 0.5:
+            candidates.append((score, encoding, repaired))
+
+    if not candidates:
+        LOG.warning("Could not repair suspected Cyrillic mojibake safely: %r", s)
+        return s
+
+    _, encoding, repaired = max(candidates, key=lambda candidate: candidate[0])
+    if repaired != s:
+        LOG.info("Repaired Cyrillic mojibake via %s: %r -> %r", encoding, s, repaired)
+    return repaired
+
+
+def repair_xml_text(value: str | None, context: str) -> str | None:
+    if value is None:
+        return None
+    repaired = fix_cyrillic_mojibake(value)
+    if repaired != value:
+        LOG.info("Changed XML %s: %r -> %r", context, value, repaired)
+    return repaired
+
+
+def repair_xml_tree(root: ET.Element) -> None:
+    def visit(element: ET.Element, path: str) -> None:
+        for name, value in list(element.attrib.items()):
+            element.attrib[name] = repair_xml_text(value, f"{path}@{name}") or ""
+        element.text = repair_xml_text(element.text, f"{path} text")
+        element.tail = repair_xml_text(element.tail, f"{path} tail")
+
+        child_counts: Counter[str] = Counter()
+        for child in list(element):
+            child_name = xml_element_name(child)
+            child_counts[child_name] += 1
+            visit(child, f"{path}/{child_name}[{child_counts[child_name]}]")
+
+    visit(root, root.tag)
+
+
+def demo_cyrillic_mojibake_repair() -> None:
+    samples = {
+        "Êîìïàíèÿ": "Компания",
+        "Âûáîð": "Выбор",
+        "normal English text": "normal English text",
+    }
+    for broken, expected in samples.items():
+        repaired = fix_cyrillic_mojibake(broken)
+        status = "OK" if repaired == expected else "FAIL"
+        LOG.info("Mojibake demo %s: %r -> %r", status, broken, repaired)
 
 
 def required_text(item: XmlItem, field_name: str) -> str:
@@ -350,10 +447,21 @@ def is_valid_xml_char(value: str) -> bool:
     )
 
 
-def sanitized_xml_tree(xml_path: Path, parse_error: ET.ParseError) -> ET.ElementTree:
-    data = xml_path.read_bytes()
-    text = data.decode("utf-8", errors="replace")
-    invalid_unicode_replacements = text.count("\ufffd")
+def xml_parser() -> ET.XMLParser:
+    return ET.XMLParser(target=ET.TreeBuilder(insert_comments=True))
+
+
+def xml_element_name(element: ET.Element) -> str:
+    return element.tag if isinstance(element.tag, str) else "comment()"
+
+
+def declared_xml_encoding(raw: bytes) -> str | None:
+    prefix = raw[:200].decode("ascii", errors="ignore")
+    match = re.search(r"<\?xml[^>]*encoding=[\"']([^\"']+)[\"']", prefix, re.IGNORECASE)
+    return match.group(1) if match else None
+
+
+def sanitize_xml_text(text: str) -> tuple[str, int]:
     sanitized_chars: list[str] = []
     removed_control_chars = 0
     for value in text:
@@ -361,10 +469,22 @@ def sanitized_xml_tree(xml_path: Path, parse_error: ET.ParseError) -> ET.Element
             sanitized_chars.append(value)
         else:
             removed_control_chars += 1
+    return "".join(sanitized_chars), removed_control_chars
 
+
+def parse_xml_text(text: str) -> ET.ElementTree:
+    return ET.ElementTree(ET.fromstring(text, parser=xml_parser()))
+
+
+def sanitized_xml_tree_from_text(
+    text: str,
+    xml_path: Path,
+    parse_error: ET.ParseError,
+    invalid_unicode_replacements: int = 0,
+) -> ET.ElementTree:
+    sanitized, removed_control_chars = sanitize_xml_text(text)
     if not removed_control_chars and not invalid_unicode_replacements:
         raise ImportErrorWithContext(f"Malformed XML in {xml_path}: {parse_error}") from parse_error
-
     LOG.warning(
         "Retrying XML parse after removing %d invalid XML control character(s)"
         " and replacing %d invalid UTF-8 byte sequence(s).",
@@ -372,21 +492,71 @@ def sanitized_xml_tree(xml_path: Path, parse_error: ET.ParseError) -> ET.Element
         invalid_unicode_replacements,
     )
     try:
-        return ET.ElementTree(ET.fromstring("".join(sanitized_chars)))
+        return parse_xml_text(sanitized)
     except ET.ParseError as exc:
         raise ImportErrorWithContext(
             f"Malformed XML in {xml_path} even after character sanitization: {exc}"
         ) from exc
 
 
+def load_xml_tree(xml_path: Path) -> ET.ElementTree:
+    raw = xml_path.read_bytes()
+    try:
+        return ET.ElementTree(ET.fromstring(raw, parser=xml_parser()))
+    except ET.ParseError as normal_parse_error:
+        declared_encoding = declared_xml_encoding(raw)
+        if declared_encoding:
+            try:
+                declared_text = raw.decode(declared_encoding)
+                try:
+                    LOG.warning(
+                        "Retrying XML parse after decoding raw bytes as declared encoding %s.",
+                        declared_encoding,
+                    )
+                    return parse_xml_text(declared_text)
+                except ET.ParseError:
+                    return sanitized_xml_tree_from_text(declared_text, xml_path, normal_parse_error)
+            except UnicodeError as exc:
+                LOG.warning(
+                    "Could not decode XML bytes using declared encoding %s: %s",
+                    declared_encoding,
+                    exc,
+                )
+
+        try:
+            cp1251_text = raw.decode("cp1251")
+            LOG.warning("Retrying XML parse after decoding raw bytes as cp1251.")
+            try:
+                return parse_xml_text(cp1251_text)
+            except ET.ParseError:
+                return sanitized_xml_tree_from_text(cp1251_text, xml_path, normal_parse_error)
+        except UnicodeError as exc:
+            LOG.warning("Could not decode XML bytes as cp1251: %s", exc)
+
+        utf8_text = raw.decode("utf-8", errors="replace")
+        return sanitized_xml_tree_from_text(
+            utf8_text,
+            xml_path,
+            normal_parse_error,
+            invalid_unicode_replacements=utf8_text.count("\ufffd"),
+        )
+
+
+def fix_xml_file(input_path: str, output_path: str) -> None:
+    input_xml = Path(input_path)
+    output_xml = Path(output_path)
+    tree = load_xml_tree(input_xml)
+    repair_xml_tree(tree.getroot())
+    output_xml.parent.mkdir(parents=True, exist_ok=True)
+    tree.write(output_xml, encoding="utf-8", xml_declaration=True)
+
+
 def load_xml_items(xml_path: Path) -> tuple[str, list[XmlItem]]:
     if not xml_path.exists():
         raise ImportErrorWithContext(f"Input XML does not exist: {xml_path}")
-    try:
-        tree = ET.parse(xml_path)
-    except ET.ParseError as exc:
-        tree = sanitized_xml_tree(xml_path, exc)
+    tree = load_xml_tree(xml_path)
     root = tree.getroot()
+    repair_xml_tree(root)
     if root.tag != "REPORT":
         raise ImportErrorWithContext(f"Expected XML root <REPORT>, found <{root.tag}>.")
     title = root.attrib.get("Title", "").strip()
@@ -958,6 +1128,16 @@ def main(argv: list[str]) -> int:
     configure_logging(args.verbose)
 
     try:
+        if args.mojibake_demo:
+            demo_cyrillic_mojibake_repair()
+            return 0
+
+        if args.fix_xml_output:
+            LOG.info("Reading XML: %s", args.xml)
+            fix_xml_file(str(args.xml), str(args.fix_xml_output))
+            LOG.info("Fixed XML written: %s", args.fix_xml_output)
+            return 0
+
         LOG.info("Reading XML: %s", args.xml)
         plan = build_import_plan(args.xml)
         LOG.info("Validated import plan for %d disks.", len(plan.disks))

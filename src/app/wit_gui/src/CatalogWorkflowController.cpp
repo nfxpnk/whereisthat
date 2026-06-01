@@ -22,9 +22,11 @@ void CatalogWorkflowController::DetachTarget() {
 
 ControllerResult CatalogWorkflowController::Initialize() {
     session_.LoadSettings();
+    session_.SaveSettings(session_.Settings());
     ControllerResult result;
     result.presentation.updateStatusVisibility = true;
     result.presentation.statusVisible = session_.Settings().showStatusBar;
+    result.presentation.mainSplitterPosition = session_.Settings().mainSplitterPosition;
     PopulatePresentation(result, true);
     if (!session_.Settings().lastCatalogPath.empty()) {
         Append(result, ActivateCatalog(session_.Settings().lastCatalogPath, false, false,
@@ -440,6 +442,13 @@ ControllerResult CatalogWorkflowController::GeneralSettingsCompleted(
     }
     PopulatePresentation(result);
     return result;
+}
+
+bool CatalogWorkflowController::SaveMainSplitterPosition(int position) {
+    auto settings = session_.Settings();
+    if (settings.mainSplitterPosition == position) return true;
+    settings.mainSplitterPosition = position;
+    return session_.SaveSettings(settings);
 }
 
 ControllerResult CatalogWorkflowController::OnScanProgress(ScanId scanId) {

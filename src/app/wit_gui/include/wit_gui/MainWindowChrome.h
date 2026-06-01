@@ -17,7 +17,7 @@ enum class AppStatus {
 
 class MainWindowChrome {
 public:
-    bool Create(HWND parent, bool showStatusBar, std::function<void()> selectAllAction);
+    bool Create(HWND parent, bool showStatusBar, int splitterPosition, std::function<void()> selectAllAction);
     void Destroy();
 
     HWND TreeHandle() const { return treeHandle_; }
@@ -26,6 +26,7 @@ public:
     HWND ForwardHandle() const { return forwardHandle_; }
     HWND AddressHandle() const { return addressHandle_; }
     HWND StatusHandle() const { return statusHandle_; }
+    int SplitterPosition() const { return splitterPosition_; }
 
     void OnSize(int width, int height);
     bool OnLeftButtonDown(int x, int y);

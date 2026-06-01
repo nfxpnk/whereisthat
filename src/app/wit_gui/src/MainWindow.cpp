@@ -87,7 +87,10 @@ LRESULT MainFrame::HandleMessage(UINT message, WPARAM wparam, LPARAM lparam, BOO
         if (chrome_.OnMouseMove(static_cast<short>(LOWORD(lparam)))) return 0;
         break;
     case WM_LBUTTONUP:
-        if (chrome_.OnLeftButtonUp()) return 0;
+        if (chrome_.OnLeftButtonUp()) {
+            controller_.SaveMainSplitterPosition(chrome_.SplitterPosition());
+            return 0;
+        }
         break;
     case WM_CAPTURECHANGED:
         chrome_.OnCaptureChanged();
@@ -149,7 +152,8 @@ LRESULT MainFrame::HandleMessage(UINT message, WPARAM wparam, LPARAM lparam, BOO
 bool MainFrame::OnCreate() {
     if (!controller_.AttachTarget(m_hWnd)) return false;
     auto initial = controller_.Initialize();
-    if (!chrome_.Create(m_hWnd, initial.presentation.statusVisible, [this]() {
+    if (!chrome_.Create(m_hWnd, initial.presentation.statusVisible,
+        initial.presentation.mainSplitterPosition, [this]() {
         browser_.SelectAll();
         UpdateBrowserStatus();
     })) return false;
@@ -164,10 +168,12 @@ bool MainFrame::OnCreate() {
 }
 
 void MainFrame::OnClose() {
+    controller_.SaveMainSplitterPosition(chrome_.SplitterPosition());
     ApplyControllerResult(controller_.RequestWindowClose());
 }
 
 void MainFrame::OnDestroy() {
+    controller_.SaveMainSplitterPosition(chrome_.SplitterPosition());
     searchDialog_.Close();
     scanProgressDialog_.Close();
     controller_.DetachTarget();

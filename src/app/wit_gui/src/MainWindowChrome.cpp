@@ -125,9 +125,11 @@ const wchar_t* ToolbarTooltipText(int commandId) {
 }
 }
 
-bool MainWindowChrome::Create(HWND parent, bool showStatusBar, std::function<void()> selectAllAction) {
+bool MainWindowChrome::Create(HWND parent, bool showStatusBar, int splitterPosition,
+    std::function<void()> selectAllAction) {
     parent_ = parent;
     statusVisible_ = showStatusBar;
+    splitterPosition_ = splitterPosition;
     selectAllAction_ = std::move(selectAllAction);
     if (!CreateToolbar()) return false;
     DWORD statusStyle = WS_CHILD;

@@ -7,6 +7,7 @@ namespace wit::platform {
 
 struct AppSettings {
     bool showStatusBar{true};
+    int mainSplitterPosition{360};
     std::wstring lastCatalogPath;
     std::vector<std::wstring> recentCatalogPaths;
 };

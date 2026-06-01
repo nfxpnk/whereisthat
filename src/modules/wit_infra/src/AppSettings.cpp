@@ -8,6 +8,7 @@
 namespace wit::platform {
 namespace {
 constexpr std::size_t kMaximumRecentCatalogs = 10;
+constexpr int kDefaultMainSplitterPosition = 360;
 
 std::wstring ExecutableDirectory() {
     DWORD capacity = MAX_PATH;
@@ -44,6 +45,8 @@ AppSettings LoadAppSettings() {
     const auto path = SettingsFilePath();
     settings.showStatusBar =
         GetPrivateProfileIntW(L"General", L"ShowStatusBar", 1, path.c_str()) != 0;
+    settings.mainSplitterPosition = GetPrivateProfileIntW(
+        L"General", L"MainSplitterPosition", kDefaultMainSplitterPosition, path.c_str());
     settings.lastCatalogPath = ReadProfileString(L"General", L"LastCatalogPath", path);
     for (std::size_t index = kMaximumRecentCatalogs; index > 0; --index) {
         const auto key = L"Path" + std::to_wstring(index);
@@ -56,8 +59,11 @@ AppSettings LoadAppSettings() {
 
 bool SaveAppSettings(const AppSettings& settings) {
     const auto path = SettingsFilePath();
+    const auto splitterPosition = std::to_wstring(settings.mainSplitterPosition);
     bool success = WritePrivateProfileStringW(L"General", L"ShowStatusBar",
         settings.showStatusBar ? L"1" : L"0", path.c_str()) != FALSE &&
+        WritePrivateProfileStringW(L"General", L"MainSplitterPosition",
+            splitterPosition.c_str(), path.c_str()) != FALSE &&
         WritePrivateProfileStringW(L"General", L"LastCatalogPath",
             settings.lastCatalogPath.c_str(), path.c_str()) != FALSE;
     for (std::size_t index = 0; index < kMaximumRecentCatalogs; ++index) {

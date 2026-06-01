@@ -1,4 +1,5 @@
 #include "wit_gui/GeneralSettingsDialog.h"
+#include <string>
 
 namespace wit::ui {
 
@@ -12,6 +13,7 @@ bool GeneralSettingsDialog::Show(HWND owner, const wit::platform::AppSettings& c
 
 LRESULT GeneralSettingsDialog::OnInitDialog(UINT, WPARAM, LPARAM, BOOL&) {
     CheckDlgButton(IDC_SHOW_STATUS_BAR, settings_.showStatusBar ? BST_CHECKED : BST_UNCHECKED);
+    SetDlgItemTextW(IDC_MAIN_SPLITTER_POSITION, std::to_wstring(settings_.mainSplitterPosition).c_str());
     SetDlgItemTextW(IDC_LAST_OPENED_CATALOG, settings_.lastCatalogPath.empty()
         ? L"(No catalog opened)" : settings_.lastCatalogPath.c_str());
     return TRUE;

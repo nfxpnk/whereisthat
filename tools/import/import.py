@@ -299,6 +299,17 @@ def parse_timestamp(item: XmlItem) -> int:
     return int(parsed.replace(tzinfo=timezone.utc).timestamp())
 
 
+def parse_child_timestamp(item: XmlItem, warnings: Counter[str]) -> int:
+    if not item.fields.get("DATE", "").strip():
+        warnings["child item timestamp defaulted because DATE is missing"] += 1
+        return 0
+    try:
+        return parse_timestamp(item)
+    except ImportErrorWithContext:
+        warnings["child item timestamp defaulted because DATE/TIME is invalid"] += 1
+        return 0
+
+
 def map_disk_type(xml_value: str, warnings: Counter[str]) -> str:
     normalized = " ".join(xml_value.strip().lower().split())
     if normalized in DISK_TYPE_MAP:
@@ -309,6 +320,35 @@ def map_disk_type(xml_value: str, warnings: Counter[str]) -> str:
 
 def disk_key(name: str, number: int) -> tuple[str, int]:
     return (name.casefold(), number)
+
+
+def resolve_disk_key_by_number(
+    item: XmlItem,
+    disk_name: str,
+    number: int,
+    disks_by_key: dict[tuple[str, int], DiskRecord],
+    disks_by_number: dict[int, list[tuple[str, int]]],
+    warnings: Counter[str],
+) -> tuple[str, int]:
+    number_matches = disks_by_number.get(number, [])
+    if len(number_matches) == 1:
+        key = number_matches[0]
+        if key != disk_key(disk_name, number):
+            warnings["ignored child DISK_NAME and resolved disk by DISK_NUM"] += 1
+        return key
+    if len(number_matches) > 1:
+        exact_key = disk_key(disk_name, number)
+        if exact_key in disks_by_key:
+            warnings["used child DISK_NAME to disambiguate duplicate DISK_NUM"] += 1
+            return exact_key
+        raise ImportErrorWithContext(
+            f"XML item #{item.index} has ambiguous disk number "
+            f"DISK_NUM={number}; child DISK_NAME={disk_name!r} did not match a unique disk."
+        )
+    raise ImportErrorWithContext(
+        f"XML item #{item.index} references unknown disk number "
+        f"DISK_NUM={number}; child DISK_NAME={disk_name!r} is ignored."
+    )
 
 
 def source_path_for(disk: XmlItem) -> str:
@@ -354,11 +394,63 @@ def normalize_crc(item: XmlItem) -> str | None:
     return raw.upper()
 
 
+def file_name_from_item(item: XmlItem, extension: str, warnings: Counter[str]) -> str | None:
+    name = item.fields.get("NAME", "").strip()
+    if name:
+        return name
+    if extension:
+        warnings["file NAME defaulted from EXT"] += 1
+        return "." + extension
+    warnings["skipped file with missing NAME and EXT"] += 1
+    return None
+
+
 def collect_unmapped_fields(plan: ImportPlan, item: XmlItem, consumed: Iterable[str]) -> None:
     consumed_set = set(consumed)
     for field_name, value in item.fields.items():
         if field_name not in consumed_set and value.strip():
             plan.unmapped_fields[f"{item.item_type}.{field_name}"] += 1
+
+
+def is_valid_xml_char(value: str) -> bool:
+    codepoint = ord(value)
+    return (
+        codepoint == 0x09
+        or codepoint == 0x0A
+        or codepoint == 0x0D
+        or 0x20 <= codepoint <= 0xD7FF
+        or 0xE000 <= codepoint <= 0xFFFD
+        or 0x10000 <= codepoint <= 0x10FFFF
+    )
+
+
+def sanitized_xml_tree(xml_path: Path, parse_error: ET.ParseError) -> ET.ElementTree:
+    data = xml_path.read_bytes()
+    text = data.decode("utf-8", errors="replace")
+    invalid_unicode_replacements = text.count("\ufffd")
+    sanitized_chars: list[str] = []
+    removed_control_chars = 0
+    for value in text:
+        if is_valid_xml_char(value):
+            sanitized_chars.append(value)
+        else:
+            removed_control_chars += 1
+
+    if not removed_control_chars and not invalid_unicode_replacements:
+        raise ImportErrorWithContext(f"Malformed XML in {xml_path}: {parse_error}") from parse_error
+
+    LOG.warning(
+        "Retrying XML parse after removing %d invalid XML control character(s)"
+        " and replacing %d invalid UTF-8 byte sequence(s).",
+        removed_control_chars,
+        invalid_unicode_replacements,
+    )
+    try:
+        return ET.ElementTree(ET.fromstring("".join(sanitized_chars)))
+    except ET.ParseError as exc:
+        raise ImportErrorWithContext(
+            f"Malformed XML in {xml_path} even after character sanitization: {exc}"
+        ) from exc
 
 
 def load_xml_items(xml_path: Path) -> tuple[str, list[XmlItem]]:
@@ -367,7 +459,7 @@ def load_xml_items(xml_path: Path) -> tuple[str, list[XmlItem]]:
     try:
         tree = ET.parse(xml_path)
     except ET.ParseError as exc:
-        raise ImportErrorWithContext(f"Malformed XML in {xml_path}: {exc}") from exc
+        tree = sanitized_xml_tree(xml_path, exc)
     root = tree.getroot()
     if root.tag != "REPORT":
         raise ImportErrorWithContext(f"Expected XML root <REPORT>, found <{root.tag}>.")
@@ -385,6 +477,7 @@ def build_import_plan(xml_path: Path) -> ImportPlan:
     title, items = load_xml_items(xml_path)
     plan = ImportPlan(catalog_description=title)
     disks_by_key: dict[tuple[str, int], DiskRecord] = {}
+    disks_by_number: dict[int, list[tuple[str, int]]] = {}
 
     for item in items:
         plan.xml_counts[item.item_type or "<missing>"] += 1
@@ -420,6 +513,7 @@ def build_import_plan(xml_path: Path) -> ImportPlan:
                     f"Duplicate disk identity in XML: NAME={name!r}, DISK_NUM={number}."
                 )
             disks_by_key[key] = record
+            disks_by_number.setdefault(number, []).append(key)
             plan.disks.append(record)
             collect_unmapped_fields(
                 plan,
@@ -439,15 +533,17 @@ def build_import_plan(xml_path: Path) -> ImportPlan:
         elif item.item_type in {"Folder", "File"}:
             disk_name = required_text(item, "DISK_NAME")
             number = parse_int(item, "DISK_NUM", 0)
-            key = disk_key(disk_name, number)
-            if key not in disks_by_key:
-                raise ImportErrorWithContext(
-                    f"XML item #{item.index} references unknown disk "
-                    f"DISK_NAME={disk_name!r}, DISK_NUM={number}."
-                )
+            key = resolve_disk_key_by_number(
+                item,
+                disk_name,
+                number,
+                disks_by_key,
+                disks_by_number,
+                plan.warnings,
+            )
             source_path = disks_by_key[key].source_path
             parent_path = xml_parent_to_stored_path(source_path, required_text(item, "PATH"))
-            timestamp = parse_timestamp(item)
+            timestamp = parse_child_timestamp(item, plan.warnings)
             if item.item_type == "Folder":
                 extension = normalize_extension(item.fields.get("EXT", ""))
                 name = display_name_with_extension(required_text(item, "NAME"), extension)
@@ -482,13 +578,34 @@ def build_import_plan(xml_path: Path) -> ImportPlan:
                     },
                 )
             else:
+                extension = normalize_extension(item.fields.get("EXT", ""))
+                file_name = file_name_from_item(item, extension, plan.warnings)
+                if file_name is None:
+                    collect_unmapped_fields(
+                        plan,
+                        item,
+                        {
+                            "NAME",
+                            "EXT",
+                            "SIZE",
+                            "DATE",
+                            "DISK_NAME",
+                            "DISK_TYPE",
+                            "PATH",
+                            "DESCRIPTION",
+                            "DISK_NUM",
+                            "TIME",
+                            "CRC",
+                        },
+                    )
+                    continue
                 plan.files.append(
                     FileRecord(
                         disk_key=key,
                         folder_path=parent_path,
-                        name=required_text(item, "NAME"),
+                        name=file_name,
                         description=item.fields.get("DESCRIPTION", ""),
-                        extension=normalize_extension(item.fields.get("EXT", "")),
+                        extension=extension,
                         crc=normalize_crc(item),
                         size=parse_int(item, "SIZE", 0),
                         timestamp=timestamp,

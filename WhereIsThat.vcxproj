@@ -58,6 +58,7 @@ copy /Y "$(ProjectDir)third_party\libarchive\bin\*.dll" "$(OutDir)"</Command>
         <ClCompile Include="src\app\wit_gui\src\MainWindow.cpp"/>
         <ClCompile Include="src\app\wit_gui\src\MainWindowChrome.cpp"/>
         <ClCompile Include="src\app\wit_gui\src\ProgressDialog.cpp"/>
+        <ClCompile Include="src\app\wit_gui\src\ScanCoordinator.cpp"/>
         <ClCompile Include="src\app\wit_gui\src\SearchPane.cpp"/>
         <ClCompile Include="src\app\wit_gui\src\TreeViewPane.cpp"/>
         <ClCompile Include="src\app\wit_win32\src\BaseDialog.cpp"/>
@@ -76,7 +77,6 @@ copy /Y "$(ProjectDir)third_party\libarchive\bin\*.dll" "$(OutDir)"</Command>
         <ClCompile Include="src\modules\wit_extractors\src\ImageExtractor.cpp"/>
         <ClCompile Include="src\modules\wit_infra\src\StringUtils.cpp"/>
         <ClCompile Include="src\modules\wit_scanner\src\FileScanner.cpp"/>
-        <ClCompile Include="src\modules\wit_scanner\src\ScanCoordinator.cpp"/>
         <ClCompile Include="src\modules\wit_search\src\QueryBuilder.cpp"/>
         <ClCompile Include="src\modules\wit_search\src\SearchExecutor.cpp"/>
         <ClCompile Include="src\modules\wit_infra\src\AppSettings.cpp"/>
@@ -96,6 +96,7 @@ copy /Y "$(ProjectDir)third_party\libarchive\bin\*.dll" "$(OutDir)"</Command>
         <ClInclude Include="src\app\wit_gui\include\wit_gui\MainWindow.h"/>
         <ClInclude Include="src\app\wit_gui\include\wit_gui\MainWindowChrome.h"/>
         <ClInclude Include="src\app\wit_gui\include\wit_gui\ProgressDialog.h"/>
+        <ClInclude Include="src\app\wit_gui\include\wit_gui\ScanCoordinator.h"/>
         <ClInclude Include="src\app\wit_gui\include\wit_gui\SearchPane.h"/>
         <ClInclude Include="src\app\wit_gui\include\wit_gui\TreeViewPane.h"/>
         <ClInclude Include="src\app\wit_gui\res\resource.h"/>
@@ -123,7 +124,6 @@ copy /Y "$(ProjectDir)third_party\libarchive\bin\*.dll" "$(OutDir)"</Command>
         <ClInclude Include="src\modules\wit_scanner\include\wit_scanner\FileScanner.h"/>
         <ClInclude Include="src\modules\wit_scanner\include\wit_scanner\IFileScanner.h"/>
         <ClInclude Include="src\modules\wit_scanner\include\wit_scanner\IMetadataExtractor.h"/>
-        <ClInclude Include="src\modules\wit_scanner\include\wit_scanner\ScanCoordinator.h"/>
         <ClInclude Include="src\modules\wit_scanner\include\wit_scanner\ScanRequest.h"/>
         <ClInclude Include="src\modules\wit_search\include\wit_search\ISearchExecutor.h"/>
         <ClInclude Include="src\modules\wit_search\include\wit_search\SearchResult.h"/>

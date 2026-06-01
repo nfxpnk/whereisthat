@@ -1,4 +1,4 @@
-#include <wit_scanner/ScanCoordinator.h>
+#include <wit_gui/ScanCoordinator.h>
 #include <filesystem>
 #include <string>
 #include <utility>

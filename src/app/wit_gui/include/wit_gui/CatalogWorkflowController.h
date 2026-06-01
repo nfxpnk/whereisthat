@@ -6,7 +6,7 @@
 #include <vector>
 #include <wit_catalog/CatalogSession.h>
 #include <wit_gui/MainWindowChrome.h>
-#include <wit_scanner/ScanCoordinator.h>
+#include <wit_gui/ScanCoordinator.h>
 #include <wit_scanner/ScanRequest.h>
 
 namespace wit::app {

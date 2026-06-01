@@ -188,6 +188,7 @@ void ScanCoordinator::RunScan(std::stop_token stopToken, ScanId scanId, std::wst
     std::int64_t id{};
     success = success && !cancelled() && staged->BeginTransaction();
     wit::core::Disk disk;
+    disk.diskGroupId = request.diskGroupId;
     disk.diskName = diskName;
     disk.diskNumber = diskNumber;
     disk.sourcePath = root;

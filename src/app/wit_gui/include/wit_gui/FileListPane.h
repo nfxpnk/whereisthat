@@ -16,13 +16,15 @@ public:
     int total{};
     int pageStart{-1};
     std::vector<wit::core::FileEntry> page;
-    std::vector<wit::core::Disk> diskPage;
+    std::vector<wit::core::BrowserItem> browserPage;
 
     void Attach(HWND handle) { hwnd = handle; }
     void SetLocation(const wit::core::BrowserLocation& newLocation, wit::storage::Database* database);
     void EnsurePage(int index);
-    bool ShowsDisks() const { return db && location.isRoot; }
+    bool ShowsBrowserItems() const { return db && (location.isRoot || location.isDiskGroup); }
+    bool ShowsDisks() const { return ShowsBrowserItems(); }
     const wit::core::FileEntry* EntryAt(int row);
+    const wit::core::BrowserItem* BrowserItemAt(int row);
     const wit::core::Disk* DiskAt(int row);
     int ImageFor(int row);
     std::wstring TextFor(int row, int column);

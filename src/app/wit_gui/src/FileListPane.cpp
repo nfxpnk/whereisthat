@@ -157,13 +157,13 @@ int ImageForFileExtension(const std::wstring& extension) {
 
 void FileListView::ConfigureColumns() {
     while (ListView_DeleteColumn(hwnd, 0)) {}
-    if (ShowsDisks()) {
-        InsertColumn(hwnd, 0, L"Disk Name", 180);
+    if (ShowsBrowserItems()) {
+        InsertColumn(hwnd, 0, L"Name", 180);
         InsertColumn(hwnd, 1, L"Media Type", 100);
         InsertColumn(hwnd, 2, L"Capacity", 100, LVCFMT_RIGHT);
         InsertColumn(hwnd, 3, L"Free Space", 100, LVCFMT_RIGHT);
         InsertColumn(hwnd, 4, L"Last Updated", 165);
-        InsertColumn(hwnd, 5, L"Disk #", 70, LVCFMT_RIGHT);
+        InsertColumn(hwnd, 5, L"Disk # / Count", 95, LVCFMT_RIGHT);
         InsertColumn(hwnd, 6, L"Description", 180);
         InsertColumn(hwnd, 7, L"Category", 120);
         InsertColumn(hwnd, 8, L"Disk Location", 240);
@@ -182,10 +182,11 @@ void FileListView::SetLocation(const wit::core::BrowserLocation& newLocation, wi
     total = 0;
     pageStart = -1;
     page.clear();
-    diskPage.clear();
+    browserPage.clear();
     ListView_SetItemCountEx(hwnd, 0, LVSICF_NOINVALIDATEALL);
     ConfigureColumns();
-    total = db ? (ShowsDisks() ? db->GetDiskCount() : db->GetBrowserItemCount(location)) : 0;
+    total = db ? (ShowsBrowserItems() ? db->GetBrowserRootItemCount(location)
+        : db->GetBrowserItemCount(location)) : 0;
     ListView_SetItemCountEx(hwnd, total, LVSICF_NOINVALIDATEALL);
     InvalidateRect(hwnd, nullptr, TRUE);
 }
@@ -195,32 +196,41 @@ void FileListView::EnsurePage(int index) {
     const int pageSize = 256;
     int desired = (index / pageSize) * pageSize;
     if (desired == pageStart) return;
-    if (ShowsDisks()) {
-        diskPage = db->GetDisksPage(desired, pageSize);
+    if (ShowsBrowserItems()) {
+        browserPage = db->GetBrowserRootItemsPage(location, desired, pageSize);
         page.clear();
     } else {
         page = db->GetBrowserItemsPage(location, desired, pageSize);
-        diskPage.clear();
+        browserPage.clear();
     }
     pageStart = desired;
 }
 
 const wit::core::FileEntry* FileListView::EntryAt(int row) {
-    if (ShowsDisks()) return nullptr;
+    if (ShowsBrowserItems()) return nullptr;
     EnsurePage(row);
     const int index = row - pageStart;
     return index >= 0 && index < static_cast<int>(page.size()) ? &page[index] : nullptr;
 }
 
 const wit::core::Disk* FileListView::DiskAt(int row) {
-    if (!ShowsDisks()) return nullptr;
+    const auto* item = BrowserItemAt(row);
+    return item && item->type == wit::core::BrowserItemType::Disk ? &item->disk : nullptr;
+}
+
+const wit::core::BrowserItem* FileListView::BrowserItemAt(int row) {
+    if (!ShowsBrowserItems()) return nullptr;
     EnsurePage(row);
     const int index = row - pageStart;
-    return index >= 0 && index < static_cast<int>(diskPage.size()) ? &diskPage[index] : nullptr;
+    return index >= 0 && index < static_cast<int>(browserPage.size()) ? &browserPage[index] : nullptr;
 }
 
 int FileListView::ImageFor(int row) {
-    if (ShowsDisks()) return DiskAt(row) ? BrowserDriveImage : I_IMAGENONE;
+    if (ShowsBrowserItems()) {
+        const auto* item = BrowserItemAt(row);
+        if (!item) return I_IMAGENONE;
+        return item->type == wit::core::BrowserItemType::DiskGroup ? BrowserFolderImage : BrowserDriveImage;
+    }
     const auto* entry = EntryAt(row);
     if (!entry) return I_IMAGENONE;
     if (entry->isDirectory) return entry->isArchive ? BrowserArchiveImage : BrowserFolderImage;
@@ -235,8 +245,18 @@ int FileListView::ImageFor(int row) {
 
 std::wstring FileListView::TextFor(int row, int column) {
     if (ShowsDisks()) {
-        const auto* disk = DiskAt(row);
-        if (!disk) return L"";
+        const auto* item = BrowserItemAt(row);
+        if (!item) return L"";
+        if (item->type == wit::core::BrowserItemType::DiskGroup) {
+            switch (column) {
+            case 0: return item->group.name;
+            case 1: return L"Disk Group";
+            case 4: return wit::platform::FormatUnixTimestamp(item->group.updatedAt);
+            case 5: return std::to_wstring(item->group.totalDisks);
+            default: return L"";
+            }
+        }
+        const auto* disk = &item->disk;
         switch (column) {
         case 0: return disk->diskName;
         case 1: return DiskTypeLabel(disk->diskType);

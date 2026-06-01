@@ -1,3 +1,9 @@
+CREATE INDEX IF NOT EXISTS idx_disk_groups_name
+    ON disk_groups(name COLLATE NOCASE);
+
+CREATE INDEX IF NOT EXISTS idx_disks_group
+    ON disks(disk_group_id, disk_name COLLATE NOCASE);
+
 CREATE UNIQUE INDEX IF NOT EXISTS idx_disks_source_path
     ON disks(source_path COLLATE NOCASE);
 

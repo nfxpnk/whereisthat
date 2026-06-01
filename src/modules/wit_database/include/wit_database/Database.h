@@ -32,6 +32,8 @@ public:
     bool SetCatalogDescription(const std::wstring& description);
     wit::core::CatalogMetadata GetCatalogMetadata();
     wit::core::CatalogSummary GetCatalogSummary() const;
+    std::int64_t CreateDiskGroup(const std::wstring& name);
+    std::vector<wit::core::DiskGroup> GetDiskGroups();
     std::int64_t AddDisk(const wit::core::Disk& disk);
     std::int64_t FindDiskBySourcePath(const std::wstring& sourcePath,
         const std::wstring& originalLocation = L"");
@@ -40,6 +42,9 @@ public:
     bool UpdateDiskScanStatistics(const wit::core::DiskScanStatistics& statistics);
     int GetDiskCount();
     std::vector<wit::core::Disk> GetDisksPage(int offset, int limit);
+    int GetBrowserRootItemCount(const wit::core::BrowserLocation& location);
+    std::vector<wit::core::BrowserItem> GetBrowserRootItemsPage(
+        const wit::core::BrowserLocation& location, int offset, int limit);
     std::int64_t InsertFolder(const wit::core::FolderEntry& folder);
     bool UpdateFolderContentSize(std::int64_t folderId, std::uint64_t contentSize);
     bool InsertFile(const wit::core::FileEntry& file);

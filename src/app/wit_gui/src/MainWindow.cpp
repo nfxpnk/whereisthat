@@ -1,6 +1,8 @@
 #include "wit_gui/MainWindow.h"
 #include <algorithm>
+#include <cwctype>
 #include <optional>
+#include <utility>
 #include "wit_gui/AddDiskDialog.h"
 #include "wit_gui/AboutDialog.h"
 #include "wit_gui/CatalogFileDialog.h"
@@ -9,6 +11,45 @@
 #include "resource.h"
 
 namespace {
+
+bool IsBlank(const std::wstring& value) {
+    for (const auto character : value) {
+        if (!iswspace(character)) return false;
+    }
+    return true;
+}
+
+INT_PTR CALLBACK DiskGroupDialogProc(HWND dialog, UINT message, WPARAM wparam, LPARAM lparam) {
+    auto* name = reinterpret_cast<std::wstring*>(GetWindowLongPtrW(dialog, GWLP_USERDATA));
+    if (message == WM_INITDIALOG) {
+        SetWindowLongPtrW(dialog, GWLP_USERDATA, lparam);
+        SetFocus(GetDlgItem(dialog, IDC_DISK_GROUP_NAME));
+        return FALSE;
+    }
+    if (message != WM_COMMAND) return FALSE;
+    if (LOWORD(wparam) == IDCANCEL) {
+        EndDialog(dialog, IDCANCEL);
+        return TRUE;
+    }
+    if (LOWORD(wparam) != IDOK || !name) return FALSE;
+    const auto length = GetWindowTextLengthW(GetDlgItem(dialog, IDC_DISK_GROUP_NAME));
+    std::wstring value(static_cast<std::size_t>(length) + 1, L'\0');
+    GetDlgItemTextW(dialog, IDC_DISK_GROUP_NAME, value.data(), length + 1);
+    value.resize(static_cast<std::size_t>(length));
+    if (IsBlank(value)) {
+        MessageBoxW(dialog, L"Disk group name is required.", L"Add New Disk Group", MB_OK | MB_ICONWARNING);
+        SetFocus(GetDlgItem(dialog, IDC_DISK_GROUP_NAME));
+        return TRUE;
+    }
+    *name = std::move(value);
+    EndDialog(dialog, IDOK);
+    return TRUE;
+}
+
+bool PromptDiskGroupName(HWND owner, std::wstring& name) {
+    return DialogBoxParamW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDD_DISK_GROUP), owner,
+        DiskGroupDialogProc, reinterpret_cast<LPARAM>(&name)) == IDOK;
+}
 
 wit::core::MediaSourceKind ToScanMediaSourceKind(wit::ui::MediaSourceKind kind) {
     switch (kind) {
@@ -26,6 +67,7 @@ wit::core::MediaSourceKind ToScanMediaSourceKind(wit::ui::MediaSourceKind kind) 
 wit::core::ScanRequest ToScanRequest(const wit::ui::AddNewDiskMediaResult& media) {
     return {
         media.destinationCatalogId,
+        media.diskGroupId,
         ToScanMediaSourceKind(media.kind),
         media.scanRoot,
         media.originalPath,
@@ -40,7 +82,14 @@ std::vector<wit::ui::CatalogChoice> ToDialogCatalogChoices(const std::vector<wit
     std::vector<wit::ui::CatalogChoice> dialogChoices;
     dialogChoices.reserve(choices.size());
     for (const auto& choice : choices) {
-        dialogChoices.push_back({choice.id, choice.label, choice.path});
+        wit::ui::CatalogChoice dialogChoice;
+        dialogChoice.id = choice.id;
+        dialogChoice.label = choice.label;
+        dialogChoice.path = choice.path;
+        for (const auto& group : choice.diskGroups) {
+            dialogChoice.diskGroups.push_back({group.id, group.name});
+        }
+        dialogChoices.push_back(std::move(dialogChoice));
     }
     return dialogChoices;
 }
@@ -199,6 +248,10 @@ void MainFrame::OnCommand(int id) {
     } else if (id == ID_WIT_FILE_SAVE) ApplyControllerResult(controller_.RequestSave());
     else if (id == ID_WIT_FILE_CLOSE) ApplyControllerResult(controller_.RequestCloseCatalog());
     else if (id == ID_EDIT_ADDDISKIMAGE) ApplyControllerResult(controller_.RequestAddOrUpdateMedia());
+    else if (id == ID_TREE_CONTEXT_ADD_NEW_DISK_GROUP_PLACEHOLDER) {
+        std::wstring name;
+        if (PromptDiskGroupName(m_hWnd, name)) ApplyControllerResult(controller_.CreateDiskGroup(name));
+    }
     else if (id == ID_SEARCH_FOR_ITEMS) ApplyControllerResult(controller_.RequestSearch());
     else if (id == IDC_BROWSER_BACK) {
         browser_.NavigateBack();

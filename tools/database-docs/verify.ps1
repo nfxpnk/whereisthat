@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$SourceFile = "src/storage/Database.cpp",
+    [string]$SourceFile = "src/modules/wit_database/src/CatalogSchema.cpp",
     [string]$DocsRoot = "docs/database"
 )
 

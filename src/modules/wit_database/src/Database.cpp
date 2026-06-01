@@ -32,16 +32,17 @@ wit::core::DiskType DiskTypeFromText(const std::wstring& value) {
 
 void PopulateDisk(wit::core::Disk& disk, sqlite3_stmt* stmt) {
     disk.id = sqlite3_column_int64(stmt, 0);
-    disk.diskName = Text(stmt, 1);
-    disk.diskNumber = sqlite3_column_int64(stmt, 2);
-    disk.sourcePath = Text(stmt, 3);
-    disk.totalCapacity = static_cast<std::uint64_t>(sqlite3_column_int64(stmt, 4));
-    disk.freeSpace = static_cast<std::uint64_t>(sqlite3_column_int64(stmt, 5));
-    disk.updatedAt = sqlite3_column_int64(stmt, 6);
-    disk.description = Text(stmt, 7);
-    disk.category = Text(stmt, 8);
-    disk.location = Text(stmt, 9);
-    disk.diskType = DiskTypeFromText(Text(stmt, 10));
+    disk.diskGroupId = sqlite3_column_type(stmt, 1) == SQLITE_NULL ? 0 : sqlite3_column_int64(stmt, 1);
+    disk.diskName = Text(stmt, 2);
+    disk.diskNumber = sqlite3_column_int64(stmt, 3);
+    disk.sourcePath = Text(stmt, 4);
+    disk.totalCapacity = static_cast<std::uint64_t>(sqlite3_column_int64(stmt, 5));
+    disk.freeSpace = static_cast<std::uint64_t>(sqlite3_column_int64(stmt, 6));
+    disk.updatedAt = sqlite3_column_int64(stmt, 7);
+    disk.description = Text(stmt, 8);
+    disk.category = Text(stmt, 9);
+    disk.location = Text(stmt, 10);
+    disk.diskType = DiskTypeFromText(Text(stmt, 11));
 }
 }
 
@@ -179,29 +180,59 @@ wit::core::CatalogSummary Database::GetCatalogSummary() const {
     return summary;
 }
 
+std::int64_t Database::CreateDiskGroup(const std::wstring& name) {
+    if (!editable_) return 0;
+    const auto now = wit::platform::NowUnixSeconds();
+    SQLiteStatement statement(connection_.Raw(),
+        "INSERT INTO disk_groups(name,created_at,updated_at) VALUES(?,?,?);");
+    statement.BindText(1, wit::platform::ToUtf8(name));
+    statement.BindInt64(2, now);
+    statement.BindInt64(3, now);
+    return sqlite3_step(statement.Raw()) == SQLITE_DONE ? sqlite3_last_insert_rowid(connection_.Raw()) : 0;
+}
+
+std::vector<wit::core::DiskGroup> Database::GetDiskGroups() {
+    std::vector<wit::core::DiskGroup> groups;
+    SQLiteStatement statement(connection_.Raw(),
+        "SELECT g.id,g.name,g.created_at,g.updated_at,COUNT(d.id) "
+        "FROM disk_groups g LEFT JOIN disks d ON d.disk_group_id=g.id "
+        "GROUP BY g.id,g.name,g.created_at,g.updated_at ORDER BY g.name COLLATE NOCASE,g.id;");
+    while (sqlite3_step(statement.Raw()) == SQLITE_ROW) {
+        wit::core::DiskGroup group;
+        group.id = sqlite3_column_int64(statement.Raw(), 0);
+        group.name = Text(statement.Raw(), 1);
+        group.createdAt = sqlite3_column_int64(statement.Raw(), 2);
+        group.updatedAt = sqlite3_column_int64(statement.Raw(), 3);
+        group.totalDisks = sqlite3_column_int64(statement.Raw(), 4);
+        groups.push_back(group);
+    }
+    return groups;
+}
+
 std::int64_t Database::AddDisk(const wit::core::Disk& disk) {
     if (!editable_) return 0;
     SQLiteStatement statement(connection_.Raw(),
-        "INSERT INTO disks(disk_name,disk_number,source_path,volume_label,total_capacity,free_space,cluster_size,"
+        "INSERT INTO disks(disk_group_id,disk_name,disk_number,source_path,volume_label,total_capacity,free_space,cluster_size,"
         "serial_number,file_system,total_files,total_folders,added_at,updated_at,description,category,location,disk_type)"
-        " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);");
-    statement.BindText(1, wit::platform::ToUtf8(disk.diskName));
-    statement.BindInt64(2, disk.diskNumber);
-    statement.BindText(3, wit::platform::ToUtf8(disk.sourcePath));
-    statement.BindText(4, wit::platform::ToUtf8(disk.volumeLabel));
-    statement.BindInt64(5, static_cast<long long>(disk.totalCapacity));
-    statement.BindInt64(6, static_cast<long long>(disk.freeSpace));
-    statement.BindInt64(7, static_cast<long long>(disk.clusterSize));
-    statement.BindText(8, wit::platform::ToUtf8(disk.serialNumber));
-    statement.BindText(9, wit::platform::ToUtf8(disk.fileSystem));
-    statement.BindInt64(10, disk.totalFiles);
-    statement.BindInt64(11, disk.totalFolders);
-    statement.BindInt64(12, disk.addedAt);
-    statement.BindInt64(13, disk.updatedAt);
-    statement.BindText(14, wit::platform::ToUtf8(disk.description));
-    statement.BindText(15, wit::platform::ToUtf8(disk.category));
-    statement.BindText(16, wit::platform::ToUtf8(disk.location));
-    statement.BindText(17, wit::core::DiskTypeValue(disk.diskType));
+        " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);");
+    if (disk.diskGroupId != 0) statement.BindInt64(1, disk.diskGroupId); else statement.BindNull(1);
+    statement.BindText(2, wit::platform::ToUtf8(disk.diskName));
+    statement.BindInt64(3, disk.diskNumber);
+    statement.BindText(4, wit::platform::ToUtf8(disk.sourcePath));
+    statement.BindText(5, wit::platform::ToUtf8(disk.volumeLabel));
+    statement.BindInt64(6, static_cast<long long>(disk.totalCapacity));
+    statement.BindInt64(7, static_cast<long long>(disk.freeSpace));
+    statement.BindInt64(8, static_cast<long long>(disk.clusterSize));
+    statement.BindText(9, wit::platform::ToUtf8(disk.serialNumber));
+    statement.BindText(10, wit::platform::ToUtf8(disk.fileSystem));
+    statement.BindInt64(11, disk.totalFiles);
+    statement.BindInt64(12, disk.totalFolders);
+    statement.BindInt64(13, disk.addedAt);
+    statement.BindInt64(14, disk.updatedAt);
+    statement.BindText(15, wit::platform::ToUtf8(disk.description));
+    statement.BindText(16, wit::platform::ToUtf8(disk.category));
+    statement.BindText(17, wit::platform::ToUtf8(disk.location));
+    statement.BindText(18, wit::core::DiskTypeValue(disk.diskType));
     return sqlite3_step(statement.Raw()) == SQLITE_DONE ? sqlite3_last_insert_rowid(connection_.Raw()) : 0;
 }
 
@@ -225,23 +256,24 @@ bool Database::DeleteContentForDisk(std::int64_t diskId) {
 bool Database::UpdateDisk(const wit::core::Disk& disk) {
     if (!editable_) return false;
     SQLiteStatement statement(connection_.Raw(),
-        "UPDATE disks SET disk_name=?,disk_number=?,source_path=?,volume_label=?,total_capacity=?,free_space=?,cluster_size=?,"
+        "UPDATE disks SET disk_group_id=?,disk_name=?,disk_number=?,source_path=?,volume_label=?,total_capacity=?,free_space=?,cluster_size=?,"
         "serial_number=?,file_system=?,total_files=?,total_folders=?,updated_at=?,location=?,disk_type=? WHERE id=?;");
-    statement.BindText(1, wit::platform::ToUtf8(disk.diskName));
-    statement.BindInt64(2, disk.diskNumber);
-    statement.BindText(3, wit::platform::ToUtf8(disk.sourcePath));
-    statement.BindText(4, wit::platform::ToUtf8(disk.volumeLabel));
-    statement.BindInt64(5, static_cast<long long>(disk.totalCapacity));
-    statement.BindInt64(6, static_cast<long long>(disk.freeSpace));
-    statement.BindInt64(7, static_cast<long long>(disk.clusterSize));
-    statement.BindText(8, wit::platform::ToUtf8(disk.serialNumber));
-    statement.BindText(9, wit::platform::ToUtf8(disk.fileSystem));
-    statement.BindInt64(10, disk.totalFiles);
-    statement.BindInt64(11, disk.totalFolders);
-    statement.BindInt64(12, disk.updatedAt);
-    statement.BindText(13, wit::platform::ToUtf8(disk.location));
-    statement.BindText(14, wit::core::DiskTypeValue(disk.diskType));
-    statement.BindInt64(15, disk.id);
+    if (disk.diskGroupId != 0) statement.BindInt64(1, disk.diskGroupId); else statement.BindNull(1);
+    statement.BindText(2, wit::platform::ToUtf8(disk.diskName));
+    statement.BindInt64(3, disk.diskNumber);
+    statement.BindText(4, wit::platform::ToUtf8(disk.sourcePath));
+    statement.BindText(5, wit::platform::ToUtf8(disk.volumeLabel));
+    statement.BindInt64(6, static_cast<long long>(disk.totalCapacity));
+    statement.BindInt64(7, static_cast<long long>(disk.freeSpace));
+    statement.BindInt64(8, static_cast<long long>(disk.clusterSize));
+    statement.BindText(9, wit::platform::ToUtf8(disk.serialNumber));
+    statement.BindText(10, wit::platform::ToUtf8(disk.fileSystem));
+    statement.BindInt64(11, disk.totalFiles);
+    statement.BindInt64(12, disk.totalFolders);
+    statement.BindInt64(13, disk.updatedAt);
+    statement.BindText(14, wit::platform::ToUtf8(disk.location));
+    statement.BindText(15, wit::core::DiskTypeValue(disk.diskType));
+    statement.BindInt64(16, disk.id);
     return sqlite3_step(statement.Raw()) == SQLITE_DONE;
 }
 
@@ -273,7 +305,7 @@ int Database::GetDiskCount() {
 std::vector<wit::core::Disk> Database::GetDisksPage(int offset, int limit) {
     std::vector<wit::core::Disk> disks;
     SQLiteStatement statement(connection_.Raw(),
-        "SELECT id,disk_name,disk_number,source_path,total_capacity,free_space,updated_at,"
+        "SELECT id,disk_group_id,disk_name,disk_number,source_path,total_capacity,free_space,updated_at,"
         "description,category,location,disk_type FROM disks "
         "ORDER BY disk_name COLLATE NOCASE,id LIMIT ? OFFSET ?;");
     statement.BindInt64(1, limit);
@@ -334,7 +366,8 @@ bool Database::InsertFile(const wit::core::FileEntry& file) {
 std::vector<wit::core::Catalog> Database::GetCatalogs() {
     std::vector<wit::core::Catalog> catalogs;
     SQLiteStatement statement(connection_.Raw(),
-        "SELECT id,disk_name,source_path,added_at,total_files,total_folders FROM disks ORDER BY id DESC;");
+        "SELECT id,disk_name,source_path,added_at,total_files,total_folders FROM disks "
+        "WHERE disk_group_id IS NULL ORDER BY id DESC;");
     while (sqlite3_step(statement.Raw()) == SQLITE_ROW) {
         wit::core::Catalog catalog;
         catalog.id = sqlite3_column_int64(statement.Raw(), 0);
@@ -346,6 +379,17 @@ std::vector<wit::core::Catalog> Database::GetCatalogs() {
         catalogs.push_back(catalog);
     }
     return catalogs;
+}
+
+int Database::GetBrowserRootItemCount(const wit::core::BrowserLocation& location) {
+    SqliteBrowserRepository browser(connection_.Raw());
+    return browser.GetBrowserRootItemCount(location);
+}
+
+std::vector<wit::core::BrowserItem> Database::GetBrowserRootItemsPage(
+    const wit::core::BrowserLocation& location, int offset, int limit) {
+    SqliteBrowserRepository browser(connection_.Raw());
+    return browser.GetBrowserRootItemsPage(location, offset, limit);
 }
 
 int Database::GetBrowserItemCount(const wit::core::BrowserLocation& location) {

@@ -1,9 +1,10 @@
-#include "../../src/app/ScanCoordinator.h"
-#include "../../src/core/FileScanner.h"
-#include "../../src/platform/PathHelpers.h"
-#include "../../src/platform/VolumeInfo.h"
-#include "../../src/platform/Win32Helpers.h"
-#include "../../src/storage/Database.h"
+#include <wit_database/Database.h>
+#include <wit_gui/ScanCoordinator.h>
+#include <wit_infra/PathHelpers.h>
+#include <wit_infra/VolumeInfo.h>
+#include <wit_infra/Win32Helpers.h>
+#include <wit_scanner/FileScanner.h>
+#include <wit_scanner/ScanRequest.h>
 #include "../../third_party/sqlite/sqlite3.h"
 #include <Windows.h>
 #include <archive.h>
@@ -181,6 +182,8 @@ int wmain() {
     Check(staged.CreateWorkingCopy(db), "working-copy creation");
     Check(staged.SetCatalogDescription(L"Smoke catalog"), "catalog description update");
     Check(staged.GetCatalogMetadata().description == L"Smoke catalog", "catalog description round-trip");
+    const auto smokeGroupId = staged.CreateDiskGroup(L"Smoke Group");
+    Check(smokeGroupId != 0, "disk group creation");
 
     wit::core::Disk first{};
     first.diskName = L"First";
@@ -218,6 +221,7 @@ int wmain() {
     Check(staged.UpdateDiskScanStatistics(firstStats), "first scan statistics");
 
     wit::core::Disk second{};
+    second.diskGroupId = smokeGroupId;
     second.diskName = L"Second";
     second.diskNumber = 2;
     second.sourcePath = mediaWithoutCrc.wstring();
@@ -244,6 +248,12 @@ int wmain() {
         "derived capacity totals with non-negative used space");
     Check(summary.catalogFileSize > 0, "catalog size is read from the filesystem");
     Check(db.GetBrowserItemCount({}) == 2, "normalized root browsing");
+    wit::core::BrowserLocation groupLocation{};
+    groupLocation.isRoot = false;
+    groupLocation.isDiskGroup = true;
+    groupLocation.diskGroupId = smokeGroupId;
+    Check(db.GetBrowserRootItemCount(groupLocation) == 1, "disk group browser count");
+    Check(db.GetBrowserRootItemsPage(groupLocation, 0, 10).size() == 1, "disk group browser page");
     std::filesystem::remove_all(mediaWithCrc);
     wit::core::BrowserLocation firstLocation{};
     firstLocation.isRoot = false;
@@ -278,8 +288,8 @@ int wmain() {
     if (target) {
         wit::app::ScanCoordinator coordinator;
         Check(coordinator.AttachTarget(target), "scan lifecycle notification target attachment");
-        wit::ui::AddNewDiskMediaResult media;
-        media.kind = wit::ui::MediaSourceKind::Folder;
+        wit::core::ScanRequest media;
+        media.kind = wit::core::MediaSourceKind::Folder;
         media.originalPath = mediaWithoutCrc.wstring();
         media.scanRoot = media.originalPath;
         media.diskName = L"Coordinator";

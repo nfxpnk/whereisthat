@@ -1,5 +1,6 @@
 CREATE TABLE IF NOT EXISTS disks (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    disk_group_id INTEGER,
     disk_name TEXT NOT NULL,
     disk_number INTEGER NOT NULL DEFAULT 0,
     source_path TEXT NOT NULL COLLATE NOCASE UNIQUE,
@@ -16,5 +17,6 @@ CREATE TABLE IF NOT EXISTS disks (
     description TEXT NOT NULL DEFAULT '',
     category TEXT NOT NULL DEFAULT '',
     location TEXT NOT NULL DEFAULT '',
-    disk_type TEXT NOT NULL CHECK (disk_type IN ('CD', 'DVD', 'BluRay', 'HardDisk', 'SolidStateDisk', 'RemovableUSB', 'VirtualDisk', 'Other'))
+    disk_type TEXT NOT NULL CHECK (disk_type IN ('CD', 'DVD', 'BluRay', 'HardDisk', 'SolidStateDisk', 'RemovableUSB', 'VirtualDisk', 'Other')),
+    FOREIGN KEY (disk_group_id) REFERENCES disk_groups(id) ON DELETE SET NULL
 );

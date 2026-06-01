@@ -23,12 +23,19 @@ struct AddNewDiskMediaResult {
     bool calculateCrc{};
     bool browseArchives{};
     wit::core::CatalogId destinationCatalogId{};
+    std::int64_t diskGroupId{};
+};
+
+struct DiskGroupChoice {
+    std::int64_t id{};
+    std::wstring name;
 };
 
 struct CatalogChoice {
     wit::core::CatalogId id{};
     std::wstring label;
     std::wstring path;
+    std::vector<DiskGroupChoice> diskGroups;
 };
 
 class AddNewDiskMediaDialog : public ATL::CDialogImpl<AddNewDiskMediaDialog> {
@@ -48,6 +55,7 @@ public:
         COMMAND_ID_HANDLER(IDC_MEDIA_DRIVE_6, OnSelectDrive)
         COMMAND_ID_HANDLER(IDC_MEDIA_NETWORK, OnSelectFolder)
         COMMAND_ID_HANDLER(IDC_MEDIA_ISO, OnSelectIso)
+        COMMAND_ID_HANDLER(IDC_MEDIA_CATALOG, OnCatalogChanged)
         COMMAND_ID_HANDLER(IDC_MEDIA_BROWSE_ARCHIVES, OnToggleArchives)
         COMMAND_ID_HANDLER(IDOK, OnConfirm)
         COMMAND_ID_HANDLER(IDCANCEL, OnCancel)
@@ -63,12 +71,14 @@ private:
     LRESULT OnSelectDrive(WORD notifyCode, WORD id, HWND control, BOOL& handled);
     LRESULT OnSelectFolder(WORD notifyCode, WORD id, HWND control, BOOL& handled);
     LRESULT OnSelectIso(WORD notifyCode, WORD id, HWND control, BOOL& handled);
+    LRESULT OnCatalogChanged(WORD notifyCode, WORD id, HWND control, BOOL& handled);
     LRESULT OnToggleArchives(WORD notifyCode, WORD id, HWND control, BOOL& handled);
     LRESULT OnConfirm(WORD notifyCode, WORD id, HWND control, BOOL& handled);
     LRESULT OnCancel(WORD notifyCode, WORD id, HWND control, BOOL& handled);
     void Initialize();
     void PopulateDriveButtons();
     void PopulateCatalogChoices();
+    void PopulateDiskGroupChoices();
     void LayoutSourceButtons();
     void UpdateArchiveOptions();
     void UpdateConfirmEnabled();

@@ -1,5 +1,6 @@
 #include <wit_gui/CatalogWorkflowController.h>
 #include <iterator>
+#include <memory>
 #include <utility>
 
 namespace wit::app {
@@ -363,9 +364,10 @@ ControllerResult CatalogWorkflowController::RequestAddOrUpdateMedia() {
         PopulatePresentation(result);
         return result;
     }
-    for (const auto* catalog : session_.OpenCatalogs()) {
+    for (auto* catalog : session_.OpenCatalogs()) {
         if (catalog->IsEditable()) {
-            result.request.catalogChoices.push_back({catalog->id, catalog->label, catalog->path});
+            result.request.catalogChoices.push_back(
+                {catalog->id, catalog->label, catalog->path, catalog->WorkingDatabase()->GetDiskGroups()});
         }
     }
     if (result.request.catalogChoices.empty()) {
@@ -378,6 +380,38 @@ ControllerResult CatalogWorkflowController::RequestAddOrUpdateMedia() {
     result.request.kind = RequestKind::ShowAddOrUpdateMedia;
     result.request.preferredCatalogId = active && active->IsEditable()
         ? active->id : result.request.catalogChoices.front().id;
+    PopulatePresentation(result);
+    return result;
+}
+
+ControllerResult CatalogWorkflowController::CreateDiskGroup(const std::wstring& name) {
+    ControllerResult result;
+    auto* catalog = ActiveCatalog();
+    auto* database = catalog ? catalog->WorkingDatabase() : nullptr;
+    if (!database || !database->IsEditable()) {
+        result.messages.push_back(Message(L"Open an editable catalog before adding a disk group.",
+            L"Add New Disk Group", MB_OK | MB_ICONINFORMATION));
+        PopulatePresentation(result);
+        return result;
+    }
+    auto pending = std::make_unique<wit::storage::Database>();
+    if (!pending->CreateWorkingCopy(*database)) {
+        result.messages.push_back(Message(L"Unable to prepare pending catalog changes.",
+            L"Add New Disk Group", MB_OK | MB_ICONERROR));
+        PopulatePresentation(result);
+        return result;
+    }
+    const auto id = pending->CreateDiskGroup(name);
+    if (id == 0) {
+        result.messages.push_back(Message(L"Unable to create the disk group. Check that the name is unique.",
+            L"Add New Disk Group", MB_OK | MB_ICONWARNING));
+        PopulatePresentation(result);
+        return result;
+    }
+    session_.AcceptPending(catalog->id, std::move(pending));
+    result.browserEffects.push_back({BrowserEffectKind::RefreshCatalog, catalog->id, catalog->label,
+        catalog->WorkingDatabase(), true});
+    result.presentation.refreshBrowserStatus = true;
     PopulatePresentation(result);
     return result;
 }

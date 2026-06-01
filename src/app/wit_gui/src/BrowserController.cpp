@@ -54,6 +54,8 @@ std::wstring BrowserController::AddressFor(const wit::core::BrowserTarget& targe
     const auto& location = target.location;
     auto address = labelResolver_ ? labelResolver_(target.catalogId) : L"";
     if (location.isRoot) return address;
+    if (location.isDiskGroup) return address + L"\\" + location.diskGroupName;
+    if (location.diskGroupId != 0) address += L"\\" + location.diskGroupName;
     address += L"\\" + location.sourceName;
     if (location.path.size() > location.sourceRoot.size()) {
         auto relative = location.path.substr(location.sourceRoot.size());
@@ -95,14 +97,14 @@ void BrowserController::NavigateTo(const wit::core::BrowserTarget& target, bool 
 void BrowserController::AddCatalog(wit::core::CatalogId id, const std::wstring& label,
     wit::storage::Database* database, bool select) {
     if (!database || !database->IsOpen()) return;
-    tree_.AddCatalog(id, label, database->GetCatalogs(), select);
+    tree_.AddCatalog(id, label, database, select);
     if (select) NavigateTo({id, {}}, true);
 }
 
 void BrowserController::RefreshCatalog(wit::core::CatalogId id, const std::wstring& label,
     wit::storage::Database* database, bool select) {
     if (!database || !database->IsOpen()) return;
-    tree_.RefreshCatalog(id, label, database->GetCatalogs(), select);
+    tree_.RefreshCatalog(id, label, database, select);
     if (select || (hasTarget_ && currentTarget_.catalogId == id)) NavigateTo({id, {}}, true);
 }
 
@@ -176,9 +178,18 @@ LRESULT BrowserController::OnFileActivate(LPNMHDR header) {
     if (activation->iItem < 0) return 0;
     auto next = currentTarget_;
     next.location.isRoot = false;
-    if (currentTarget_.location.isRoot) {
-        const auto* disk = files_.DiskAt(activation->iItem);
-        if (!disk) return 0;
+    if (currentTarget_.location.isRoot || currentTarget_.location.isDiskGroup) {
+        const auto* item = files_.BrowserItemAt(activation->iItem);
+        if (!item) return 0;
+        if (item->type == wit::core::BrowserItemType::DiskGroup) {
+            next.location.isDiskGroup = true;
+            next.location.diskGroupId = item->group.id;
+            next.location.diskGroupName = item->group.name;
+            NavigateTo(next, true);
+            return 0;
+        }
+        const auto* disk = &item->disk;
+        next.location.isDiskGroup = false;
         next.location.sourceId = disk->id;
         next.location.sourceName = disk->diskName;
         next.location.sourceRoot = disk->sourcePath;
@@ -209,9 +220,12 @@ void BrowserController::SelectAll() {
 
 std::wstring BrowserController::FocusedItemStatus() {
     const int index = filesHandle_ ? ListView_GetNextItem(filesHandle_, -1, LVNI_FOCUSED) : -1;
-    if (const auto* disk = index >= 0 ? files_.DiskAt(index) : nullptr) {
-        auto text = disk->diskName + L" | " + CompactSize(disk->totalCapacity);
-        const auto updatedAt = wit::platform::FormatUnixTimestamp(disk->updatedAt);
+    if (const auto* item = index >= 0 ? files_.BrowserItemAt(index) : nullptr) {
+        if (item->type == wit::core::BrowserItemType::DiskGroup) {
+            return item->group.name + L" | Disks: " + std::to_wstring(item->group.totalDisks);
+        }
+        auto text = item->disk.diskName + L" | " + CompactSize(item->disk.totalCapacity);
+        const auto updatedAt = wit::platform::FormatUnixTimestamp(item->disk.updatedAt);
         if (!updatedAt.empty()) text += L" | " + updatedAt;
         return text;
     }
@@ -230,9 +244,9 @@ std::wstring BrowserController::SelectionSummaryStatus() {
     if (filesHandle_) {
         for (int index = ListView_GetNextItem(filesHandle_, -1, LVNI_SELECTED); index >= 0;
             index = ListView_GetNextItem(filesHandle_, index, LVNI_SELECTED)) {
-            if (const auto* disk = files_.DiskAt(index)) {
+            if (const auto* item = files_.BrowserItemAt(index)) {
                 ++selected;
-                totalSize += disk->totalCapacity;
+                if (item->type == wit::core::BrowserItemType::Disk) totalSize += item->disk.totalCapacity;
             } else if (const auto* entry = files_.EntryAt(index)) {
                 ++selected;
                 totalSize += entry->size;

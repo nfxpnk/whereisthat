@@ -188,6 +188,11 @@ LRESULT AddNewDiskMediaDialog::OnSelectIso(WORD notifyCode, WORD, HWND, BOOL&) {
     return 0;
 }
 
+LRESULT AddNewDiskMediaDialog::OnCatalogChanged(WORD notifyCode, WORD, HWND, BOOL&) {
+    if (notifyCode == CBN_SELCHANGE) PopulateDiskGroupChoices();
+    return 0;
+}
+
 LRESULT AddNewDiskMediaDialog::OnToggleArchives(WORD notifyCode, WORD, HWND, BOOL&) {
     if (notifyCode == BN_CLICKED) UpdateArchiveOptions();
     return 0;
@@ -214,6 +219,7 @@ void AddNewDiskMediaDialog::Initialize() {
     ::SetDlgItemTextW(m_hWnd, IDC_MEDIA_STATUS, L"No drive selected");
     PopulateDriveButtons();
     PopulateCatalogChoices();
+    PopulateDiskGroupChoices();
     UpdateArchiveOptions();
 }
 
@@ -255,6 +261,28 @@ void AddNewDiskMediaDialog::PopulateCatalogChoices() {
     }
     if (selected < 0 && !catalogs_.empty()) selected = 0;
     if (selected >= 0) ::SendMessageW(combo, CB_SETCURSEL, selected, 0);
+}
+
+void AddNewDiskMediaDialog::PopulateDiskGroupChoices() {
+    const auto combo = ::GetDlgItem(m_hWnd, IDC_MEDIA_DISK_GROUP);
+    ::SendMessageW(combo, CB_RESETCONTENT, 0, 0);
+    const auto rootPosition = static_cast<int>(::SendMessageW(combo, CB_ADDSTRING, 0,
+        reinterpret_cast<LPARAM>(L"(Catalog root)")));
+    if (rootPosition >= 0) ::SendMessageW(combo, CB_SETITEMDATA, rootPosition, 0);
+    const auto catalogSelection = ::SendDlgItemMessageW(m_hWnd, IDC_MEDIA_CATALOG, CB_GETCURSEL, 0, 0);
+    if (catalogSelection != CB_ERR) {
+        const auto catalogIndex = static_cast<std::size_t>(::SendDlgItemMessageW(m_hWnd, IDC_MEDIA_CATALOG,
+            CB_GETITEMDATA, catalogSelection, 0));
+        if (catalogIndex < catalogs_.size()) {
+            for (const auto& group : catalogs_[catalogIndex].diskGroups) {
+                const auto position = static_cast<int>(::SendMessageW(combo, CB_ADDSTRING, 0,
+                    reinterpret_cast<LPARAM>(group.name.c_str())));
+                if (position >= 0) ::SendMessageW(combo, CB_SETITEMDATA, position,
+                    static_cast<LPARAM>(group.id));
+            }
+        }
+    }
+    ::SendMessageW(combo, CB_SETCURSEL, 0, 0);
 }
 
 void AddNewDiskMediaDialog::LayoutSourceButtons() {
@@ -374,6 +402,10 @@ bool AddNewDiskMediaDialog::Confirm() {
         CB_GETITEMDATA, selected, 0));
     if (index >= catalogs_.size()) return false;
     result_.destinationCatalogId = catalogs_[index].id;
+    const auto groupSelection = ::SendDlgItemMessageW(m_hWnd, IDC_MEDIA_DISK_GROUP, CB_GETCURSEL, 0, 0);
+    result_.diskGroupId = groupSelection == CB_ERR ? 0 :
+        static_cast<std::int64_t>(::SendDlgItemMessageW(m_hWnd, IDC_MEDIA_DISK_GROUP,
+            CB_GETITEMDATA, groupSelection, 0));
     return true;
 }
 }

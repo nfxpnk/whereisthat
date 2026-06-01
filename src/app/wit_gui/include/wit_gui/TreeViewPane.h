@@ -17,9 +17,9 @@ public:
     void Attach(HWND handle, DatabaseResolver databaseResolver);
     void Clear();
     void AddCatalog(wit::core::CatalogId id, const std::wstring& catalogLabel,
-        const std::vector<wit::core::Catalog>& sources, bool select);
+        wit::storage::Database* database, bool select);
     void RefreshCatalog(wit::core::CatalogId id, const std::wstring& catalogLabel,
-        const std::vector<wit::core::Catalog>& sources, bool select);
+        wit::storage::Database* database, bool select);
     void RemoveCatalog(wit::core::CatalogId id);
     void Expand(HTREEITEM item);
     const wit::core::BrowserTarget* TargetFor(HTREEITEM item) const;
@@ -50,7 +50,7 @@ private:
     Root* FindRoot(wit::core::CatalogId id);
     const Root* FindRoot(wit::core::CatalogId id) const;
     HTREEITEM FindSource(wit::core::CatalogId catalogId, std::int64_t sourceId) const;
-    void PopulateRoot(Root& root, const std::wstring& label, const std::vector<wit::core::Catalog>& sources);
+    void PopulateRoot(Root& root, const std::wstring& label, wit::storage::Database* database);
 };
 }
 

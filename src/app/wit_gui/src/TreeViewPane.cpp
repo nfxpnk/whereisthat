@@ -71,52 +71,83 @@ const CatalogTreeView::Root* CatalogTreeView::FindRoot(wit::core::CatalogId id) 
     return nullptr;
 }
 
-void CatalogTreeView::PopulateRoot(Root& root, const std::wstring& label,
-    const std::vector<wit::core::Catalog>& sources) {
+void CatalogTreeView::PopulateRoot(Root& root, const std::wstring& label, wit::storage::Database* database) {
         TVITEMW text{};
     text.mask = TVIF_TEXT | TVIF_CHILDREN | TVIF_STATE;
     text.stateMask = TVIS_BOLD;
     text.state = TVIS_BOLD;
     text.hItem = root.item;
     text.pszText = const_cast<LPWSTR>(label.c_str());
-    text.cChildren = sources.empty() ? 0 : 1;
+    const auto itemCount = database ? database->GetBrowserRootItemCount({}) : 0;
+    text.cChildren = itemCount == 0 ? 0 : 1;
     TreeView_SetItem(hwnd_, &text);
     while (const auto child = TreeView_GetChild(hwnd_, root.item)) TreeView_DeleteItem(hwnd_, child);
-    auto* database = databaseResolver_ ? databaseResolver_(root.id) : nullptr;
-    for (const auto& source : sources) {
+    if (!database) return;
+    const auto groups = database->GetDiskGroups();
+    for (const auto& group : groups) {
+        wit::core::BrowserLocation groupLocation;
+        groupLocation.isRoot = false;
+        groupLocation.isDiskGroup = true;
+        groupLocation.diskGroupId = group.id;
+        groupLocation.diskGroupName = group.name;
+        const auto groupItem = InsertNode(root.item, root.id, group.name, groupLocation, false,
+            group.totalDisks != 0, BrowserFolderImage);
+        const auto disks = database->GetBrowserRootItemsPage(groupLocation, 0,
+            static_cast<int>((std::max)(group.totalDisks, static_cast<std::int64_t>(0))));
+        for (const auto& item : disks) {
+            if (item.type != wit::core::BrowserItemType::Disk) continue;
+            const auto& disk = item.disk;
+            wit::core::BrowserLocation location;
+            location.isRoot = false;
+            location.diskGroupId = group.id;
+            location.diskGroupName = group.name;
+            location.sourceId = disk.id;
+            location.sourceName = disk.diskName;
+            location.sourceRoot = disk.sourcePath;
+            location.path = disk.sourcePath;
+            InsertNode(groupItem, root.id, disk.diskName, location, false,
+                database->HasChildFolders(location.sourceId, location.path), BrowserDriveImage);
+        }
+    }
+    wit::core::BrowserLocation rootLocation;
+    const auto rootItems = database->GetBrowserRootItemsPage(rootLocation, 0, itemCount);
+    for (const auto& item : rootItems) {
+        if (item.type != wit::core::BrowserItemType::Disk) continue;
+        const auto& source = item.disk;
         wit::core::BrowserLocation location;
         location.isRoot = false;
         location.sourceId = source.id;
-        location.sourceName = source.name;
-        location.sourceRoot = source.rootPath;
-        location.path = source.rootPath;
-        InsertNode(root.item, root.id, source.name, location, false,
+        location.sourceName = source.diskName;
+        location.sourceRoot = source.sourcePath;
+        location.path = source.sourcePath;
+        InsertNode(root.item, root.id, source.diskName, location, false,
             database && database->HasChildFolders(location.sourceId, location.path), BrowserDriveImage);
     }
     TreeView_Expand(hwnd_, root.item, TVE_EXPAND);
 }
 
 void CatalogTreeView::AddCatalog(wit::core::CatalogId id, const std::wstring& catalogLabel,
-    const std::vector<wit::core::Catalog>& sources, bool select) {
+    wit::storage::Database* database, bool select) {
     if (FindRoot(id)) {
-        RefreshCatalog(id, catalogLabel, sources, select);
+        RefreshCatalog(id, catalogLabel, database, select);
         return;
     }
     wit::core::BrowserLocation rootLocation;
-    Root root{id, InsertNode(TVI_ROOT, id, catalogLabel, rootLocation, true, !sources.empty(), BrowserDatabaseImage)};
+    Root root{id, InsertNode(TVI_ROOT, id, catalogLabel, rootLocation, true,
+        database && database->GetBrowserRootItemCount(rootLocation) != 0, BrowserDatabaseImage)};
     roots_.push_back(root);
-    PopulateRoot(roots_.back(), catalogLabel, sources);
+    PopulateRoot(roots_.back(), catalogLabel, database);
     if (select) TreeView_SelectItem(hwnd_, root.item);
 }
 
 void CatalogTreeView::RefreshCatalog(wit::core::CatalogId id, const std::wstring& catalogLabel,
-    const std::vector<wit::core::Catalog>& sources, bool select) {
+    wit::storage::Database* database, bool select) {
     auto* root = FindRoot(id);
     if (!root) {
-        AddCatalog(id, catalogLabel, sources, select);
+        AddCatalog(id, catalogLabel, database, select);
         return;
     }
-    PopulateRoot(*root, catalogLabel, sources);
+    PopulateRoot(*root, catalogLabel, database);
     if (select) TreeView_SelectItem(hwnd_, root->item);
 }
 
@@ -161,6 +192,10 @@ void CatalogTreeView::Expand(HTREEITEM item) {
     if (!TreeView_GetItem(hwnd_, &treeItem)) return;
     auto* node = reinterpret_cast<Node*>(treeItem.lParam);
     if (!node || node->populated) return;
+    if (node->target.location.isDiskGroup) {
+        node->populated = true;
+        return;
+    }
     auto* database = databaseResolver_ ? databaseResolver_(node->target.catalogId) : nullptr;
     if (!database) return;
     const auto& location = node->target.location;
@@ -184,6 +219,10 @@ HTREEITEM CatalogTreeView::FindSource(wit::core::CatalogId catalogId, std::int64
     for (auto item = TreeView_GetChild(hwnd_, root->item); item; item = TreeView_GetNextSibling(hwnd_, item)) {
         const auto* target = TargetFor(item);
         if (target && target->location.sourceId == sourceId) return item;
+        for (auto child = TreeView_GetChild(hwnd_, item); child; child = TreeView_GetNextSibling(hwnd_, child)) {
+            const auto* childTarget = TargetFor(child);
+            if (childTarget && childTarget->location.sourceId == sourceId) return child;
+        }
     }
     return nullptr;
 }
@@ -195,6 +234,17 @@ bool CatalogTreeView::SelectLocation(const wit::core::BrowserTarget& target) {
     if (location.isRoot) {
         TreeView_SelectItem(hwnd_, root->item);
         return true;
+    }
+    if (location.isDiskGroup) {
+        for (auto item = TreeView_GetChild(hwnd_, root->item); item; item = TreeView_GetNextSibling(hwnd_, item)) {
+            const auto* itemTarget = TargetFor(item);
+            if (itemTarget && itemTarget->location.isDiskGroup &&
+                itemTarget->location.diskGroupId == location.diskGroupId) {
+                TreeView_SelectItem(hwnd_, item);
+                return true;
+            }
+        }
+        return false;
     }
     auto item = FindSource(target.catalogId, location.sourceId);
     if (!item) return false;

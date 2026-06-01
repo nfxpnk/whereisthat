@@ -2,14 +2,15 @@
 
 ## Authority And Compatibility
 
-The application schema is created and validated in `src/storage/Database.cpp`; values are populated primarily through `src/app/ScanCoordinator.cpp`, `src/core/FileScanner.cpp`, and `src/platform/VolumeInfo.cpp`. This inventory documents only the replacement catalog format. Old `catalogs`/mixed `files` files and normalized catalogs lacking required folder content totals or archive-aware fields are unsupported; no migration SQL exists.
+The application schema is created and validated in `src/modules/wit_database/src/CatalogSchema.cpp`; values are populated primarily through `src/app/wit_gui/src/ScanCoordinator.cpp`, `src/modules/wit_scanner/src/FileScanner.cpp`, and `src/modules/wit_infra/src/VolumeInfo.cpp`. This inventory documents only the replacement catalog format. Old `catalogs`/mixed `files` files and normalized catalogs lacking required folder content totals or archive-aware fields are unsupported; no migration SQL exists.
 
 ## Tables And Columns
 
 | Table | Columns | SQL | Documentation |
 |---|---|---|---|
 | `catalog_metadata` | `id`, `description` | [schema/tables/catalog_metadata.sql](schema/tables/catalog_metadata.sql) | [tables/catalog_metadata.md](tables/catalog_metadata.md) |
-| `disks` | `id`, `disk_name`, `disk_number`, `source_path`, `volume_label`, `total_capacity`, `free_space`, `cluster_size`, `serial_number`, `file_system`, `total_files`, `total_folders`, `added_at`, `updated_at`, `description`, `category`, `location`, `disk_type` | [schema/tables/disks.sql](schema/tables/disks.sql) | [tables/disks.md](tables/disks.md) |
+| `disk_groups` | `id`, `name`, `created_at`, `updated_at` | [schema/tables/disk_groups.sql](schema/tables/disk_groups.sql) | [tables/disk_groups.md](tables/disk_groups.md) |
+| `disks` | `id`, `disk_group_id`, `disk_name`, `disk_number`, `source_path`, `volume_label`, `total_capacity`, `free_space`, `cluster_size`, `serial_number`, `file_system`, `total_files`, `total_folders`, `added_at`, `updated_at`, `description`, `category`, `location`, `disk_type` | [schema/tables/disks.sql](schema/tables/disks.sql) | [tables/disks.md](tables/disks.md) |
 | `disk_scan_statistics` | `disk_id`, `last_scanned_at`, `image_scanning_time_ms`, `imported_descriptions_count`, `calculated_file_crcs`, `scanned_archives`, `archive_files_count`, `archive_folders_count` | [schema/tables/disk_scan_statistics.sql](schema/tables/disk_scan_statistics.sql) | [tables/disk_scan_statistics.md](tables/disk_scan_statistics.md) |
 | `folders` | `id`, `disk_id`, `parent_folder_id`, `path`, `name`, `created_at`, `modified_at`, `accessed_at`, `attributes`, `content_size`, `entry_type` | [schema/tables/folders.sql](schema/tables/folders.sql) | [tables/folders.md](tables/folders.md) |
 | `files` | `id`, `disk_id`, `folder_id`, `name`, `description`, `extension`, `crc`, `size`, `created_at`, `modified_at`, `accessed_at`, `attributes` | [schema/tables/files.sql](schema/tables/files.sql) | [tables/files.md](tables/files.md) |
@@ -18,6 +19,8 @@ The application schema is created and validated in `src/storage/Database.cpp`; v
 
 | Index | Definition | Query responsibility |
 |---|---|---|
+| `idx_disk_groups_name` | `disk_groups(name COLLATE NOCASE)` | Disk group ordering and uniqueness support. |
+| `idx_disks_group` | `disks(disk_group_id, disk_name COLLATE NOCASE)` | Root/group browser disk retrieval. |
 | `idx_disks_source_path` | unique `disks(source_path COLLATE NOCASE)` | Current browse-root identity and duplicate prevention; ISO rescans may additionally match stored `location`. |
 | `idx_folders_parent` | `folders(disk_id, parent_folder_id)` | Immediate child folder retrieval. |
 | `idx_folders_disk_path` | unique `folders(disk_id, path COLLATE NOCASE)` | Path-scoped navigation lookup/invariant. |
@@ -32,6 +35,8 @@ No CRC index is defined because no CRC lookup query is implemented.
 | Object | Constraint / relationship |
 |---|---|
 | `catalog_metadata.id` | `PRIMARY KEY CHECK (id=1)` singleton row. |
+| `disk_groups.name` | Case-insensitively unique virtual root folder name. |
+| `disks.disk_group_id` | Optional foreign key to `disk_groups.id`, set to `NULL` when a group is deleted; `NULL` keeps a disk directly under catalog root. |
 | `disks.source_path` | Case-insensitively unique source identity. |
 | `disks.disk_type` | Allowed-value `CHECK`: `CD`, `DVD`, `BluRay`, `HardDisk`, `SolidStateDisk`, `RemovableUSB`, `VirtualDisk`, `Other`. |
 | `disk_scan_statistics.disk_id` | Primary and foreign key to `disks.id`, cascade delete. |

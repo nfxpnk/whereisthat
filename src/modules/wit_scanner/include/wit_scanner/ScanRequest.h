@@ -15,6 +15,7 @@ enum class MediaSourceKind {
 
 struct ScanRequest {
     wit::core::CatalogId destinationCatalogId{};
+    std::int64_t diskGroupId{};
     MediaSourceKind kind{MediaSourceKind::Folder};
     std::wstring scanRoot;
     std::wstring originalPath;

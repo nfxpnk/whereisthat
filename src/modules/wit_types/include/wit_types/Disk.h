@@ -1,6 +1,7 @@
 #pragma once
 #include <cstdint>
 #include <string>
+#include <vector>
 
 namespace wit::core {
 enum class DiskType {
@@ -29,6 +30,7 @@ inline const char* DiskTypeValue(DiskType type) {
 
 struct Disk {
     std::int64_t id{};
+    std::int64_t diskGroupId{};
     std::wstring diskName;
     std::int64_t diskNumber{};
     std::wstring sourcePath;
@@ -46,6 +48,25 @@ struct Disk {
     std::wstring category;
     std::wstring location;
     DiskType diskType{DiskType::Other};
+};
+
+struct DiskGroup {
+    std::int64_t id{};
+    std::wstring name;
+    std::int64_t createdAt{};
+    std::int64_t updatedAt{};
+    std::int64_t totalDisks{};
+};
+
+enum class BrowserItemType {
+    DiskGroup,
+    Disk
+};
+
+struct BrowserItem {
+    BrowserItemType type{BrowserItemType::Disk};
+    DiskGroup group;
+    Disk disk;
 };
 
 struct DiskScanStatistics {

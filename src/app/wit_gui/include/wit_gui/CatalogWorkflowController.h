@@ -37,6 +37,7 @@ struct CatalogChoice {
     wit::core::CatalogId id{};
     std::wstring label;
     std::wstring path;
+    std::vector<wit::core::DiskGroup> diskGroups;
 };
 
 enum class RequestKind {
@@ -124,6 +125,7 @@ public:
     ControllerResult RequestSearch();
     ControllerResult SearchClosed();
     ControllerResult RequestAddOrUpdateMedia();
+    ControllerResult CreateDiskGroup(const std::wstring& name);
     ControllerResult MediaSelectionCompleted(const std::optional<wit::core::ScanRequest>& request);
     ControllerResult RequestCancelScan();
     ControllerResult RequestGeneralSettings();

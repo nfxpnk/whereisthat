@@ -2,7 +2,7 @@
 
 ## Engine And Format
 
-Where Is That? uses SQLite through the native C API in `src/storage/Database.cpp`. Each user-selected SQLite file is one catalog. The current format is a replacement format: former databases containing the legacy `catalogs` and mixed folder/file `files` schema, and normalized catalogs without required stored folder content totals or archive-aware fields, are rejected and are not migrated.
+Where Is That? uses SQLite through the native C API in `src/modules/wit_database`. Each user-selected SQLite file is one catalog. The current format is a replacement format: former databases containing the legacy `catalogs` and mixed folder/file `files` schema, and normalized catalogs without required stored folder content totals or archive-aware fields, are rejected and are not migrated.
 
 `Database::InitializeSchema()` is the executable schema authority for new catalog files. Add/Update work is staged in an in-memory database copy and becomes durable only when Save backs that replacement-format database into the active file.
 
@@ -11,6 +11,7 @@ Where Is That? uses SQLite through the native C API in `src/storage/Database.cpp
 | Table | Purpose | SQL | Field documentation |
 |---|---|---|---|
 | `catalog_metadata` | Singleton catalog-owned description metadata. | [schema/tables/catalog_metadata.sql](schema/tables/catalog_metadata.sql) | [tables/catalog_metadata.md](tables/catalog_metadata.md) |
+| `disk_groups` | Optional virtual root folders for grouping disks/media. | [schema/tables/disk_groups.sql](schema/tables/disk_groups.sql) | [tables/disk_groups.md](tables/disk_groups.md) |
 | `disks` | One added disk/media source and native/storage metadata. | [schema/tables/disks.sql](schema/tables/disks.sql) | [tables/disks.md](tables/disks.md) |
 | `disk_scan_statistics` | Latest successful scan statistics per disk, including readable archive counts. | [schema/tables/disk_scan_statistics.sql](schema/tables/disk_scan_statistics.sql) | [tables/disk_scan_statistics.md](tables/disk_scan_statistics.md) |
 | `folders` | Normalized physical/archive-backed folder hierarchy and stored recursive file-byte totals for offline browsing. | [schema/tables/folders.sql](schema/tables/folders.sql) | [tables/folders.md](tables/folders.md) |
@@ -19,12 +20,14 @@ Where Is That? uses SQLite through the native C API in `src/storage/Database.cpp
 ## Relationships
 
 - `disk_scan_statistics.disk_id -> disks.id ON DELETE CASCADE`.
+- `disks.disk_group_id -> disk_groups.id ON DELETE SET NULL`; a null group keeps the disk directly under catalog root.
 - `folders.disk_id -> disks.id ON DELETE CASCADE`.
 - `folders.parent_folder_id -> folders.id ON DELETE CASCADE`; a null parent marks the stored disk root folder.
 - `files.disk_id -> disks.id ON DELETE CASCADE`.
 - `files.folder_id -> folders.id ON DELETE CASCADE`.
 
 `disks.source_path` is the current stored browse root and is case-insensitively unique. Add/Update matches this path for ordinary sources and can additionally match `disks.location` for an ISO image whose current mounted root has changed.
+`disk_groups.name` is case-insensitively unique and represents a virtual catalog-root folder, not a scanned filesystem folder.
 
 ## Data Encodings
 

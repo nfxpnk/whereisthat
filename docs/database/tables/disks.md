@@ -8,9 +8,11 @@ Stores one disk/media source added to a catalog. `MainFrame::OnAddOrUpdateDiskIm
 
 - Primary key: `id`.
 - Parent for `folders.disk_id`, `files.disk_id`, and `disk_scan_statistics.disk_id`, all cascading on delete.
+- Optional parent for catalog grouping: `disk_group_id` references `disk_groups.id`; `NULL` means the disk is displayed directly under the catalog root.
 - `source_path` is unique case-insensitively and stores the root used for normalized browsing. Rescan also matches `location` when an ISO's mounted drive root changes between sessions.
 - `disk_type` permits only `CD`, `DVD`, `BluRay`, `HardDisk`, `SolidStateDisk`, `RemovableUSB`, `VirtualDisk`, or `Other`.
 - Index: `idx_disks_source_path` on `source_path COLLATE NOCASE`.
+- Index: `idx_disks_group` on `disk_group_id, disk_name COLLATE NOCASE`.
 
 ## Notes
 
@@ -24,6 +26,7 @@ Stores one disk/media source added to a catalog. `MainFrame::OnAddOrUpdateDiskIm
 | Field | Type | Nullable | Default | Key/Index | Description | Used in code | Confidence |
 |---|---|---:|---|---|---|---|---|
 | `id` | `INTEGER` | No | none | `PRIMARY KEY AUTOINCREMENT` | Disk record identifier. | `src/storage/Database.cpp`; `src/app/ScanCoordinator.cpp`; navigation projections | Explicit |
+| `disk_group_id` | `INTEGER` | Yes | `NULL` | `FOREIGN KEY`; `idx_disks_group` | Optional virtual disk group parent; `NULL` displays the disk at catalog root. | `ScanCoordinator::Start`; root/group browser projection | Explicit |
 | `disk_name` | `TEXT` | No | none | none | User-visible disk/media name. | `src/ui/AddNewDiskMediaDialog.cpp`; `src/app/ScanCoordinator.cpp`; `Database::GetCatalogs`, `GetDisksPage` | Explicit |
 | `disk_number` | `INTEGER` | No | `0` | none | Numeric identifier accepted for the disk. | `src/app/ScanCoordinator.cpp`; `Database::AddDisk`, `UpdateDisk` | Explicit |
 | `source_path` | `TEXT` | No | none | `UNIQUE`; `idx_disks_source_path` | Current normalized scan/browse root; normally identifies rescans, and is refreshed if a matched ISO mount root changes. | `ScanCoordinator::Start`; `Database::FindDiskBySourcePath`, `UpdateDisk`; browser projection | Explicit |

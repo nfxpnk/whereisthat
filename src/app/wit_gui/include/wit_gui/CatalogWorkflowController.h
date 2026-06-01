@@ -128,6 +128,8 @@ public:
     ControllerResult RequestCancelScan();
     ControllerResult RequestGeneralSettings();
     ControllerResult GeneralSettingsCompleted(const std::optional<wit::platform::AppSettings>& settings);
+    ControllerResult ToggleToolbar();
+    ControllerResult ToggleStatusBar();
     bool SaveMainSplitterPosition(int position);
     ControllerResult OnScanProgress(ScanId scanId);
     ControllerResult OnScanComplete(ScanId scanId);

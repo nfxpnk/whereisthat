@@ -448,6 +448,36 @@ ControllerResult CatalogWorkflowController::GeneralSettingsCompleted(
     return result;
 }
 
+ControllerResult CatalogWorkflowController::ToggleToolbar() {
+    ControllerResult result;
+    auto settings = session_.Settings();
+    settings.showToolbar = !settings.showToolbar;
+    if (!session_.SaveSettings(settings)) {
+        result.messages.push_back(Message(L"Unable to save settings.ini.", L"Toolbar Settings",
+            MB_OK | MB_ICONERROR));
+    } else {
+        result.presentation.updateToolbarVisibility = true;
+        result.presentation.toolbarVisible = session_.Settings().showToolbar;
+    }
+    PopulatePresentation(result);
+    return result;
+}
+
+ControllerResult CatalogWorkflowController::ToggleStatusBar() {
+    ControllerResult result;
+    auto settings = session_.Settings();
+    settings.showStatusBar = !settings.showStatusBar;
+    if (!session_.SaveSettings(settings)) {
+        result.messages.push_back(Message(L"Unable to save settings.ini.", L"Status Bar Settings",
+            MB_OK | MB_ICONERROR));
+    } else {
+        result.presentation.updateStatusVisibility = true;
+        result.presentation.statusVisible = session_.Settings().showStatusBar;
+    }
+    PopulatePresentation(result);
+    return result;
+}
+
 bool CatalogWorkflowController::SaveMainSplitterPosition(int position) {
     auto settings = session_.Settings();
     if (settings.mainSplitterPosition == position) return true;
@@ -527,6 +557,8 @@ void CatalogWorkflowController::PopulatePresentation(ControllerResult& result, b
     result.presentation.canScan = hasEditable && !scans_.IsRunning();
     result.presentation.canSave = active && active->IsEditable() && !scans_.Targets(active->id);
     result.presentation.canClose = active && !scans_.Targets(active->id);
+    result.presentation.statusVisible = session_.Settings().showStatusBar;
+    result.presentation.toolbarVisible = session_.Settings().showToolbar;
     if (refreshRecentMenu) {
         result.presentation.refreshRecentMenu = true;
         result.presentation.recentCatalogPaths = session_.Settings().recentCatalogPaths;

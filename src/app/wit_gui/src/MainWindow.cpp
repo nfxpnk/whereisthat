@@ -208,6 +208,10 @@ void MainFrame::OnCommand(int id) {
         UpdateBrowserStatus();
     } else if (id == ID_OPTIONS_GENERAL_SETTINGS) {
         ApplyControllerResult(controller_.RequestGeneralSettings());
+    } else if (id == ID_WIT_VIEW_TOOLBAR) {
+        ApplyControllerResult(controller_.ToggleToolbar());
+    } else if (id == ID_WIT_VIEW_STATUS_BAR) {
+        ApplyControllerResult(controller_.ToggleStatusBar());
     } else if (id == ID_FILE_EXIT) OnExit();
     else if (id == ID_HELP_ABOUT) OnAbout();
 }
@@ -389,6 +393,10 @@ void MainFrame::RenderPresentation(const wit::app::PresentationEffect& presentat
             MF_BYCOMMAND | (presentation.canSave ? MF_ENABLED : MF_GRAYED));
         ::EnableMenuItem(menu, ID_WIT_FILE_CLOSE,
             MF_BYCOMMAND | (presentation.canClose ? MF_ENABLED : MF_GRAYED));
+        ::CheckMenuItem(menu, ID_WIT_VIEW_TOOLBAR,
+            MF_BYCOMMAND | (presentation.toolbarVisible ? MF_CHECKED : MF_UNCHECKED));
+        ::CheckMenuItem(menu, ID_WIT_VIEW_STATUS_BAR,
+            MF_BYCOMMAND | (presentation.statusVisible ? MF_CHECKED : MF_UNCHECKED));
         ::DrawMenuBar(m_hWnd);
     }
     if (presentation.refreshBrowserStatus) UpdateBrowserStatus();

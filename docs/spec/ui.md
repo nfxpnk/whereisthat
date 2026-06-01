@@ -45,6 +45,7 @@ Each open catalog remains useful when its indexed original storage is disconnect
 - The main contents area supports multi-selection so the status bar can report selected item count and aggregate stored size; focused item status includes filename, size, and stored date. `Ctrl+A` selects every displayed file and folder only while a file or folder row in the right-pane contents list has focus, and does not apply to the catalog-root disk inventory.
 - An active read-only or otherwise protected catalog remains browseable and shows a compact lock indicator, but does not accept Add/Update or Save mutations.
 - General Settings opens a dedicated WTL/ATL-hosted native settings dialog in `src/ui`; its initial `Show status bar` and `Show Toolbar` preferences immediately control status-bar and toolbar visibility and default to enabled, and it displays the stored main tree/list splitter position and last-opened catalog path as read-only information.
+- View > Tool Bar and View > Status Bar toggle those same persisted visibility preferences immediately and show checkmarks for the current states.
 - Commands still introduced as placeholders, including the remaining Search commands, have no storage, settings, catalog, file, or display effect until their feature behavior is specified and implemented.
 
 ## Win32 Interaction Rules

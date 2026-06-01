@@ -1,4 +1,4 @@
-#include "wit_catalog/BrowserController.h"
+#include "wit_gui/BrowserController.h"
 #include <algorithm>
 #include "wit_infra/StringUtils.h"
 #include <wit_infra/Win32Helpers.h>

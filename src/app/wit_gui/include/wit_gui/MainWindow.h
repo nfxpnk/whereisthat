@@ -5,7 +5,7 @@
 #include <string>
 #include <vector>
 #include "wit_win32/BaseWindow.h"
-#include "wit_catalog/BrowserController.h"
+#include "wit_gui/BrowserController.h"
 #include <wit_gui/CatalogWorkflowController.h>
 #include <wit_gui/MainWindowChrome.h>
 #include "resource.h"

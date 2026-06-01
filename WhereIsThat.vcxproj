@@ -64,7 +64,7 @@ copy /Y "$(ProjectDir)third_party\libarchive\bin\*.dll" "$(OutDir)"</Command>
         <ClCompile Include="src\app\wit_win32\src\BaseWindow.cpp"/>
         <ClCompile Include="src\app\wit_win32\src\DpiHelper.cpp"/>
         <ClCompile Include="src\modules\wit_infra\src\FileEntry.cpp"/>
-        <ClCompile Include="src\modules\wit_catalog\src\BrowserController.cpp"/>
+        <ClCompile Include="src\app\wit_gui\src\BrowserController.cpp"/>
         <ClCompile Include="src\modules\wit_catalog\src\Catalog.cpp"/>
         <ClCompile Include="src\modules\wit_catalog\src\CatalogSession.cpp"/>
         <ClCompile Include="src\modules\wit_database\src\CatalogSchema.cpp"/>
@@ -105,7 +105,7 @@ copy /Y "$(ProjectDir)third_party\libarchive\bin\*.dll" "$(OutDir)"</Command>
         <ClInclude Include="src\app\wit_win32\include\wit_win32\HandleGuard.h"/>
         <ClInclude Include="src\app\wit_win32\include\wit_win32\VirtualListView.h"/>
         <ClInclude Include="src\modules\wit_types\include\wit_types\FileEntry.h"/>
-        <ClInclude Include="src\modules\wit_catalog\include\wit_catalog\BrowserController.h"/>
+        <ClInclude Include="src\app\wit_gui\include\wit_gui\BrowserController.h"/>
         <ClInclude Include="src\modules\wit_catalog\include\wit_catalog\Catalog.h"/>
         <ClInclude Include="src\modules\wit_catalog\include\wit_catalog\CatalogSession.h"/>
         <ClInclude Include="src\modules\wit_catalog\include\wit_catalog\ICatalog.h"/>

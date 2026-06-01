@@ -13,6 +13,7 @@ bool GeneralSettingsDialog::Show(HWND owner, const wit::platform::AppSettings& c
 
 LRESULT GeneralSettingsDialog::OnInitDialog(UINT, WPARAM, LPARAM, BOOL&) {
     CheckDlgButton(IDC_SHOW_STATUS_BAR, settings_.showStatusBar ? BST_CHECKED : BST_UNCHECKED);
+    CheckDlgButton(IDC_SHOW_TOOLBAR, settings_.showToolbar ? BST_CHECKED : BST_UNCHECKED);
     SetDlgItemTextW(IDC_MAIN_SPLITTER_POSITION, std::to_wstring(settings_.mainSplitterPosition).c_str());
     SetDlgItemTextW(IDC_LAST_OPENED_CATALOG, settings_.lastCatalogPath.empty()
         ? L"(No catalog opened)" : settings_.lastCatalogPath.c_str());
@@ -21,6 +22,7 @@ LRESULT GeneralSettingsDialog::OnInitDialog(UINT, WPARAM, LPARAM, BOOL&) {
 
 LRESULT GeneralSettingsDialog::OnConfirm(WORD, WORD, HWND, BOOL&) {
     settings_.showStatusBar = IsDlgButtonChecked(IDC_SHOW_STATUS_BAR) == BST_CHECKED;
+    settings_.showToolbar = IsDlgButtonChecked(IDC_SHOW_TOOLBAR) == BST_CHECKED;
     EndDialog(IDOK);
     return 0;
 }

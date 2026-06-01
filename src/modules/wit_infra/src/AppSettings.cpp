@@ -45,6 +45,8 @@ AppSettings LoadAppSettings() {
     const auto path = SettingsFilePath();
     settings.showStatusBar =
         GetPrivateProfileIntW(L"General", L"ShowStatusBar", 1, path.c_str()) != 0;
+    settings.showToolbar =
+        GetPrivateProfileIntW(L"General", L"ShowToolbar", 1, path.c_str()) != 0;
     settings.mainSplitterPosition = GetPrivateProfileIntW(
         L"General", L"MainSplitterPosition", kDefaultMainSplitterPosition, path.c_str());
     settings.lastCatalogPath = ReadProfileString(L"General", L"LastCatalogPath", path);
@@ -62,6 +64,8 @@ bool SaveAppSettings(const AppSettings& settings) {
     const auto splitterPosition = std::to_wstring(settings.mainSplitterPosition);
     bool success = WritePrivateProfileStringW(L"General", L"ShowStatusBar",
         settings.showStatusBar ? L"1" : L"0", path.c_str()) != FALSE &&
+        WritePrivateProfileStringW(L"General", L"ShowToolbar",
+            settings.showToolbar ? L"1" : L"0", path.c_str()) != FALSE &&
         WritePrivateProfileStringW(L"General", L"MainSplitterPosition",
             splitterPosition.c_str(), path.c_str()) != FALSE &&
         WritePrivateProfileStringW(L"General", L"LastCatalogPath",

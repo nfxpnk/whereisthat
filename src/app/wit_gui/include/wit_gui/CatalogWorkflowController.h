@@ -69,6 +69,8 @@ struct PresentationEffect {
     std::vector<std::wstring> recentCatalogPaths;
     bool updateStatusVisibility{};
     bool statusVisible{true};
+    bool updateToolbarVisibility{};
+    bool toolbarVisible{true};
     int mainSplitterPosition{360};
     bool updateAppStatus{};
     AppStatus appStatus{AppStatus::Idle};

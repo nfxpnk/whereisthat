@@ -26,6 +26,8 @@ ControllerResult CatalogWorkflowController::Initialize() {
     ControllerResult result;
     result.presentation.updateStatusVisibility = true;
     result.presentation.statusVisible = session_.Settings().showStatusBar;
+    result.presentation.updateToolbarVisibility = true;
+    result.presentation.toolbarVisible = session_.Settings().showToolbar;
     result.presentation.mainSplitterPosition = session_.Settings().mainSplitterPosition;
     PopulatePresentation(result, true);
     if (!session_.Settings().lastCatalogPath.empty()) {
@@ -438,6 +440,8 @@ ControllerResult CatalogWorkflowController::GeneralSettingsCompleted(
         } else {
             result.presentation.updateStatusVisibility = true;
             result.presentation.statusVisible = session_.Settings().showStatusBar;
+            result.presentation.updateToolbarVisibility = true;
+            result.presentation.toolbarVisible = session_.Settings().showToolbar;
         }
     }
     PopulatePresentation(result);
@@ -543,6 +547,10 @@ void CatalogWorkflowController::Append(ControllerResult& destination, Controller
     if (source.presentation.updateStatusVisibility) {
         destination.presentation.updateStatusVisibility = true;
         destination.presentation.statusVisible = source.presentation.statusVisible;
+    }
+    if (source.presentation.updateToolbarVisibility) {
+        destination.presentation.updateToolbarVisibility = true;
+        destination.presentation.toolbarVisible = source.presentation.toolbarVisible;
     }
     if (source.presentation.updateAppStatus) {
         destination.presentation.updateAppStatus = true;

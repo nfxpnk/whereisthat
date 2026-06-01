@@ -152,7 +152,7 @@ LRESULT MainFrame::HandleMessage(UINT message, WPARAM wparam, LPARAM lparam, BOO
 bool MainFrame::OnCreate() {
     if (!controller_.AttachTarget(m_hWnd)) return false;
     auto initial = controller_.Initialize();
-    if (!chrome_.Create(m_hWnd, initial.presentation.statusVisible,
+    if (!chrome_.Create(m_hWnd, initial.presentation.statusVisible, initial.presentation.toolbarVisible,
         initial.presentation.mainSplitterPosition, [this]() {
         browser_.SelectAll();
         UpdateBrowserStatus();
@@ -394,6 +394,7 @@ void MainFrame::RenderPresentation(const wit::app::PresentationEffect& presentat
     if (presentation.refreshBrowserStatus) UpdateBrowserStatus();
     if (presentation.refreshRecentMenu) RenderRecentMenu(presentation.recentCatalogPaths);
     if (presentation.updateStatusVisibility) chrome_.SetStatusVisible(presentation.statusVisible);
+    if (presentation.updateToolbarVisibility) chrome_.SetToolbarVisible(presentation.toolbarVisible);
     if (presentation.updateAppStatus) chrome_.SetAppStatus(presentation.appStatus);
     if (presentation.flushStatus) ::UpdateWindow(chrome_.StatusHandle());
 }

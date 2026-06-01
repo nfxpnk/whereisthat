@@ -125,10 +125,11 @@ const wchar_t* ToolbarTooltipText(int commandId) {
 }
 }
 
-bool MainWindowChrome::Create(HWND parent, bool showStatusBar, int splitterPosition,
+bool MainWindowChrome::Create(HWND parent, bool showStatusBar, bool showToolbar, int splitterPosition,
     std::function<void()> selectAllAction) {
     parent_ = parent;
     statusVisible_ = showStatusBar;
+    toolbarVisible_ = showToolbar;
     splitterPosition_ = splitterPosition;
     selectAllAction_ = std::move(selectAllAction);
     if (!CreateToolbar()) return false;
@@ -163,8 +164,9 @@ bool MainWindowChrome::CreateToolbar() {
     const int toolbarScale = ToolbarScaleForDpi(parent_);
     const int toolbarIconSize = kToolbarIconSize * toolbarScale;
     const int toolbarButtonSize = kToolbarButtonSize * toolbarScale;
-    toolbarHandle_ = CreateWindowExW(0, TOOLBARCLASSNAMEW, nullptr,
-        WS_CHILD | WS_VISIBLE | TBSTYLE_FLAT | TBSTYLE_TOOLTIPS | CCS_TOP | CCS_NODIVIDER,
+    DWORD style = WS_CHILD | TBSTYLE_FLAT | TBSTYLE_TOOLTIPS | CCS_TOP | CCS_NODIVIDER;
+    if (toolbarVisible_) style |= WS_VISIBLE;
+    toolbarHandle_ = CreateWindowExW(0, TOOLBARCLASSNAMEW, nullptr, style,
         0, 0, 0, 0, parent_, reinterpret_cast<HMENU>(IDC_TOOLBAR), GetModuleHandleW(nullptr), nullptr);
     if (!toolbarHandle_) return false;
     SendMessageW(toolbarHandle_, TB_BUTTONSTRUCTSIZE, sizeof(TBBUTTON), 0);
@@ -285,11 +287,14 @@ void MainWindowChrome::Destroy() {
 }
 
 void MainWindowChrome::OnSize(int width, int height) {
+    toolbarHeight_ = 0;
     if (toolbarHandle_) {
         SendMessageW(toolbarHandle_, TB_AUTOSIZE, 0, 0);
-        RECT rect{};
-        GetWindowRect(toolbarHandle_, &rect);
-        toolbarHeight_ = rect.bottom - rect.top;
+        if (toolbarVisible_) {
+            RECT rect{};
+            GetWindowRect(toolbarHandle_, &rect);
+            toolbarHeight_ = rect.bottom - rect.top;
+        }
     }
     int statusHeight = 0;
     if (statusHandle_) {
@@ -374,6 +379,14 @@ bool MainWindowChrome::OnSetCursor(LPARAM lparam) {
 void MainWindowChrome::SetStatusVisible(bool visible) {
     statusVisible_ = visible;
     ShowWindow(statusHandle_, visible ? SW_SHOW : SW_HIDE);
+    RECT client{};
+    GetClientRect(parent_, &client);
+    OnSize(client.right - client.left, client.bottom - client.top);
+}
+
+void MainWindowChrome::SetToolbarVisible(bool visible) {
+    toolbarVisible_ = visible;
+    ShowWindow(toolbarHandle_, visible ? SW_SHOW : SW_HIDE);
     RECT client{};
     GetClientRect(parent_, &client);
     OnSize(client.right - client.left, client.bottom - client.top);

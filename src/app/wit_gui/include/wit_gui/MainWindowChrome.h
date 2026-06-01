@@ -17,7 +17,8 @@ enum class AppStatus {
 
 class MainWindowChrome {
 public:
-    bool Create(HWND parent, bool showStatusBar, int splitterPosition, std::function<void()> selectAllAction);
+    bool Create(HWND parent, bool showStatusBar, bool showToolbar, int splitterPosition,
+        std::function<void()> selectAllAction);
     void Destroy();
 
     HWND TreeHandle() const { return treeHandle_; }
@@ -36,6 +37,7 @@ public:
     bool OnSetCursor(LPARAM lparam);
 
     void SetStatusVisible(bool visible);
+    void SetToolbarVisible(bool visible);
     void SetStatusText(int part, const std::wstring& text);
     void UpdateCatalogLockStatus();
     void SetAppStatus(AppStatus status);
@@ -91,6 +93,7 @@ private:
     int toolbarHeight_{};
     bool splitterDragging_{};
     bool statusVisible_{true};
+    bool toolbarVisible_{true};
     AppStatus appStatus_{AppStatus::Idle};
     std::array<std::wstring, 5> statusText_{};
     std::function<void()> selectAllAction_;

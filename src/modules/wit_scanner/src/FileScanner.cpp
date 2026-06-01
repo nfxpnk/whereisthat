@@ -19,7 +19,7 @@
 
 namespace wit::core {
 namespace {
-constexpr bool kEnableScanFileDelay = true;
+constexpr bool kEnableScanFileDelay = false;
 constexpr std::int64_t kScanFileDelayMicroseconds = 50000;
 constexpr std::uint64_t kProgressReportItemInterval = 250;
 

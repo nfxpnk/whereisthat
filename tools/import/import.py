@@ -1,0 +1,926 @@
+#!/usr/bin/env python3
+"""Import a WhereIsIt XML report into the current Where Is That? SQLite format.
+
+Usage:
+    python tools/import_home_xml.py --overwrite --verbose
+    python tools/import_home_xml.py --xml tools/import/home.xml --db home.db --overwrite
+
+The importer uses only the Python standard library. It writes the database to a
+temporary file first and replaces the requested output only after the full import,
+schema validation, and SQLite integrity checks succeed.
+"""
+
+from __future__ import annotations
+
+import argparse
+import logging
+import os
+import shutil
+import sqlite3
+import sys
+import tempfile
+import xml.etree.ElementTree as ET
+from collections import Counter, defaultdict
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from pathlib import Path, PureWindowsPath
+from typing import Iterable
+
+
+LOG = logging.getLogger("import_home_xml")
+
+SCHEMA_TABLES = [
+    "CREATE TABLE IF NOT EXISTS catalog_metadata ("
+    "id INTEGER PRIMARY KEY CHECK (id=1),"
+    "description TEXT NOT NULL DEFAULT '');",
+    "CREATE TABLE IF NOT EXISTS disk_groups ("
+    "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+    "name TEXT NOT NULL COLLATE NOCASE UNIQUE,"
+    "created_at INTEGER NOT NULL,"
+    "updated_at INTEGER NOT NULL);",
+    "CREATE TABLE IF NOT EXISTS disks ("
+    "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+    "disk_group_id INTEGER,"
+    "disk_name TEXT NOT NULL,"
+    "disk_number INTEGER NOT NULL DEFAULT 0,"
+    "source_path TEXT NOT NULL COLLATE NOCASE UNIQUE,"
+    "volume_label TEXT NOT NULL DEFAULT '',"
+    "total_capacity INTEGER NOT NULL DEFAULT 0,"
+    "free_space INTEGER NOT NULL DEFAULT 0,"
+    "cluster_size INTEGER NOT NULL DEFAULT 0,"
+    "serial_number TEXT NOT NULL DEFAULT '',"
+    "file_system TEXT NOT NULL DEFAULT '',"
+    "total_files INTEGER NOT NULL DEFAULT 0,"
+    "total_folders INTEGER NOT NULL DEFAULT 0,"
+    "added_at INTEGER NOT NULL,"
+    "updated_at INTEGER NOT NULL,"
+    "description TEXT NOT NULL DEFAULT '',"
+    "category TEXT NOT NULL DEFAULT '',"
+    "location TEXT NOT NULL DEFAULT '',"
+    "disk_type TEXT NOT NULL CHECK (disk_type IN "
+    "('CD','DVD','BluRay','HardDisk','SolidStateDisk','RemovableUSB','VirtualDisk','Other')),"
+    "FOREIGN KEY (disk_group_id) REFERENCES disk_groups(id) ON DELETE SET NULL);",
+    "CREATE TABLE IF NOT EXISTS disk_scan_statistics ("
+    "disk_id INTEGER PRIMARY KEY,"
+    "last_scanned_at INTEGER NOT NULL,"
+    "image_scanning_time_ms INTEGER NOT NULL DEFAULT 0,"
+    "imported_descriptions_count INTEGER NOT NULL DEFAULT 0,"
+    "calculated_file_crcs INTEGER NOT NULL DEFAULT 0 CHECK (calculated_file_crcs IN (0,1)),"
+    "scanned_archives INTEGER NOT NULL DEFAULT 0 CHECK (scanned_archives >= 0),"
+    "archive_files_count INTEGER NOT NULL DEFAULT 0 CHECK (archive_files_count >= 0),"
+    "archive_folders_count INTEGER NOT NULL DEFAULT 0 CHECK (archive_folders_count >= 0),"
+    "FOREIGN KEY (disk_id) REFERENCES disks(id) ON DELETE CASCADE);",
+    "CREATE TABLE IF NOT EXISTS folders ("
+    "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+    "disk_id INTEGER NOT NULL,"
+    "parent_folder_id INTEGER,"
+    "path TEXT NOT NULL,"
+    "name TEXT NOT NULL,"
+    "created_at INTEGER NOT NULL,"
+    "modified_at INTEGER NOT NULL,"
+    "accessed_at INTEGER NOT NULL,"
+    "attributes INTEGER NOT NULL DEFAULT 0,"
+    "content_size INTEGER NOT NULL DEFAULT 0,"
+    "entry_type TEXT NOT NULL DEFAULT 'directory' CHECK (entry_type IN ('directory','archive')),"
+    "FOREIGN KEY (disk_id) REFERENCES disks(id) ON DELETE CASCADE,"
+    "FOREIGN KEY (parent_folder_id) REFERENCES folders(id) ON DELETE CASCADE);",
+    "CREATE TABLE IF NOT EXISTS files ("
+    "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+    "disk_id INTEGER NOT NULL,"
+    "folder_id INTEGER NOT NULL,"
+    "name TEXT NOT NULL,"
+    "description TEXT NOT NULL DEFAULT '',"
+    "extension TEXT NOT NULL DEFAULT '',"
+    "crc TEXT,"
+    "size INTEGER NOT NULL,"
+    "created_at INTEGER NOT NULL,"
+    "modified_at INTEGER NOT NULL,"
+    "accessed_at INTEGER NOT NULL,"
+    "attributes INTEGER NOT NULL DEFAULT 0,"
+    "FOREIGN KEY (disk_id) REFERENCES disks(id) ON DELETE CASCADE,"
+    "FOREIGN KEY (folder_id) REFERENCES folders(id) ON DELETE CASCADE);",
+]
+
+SCHEMA_INDEXES = [
+    "CREATE INDEX IF NOT EXISTS idx_disk_groups_name ON disk_groups(name COLLATE NOCASE);",
+    "CREATE INDEX IF NOT EXISTS idx_disks_group ON disks(disk_group_id,disk_name COLLATE NOCASE);",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_disks_source_path ON disks(source_path COLLATE NOCASE);",
+    "CREATE INDEX IF NOT EXISTS idx_folders_parent ON folders(disk_id,parent_folder_id);",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_folders_disk_path ON folders(disk_id,path COLLATE NOCASE);",
+    "CREATE INDEX IF NOT EXISTS idx_files_folder ON files(folder_id);",
+    "CREATE INDEX IF NOT EXISTS idx_files_disk_name ON files(disk_id,name);",
+    "CREATE INDEX IF NOT EXISTS idx_files_extension ON files(extension);",
+]
+
+REQUIRED_COLUMNS = {
+    "catalog_metadata": {"description"},
+    "disk_groups": {"name", "updated_at"},
+    "disks": {"disk_group_id", "disk_name", "source_path", "disk_type"},
+    "disk_scan_statistics": {
+        "last_scanned_at",
+        "scanned_archives",
+        "archive_files_count",
+        "archive_folders_count",
+    },
+    "folders": {"parent_folder_id", "path", "content_size", "entry_type"},
+    "files": {"folder_id", "extension", "crc", "accessed_at"},
+}
+
+DISK_TYPE_MAP = {
+    "audio cd": "CD",
+    "blu-ray": "BluRay",
+    "blu ray": "BluRay",
+    "bd-rom": "BluRay",
+    "cd": "CD",
+    "cd-rom": "CD",
+    "dvd": "DVD",
+    "dvd-rom": "DVD",
+    "hard disk": "HardDisk",
+    "hdd": "HardDisk",
+    "removable disk": "RemovableUSB",
+    "usb": "RemovableUSB",
+    "virtual disk": "VirtualDisk",
+    "virtual hard disk": "VirtualDisk",
+}
+
+
+class ImportErrorWithContext(RuntimeError):
+    """Raised for user-fixable import failures."""
+
+
+@dataclass
+class XmlItem:
+    index: int
+    item_type: str
+    fields: dict[str, str]
+
+
+@dataclass
+class DiskRecord:
+    xml_index: int
+    name: str
+    disk_number: int
+    source_path: str
+    disk_type: str
+    total_capacity: int
+    timestamp: int
+    description: str
+    category: str
+    location: str
+    xml_disk_type: str
+
+
+@dataclass
+class FolderRecord:
+    disk_key: tuple[str, int]
+    parent_path: str
+    path: str
+    name: str
+    timestamp: int
+    content_size: int
+    entry_type: str
+    xml_index: int
+    implicit: bool = False
+
+
+@dataclass
+class FileRecord:
+    disk_key: tuple[str, int]
+    folder_path: str
+    name: str
+    description: str
+    extension: str
+    crc: str | None
+    size: int
+    timestamp: int
+    xml_index: int
+
+
+@dataclass
+class ImportPlan:
+    catalog_description: str
+    disk_groups: list[XmlItem] = field(default_factory=list)
+    disks: list[DiskRecord] = field(default_factory=list)
+    folders: list[FolderRecord] = field(default_factory=list)
+    files: list[FileRecord] = field(default_factory=list)
+    xml_counts: Counter[str] = field(default_factory=Counter)
+    warnings: Counter[str] = field(default_factory=Counter)
+    unmapped_fields: Counter[str] = field(default_factory=Counter)
+
+
+@dataclass
+class ImportSummary:
+    xml_counts: Counter[str]
+    inserted: Counter[str]
+    warnings: Counter[str]
+    unmapped_fields: Counter[str]
+    output_path: Path | None
+
+
+def parse_args(argv: list[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Import a WhereIsIt XML report into a Where Is That? SQLite database."
+    )
+    parser.add_argument("--xml", type=Path, default=Path("home.xml"), help="Input XML path.")
+    parser.add_argument("--db", type=Path, default=Path("home.db"), help="Output SQLite path.")
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Allow replacing an existing output database.",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Parse and validate without writing a database.",
+    )
+    parser.add_argument("--verbose", action="store_true", help="Enable detailed logging.")
+    return parser.parse_args(argv)
+
+
+def configure_logging(verbose: bool) -> None:
+    logging.basicConfig(
+        level=logging.DEBUG if verbose else logging.INFO,
+        format="%(levelname)s: %(message)s",
+    )
+
+
+def text_of(item: ET.Element) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for child in list(item):
+        value = child.text if child.text is not None else ""
+        result[child.tag] = value.strip()
+    return result
+
+
+def required_text(item: XmlItem, field_name: str) -> str:
+    value = item.fields.get(field_name, "").strip()
+    if not value:
+        raise ImportErrorWithContext(
+            f"XML item #{item.index} ({item.item_type}) is missing required field {field_name}."
+        )
+    return value
+
+
+def parse_int(item: XmlItem, field_name: str, default: int | None = None) -> int:
+    value = item.fields.get(field_name, "").strip()
+    if value == "":
+        if default is not None:
+            return default
+        raise ImportErrorWithContext(
+            f"XML item #{item.index} ({item.item_type}) is missing required integer {field_name}."
+        )
+    try:
+        number = int(value)
+    except ValueError as exc:
+        raise ImportErrorWithContext(
+            f"XML item #{item.index} ({item.item_type}) has invalid integer {field_name}={value!r}."
+        ) from exc
+    if number < 0:
+        raise ImportErrorWithContext(
+            f"XML item #{item.index} ({item.item_type}) has negative {field_name}={value!r}."
+        )
+    return number
+
+
+def parse_timestamp(item: XmlItem) -> int:
+    date_text = required_text(item, "DATE")
+    time_text = item.fields.get("TIME", "00:00:00").strip() or "00:00:00"
+    try:
+        parsed = datetime.strptime(f"{date_text} {time_text}", "%Y-%m-%d %H:%M:%S")
+    except ValueError as exc:
+        raise ImportErrorWithContext(
+            f"XML item #{item.index} ({item.item_type}) has invalid DATE/TIME "
+            f"{date_text!r} {time_text!r}."
+        ) from exc
+    return int(parsed.replace(tzinfo=timezone.utc).timestamp())
+
+
+def map_disk_type(xml_value: str, warnings: Counter[str]) -> str:
+    normalized = " ".join(xml_value.strip().lower().split())
+    if normalized in DISK_TYPE_MAP:
+        return DISK_TYPE_MAP[normalized]
+    warnings[f"unknown disk type mapped to Other: {xml_value}"] += 1
+    return "Other"
+
+
+def disk_key(name: str, number: int) -> tuple[str, int]:
+    return (name.casefold(), number)
+
+
+def source_path_for(disk: XmlItem) -> str:
+    name = required_text(disk, "NAME")
+    number = parse_int(disk, "DISK_NUM", 0)
+    # The XML report has disk-relative paths only, so create a stable synthetic
+    # browse root. The app treats source_path as an opaque navigation identity.
+    return f"\\\\WhereIsItImport\\Disk {number} - {name}"
+
+
+def combine_stored_path(parent: str, name: str) -> str:
+    if not parent:
+        return name
+    if parent.endswith(("\\", "/")):
+        return parent + name
+    return parent + "\\" + name
+
+
+def xml_parent_to_stored_path(source_path: str, xml_path: str) -> str:
+    cleaned = (xml_path or "\\").replace("/", "\\").strip()
+    if cleaned in {"", "\\"}:
+        return source_path
+    cleaned = cleaned.lstrip("\\")
+    return combine_stored_path(source_path, cleaned)
+
+
+def display_name_with_extension(name: str, extension: str) -> str:
+    extension = extension.strip().lstrip(".")
+    if not extension:
+        return name
+    suffix = "." + extension
+    return name if name.casefold().endswith(suffix.casefold()) else name + suffix
+
+
+def normalize_extension(value: str) -> str:
+    return value.strip().lstrip(".").casefold()
+
+
+def normalize_crc(item: XmlItem) -> str | None:
+    raw = item.fields.get("CRC", "").strip()
+    if raw in {"", "0"}:
+        return None
+    return raw.upper()
+
+
+def collect_unmapped_fields(plan: ImportPlan, item: XmlItem, consumed: Iterable[str]) -> None:
+    consumed_set = set(consumed)
+    for field_name, value in item.fields.items():
+        if field_name not in consumed_set and value.strip():
+            plan.unmapped_fields[f"{item.item_type}.{field_name}"] += 1
+
+
+def load_xml_items(xml_path: Path) -> tuple[str, list[XmlItem]]:
+    if not xml_path.exists():
+        raise ImportErrorWithContext(f"Input XML does not exist: {xml_path}")
+    try:
+        tree = ET.parse(xml_path)
+    except ET.ParseError as exc:
+        raise ImportErrorWithContext(f"Malformed XML in {xml_path}: {exc}") from exc
+    root = tree.getroot()
+    if root.tag != "REPORT":
+        raise ImportErrorWithContext(f"Expected XML root <REPORT>, found <{root.tag}>.")
+    title = root.attrib.get("Title", "").strip()
+    items = [
+        XmlItem(index=index, item_type=element.attrib.get("ItemType", "").strip(), fields=text_of(element))
+        for index, element in enumerate(root.findall("ITEM"), start=1)
+    ]
+    if not items:
+        raise ImportErrorWithContext("The XML report contains no ITEM records.")
+    return title, items
+
+
+def build_import_plan(xml_path: Path) -> ImportPlan:
+    title, items = load_xml_items(xml_path)
+    plan = ImportPlan(catalog_description=title)
+    disks_by_key: dict[tuple[str, int], DiskRecord] = {}
+
+    for item in items:
+        plan.xml_counts[item.item_type or "<missing>"] += 1
+        if item.item_type == "DiskGroup":
+            required_text(item, "NAME")
+            parse_timestamp(item)
+            plan.disk_groups.append(item)
+            collect_unmapped_fields(
+                plan,
+                item,
+                {"NAME", "DATE", "TIME", "DISK_TYPE"},
+            )
+        elif item.item_type == "Disk":
+            name = required_text(item, "NAME")
+            number = parse_int(item, "DISK_NUM", 0)
+            timestamp = parse_timestamp(item)
+            record = DiskRecord(
+                xml_index=item.index,
+                name=name,
+                disk_number=number,
+                source_path=source_path_for(item),
+                disk_type=map_disk_type(required_text(item, "DISK_TYPE"), plan.warnings),
+                total_capacity=parse_int(item, "SIZE", 0),
+                timestamp=timestamp,
+                description=item.fields.get("DESCRIPTION", ""),
+                category=item.fields.get("CATEGORY", ""),
+                location=item.fields.get("DISK_LOCATION", ""),
+                xml_disk_type=item.fields.get("DISK_TYPE", ""),
+            )
+            key = disk_key(name, number)
+            if key in disks_by_key:
+                raise ImportErrorWithContext(
+                    f"Duplicate disk identity in XML: NAME={name!r}, DISK_NUM={number}."
+                )
+            disks_by_key[key] = record
+            plan.disks.append(record)
+            collect_unmapped_fields(
+                plan,
+                item,
+                {
+                    "NAME",
+                    "SIZE",
+                    "DATE",
+                    "DISK_TYPE",
+                    "DESCRIPTION",
+                    "DISK_NUM",
+                    "TIME",
+                    "CATEGORY",
+                    "DISK_LOCATION",
+                },
+            )
+        elif item.item_type in {"Folder", "File"}:
+            disk_name = required_text(item, "DISK_NAME")
+            number = parse_int(item, "DISK_NUM", 0)
+            key = disk_key(disk_name, number)
+            if key not in disks_by_key:
+                raise ImportErrorWithContext(
+                    f"XML item #{item.index} references unknown disk "
+                    f"DISK_NAME={disk_name!r}, DISK_NUM={number}."
+                )
+            source_path = disks_by_key[key].source_path
+            parent_path = xml_parent_to_stored_path(source_path, required_text(item, "PATH"))
+            timestamp = parse_timestamp(item)
+            if item.item_type == "Folder":
+                extension = normalize_extension(item.fields.get("EXT", ""))
+                name = display_name_with_extension(required_text(item, "NAME"), extension)
+                plan.folders.append(
+                    FolderRecord(
+                        disk_key=key,
+                        parent_path=parent_path,
+                        path=combine_stored_path(parent_path, name),
+                        name=name,
+                        timestamp=timestamp,
+                        content_size=parse_int(item, "SIZE", 0),
+                        entry_type="archive" if extension else "directory",
+                        xml_index=item.index,
+                    )
+                )
+                if extension:
+                    plan.warnings["folder EXT imported by appending it to folder/archive name"] += 1
+                collect_unmapped_fields(
+                    plan,
+                    item,
+                    {
+                        "NAME",
+                        "EXT",
+                        "SIZE",
+                        "DATE",
+                        "DISK_NAME",
+                        "DISK_TYPE",
+                        "PATH",
+                        "DISK_NUM",
+                        "TIME",
+                        "CRC",
+                    },
+                )
+            else:
+                plan.files.append(
+                    FileRecord(
+                        disk_key=key,
+                        folder_path=parent_path,
+                        name=required_text(item, "NAME"),
+                        description=item.fields.get("DESCRIPTION", ""),
+                        extension=normalize_extension(item.fields.get("EXT", "")),
+                        crc=normalize_crc(item),
+                        size=parse_int(item, "SIZE", 0),
+                        timestamp=timestamp,
+                        xml_index=item.index,
+                    )
+                )
+                collect_unmapped_fields(
+                    plan,
+                    item,
+                    {
+                        "NAME",
+                        "EXT",
+                        "SIZE",
+                        "DATE",
+                        "DISK_NAME",
+                        "DISK_TYPE",
+                        "PATH",
+                        "DESCRIPTION",
+                        "DISK_NUM",
+                        "TIME",
+                        "CRC",
+                    },
+                )
+        else:
+            raise ImportErrorWithContext(
+                f"XML item #{item.index} has unsupported ItemType={item.item_type!r}."
+            )
+
+    if not plan.disks:
+        raise ImportErrorWithContext("The XML report contains no Disk records.")
+
+    add_root_and_missing_folders(plan)
+    validate_plan(plan)
+    return plan
+
+
+def add_root_and_missing_folders(plan: ImportPlan) -> None:
+    folders_by_disk_path: dict[tuple[tuple[str, int], str], FolderRecord] = {}
+    additions: list[FolderRecord] = []
+
+    for disk in plan.disks:
+        key = disk_key(disk.name, disk.disk_number)
+        root = FolderRecord(
+            disk_key=key,
+            parent_path="",
+            path=disk.source_path,
+            name=disk.name,
+            timestamp=disk.timestamp,
+            content_size=0,
+            entry_type="directory",
+            xml_index=disk.xml_index,
+            implicit=True,
+        )
+        folders_by_disk_path[(key, root.path.casefold())] = root
+        additions.append(root)
+
+    for folder in plan.folders:
+        dedupe_key = (folder.disk_key, folder.path.casefold())
+        if dedupe_key in folders_by_disk_path:
+            raise ImportErrorWithContext(
+                f"Duplicate folder path derived from XML item #{folder.xml_index}: {folder.path!r}."
+            )
+        folders_by_disk_path[dedupe_key] = folder
+
+    def ensure_parent(disk_key_value: tuple[str, int], path: str, timestamp: int) -> None:
+        if not path:
+            return
+        dedupe_key = (disk_key_value, path.casefold())
+        if dedupe_key in folders_by_disk_path:
+            return
+        parent = str(PureWindowsPath(path).parent)
+        if parent == "." or parent == path:
+            parent = ""
+        ensure_parent(disk_key_value, parent, timestamp)
+        name = PureWindowsPath(path).name or path
+        implicit = FolderRecord(
+            disk_key=disk_key_value,
+            parent_path=parent,
+            path=path,
+            name=name,
+            timestamp=timestamp,
+            content_size=0,
+            entry_type="directory",
+            xml_index=0,
+            implicit=True,
+        )
+        folders_by_disk_path[dedupe_key] = implicit
+        additions.append(implicit)
+        plan.warnings["created implicit parent folder"] += 1
+
+    for folder in plan.folders:
+        ensure_parent(folder.disk_key, folder.parent_path, folder.timestamp)
+    for file in plan.files:
+        ensure_parent(file.disk_key, file.folder_path, file.timestamp)
+
+    plan.folders = additions + plan.folders
+
+
+def validate_plan(plan: ImportPlan) -> None:
+    disk_keys = {disk_key(d.name, d.disk_number) for d in plan.disks}
+    folder_paths = {(folder.disk_key, folder.path.casefold()) for folder in plan.folders}
+    for folder in plan.folders:
+        if folder.disk_key not in disk_keys:
+            raise ImportErrorWithContext(f"Folder references unknown disk: {folder.path!r}.")
+        if folder.parent_path and (folder.disk_key, folder.parent_path.casefold()) not in folder_paths:
+            raise ImportErrorWithContext(
+                f"Folder {folder.path!r} is missing parent folder {folder.parent_path!r}."
+            )
+    for file in plan.files:
+        if file.disk_key not in disk_keys:
+            raise ImportErrorWithContext(f"File references unknown disk: {file.name!r}.")
+        if (file.disk_key, file.folder_path.casefold()) not in folder_paths:
+            raise ImportErrorWithContext(
+                f"File XML item #{file.xml_index} references missing folder {file.folder_path!r}."
+            )
+
+    if plan.disk_groups and plan.disks:
+        plan.warnings["XML has DiskGroup records but no disk-to-group relationship fields"] += len(plan.disks)
+    for field_name, count in plan.unmapped_fields.items():
+        plan.warnings[f"unmapped XML field {field_name}"] += count
+
+
+def create_schema(connection: sqlite3.Connection) -> None:
+    connection.execute("PRAGMA foreign_keys=ON;")
+    connection.execute("PRAGMA journal_mode=WAL;")
+    connection.execute("PRAGMA synchronous=NORMAL;")
+    for statement in SCHEMA_TABLES:
+        connection.execute(statement)
+    connection.execute("INSERT OR IGNORE INTO catalog_metadata(id,description) VALUES(1,'');")
+
+
+def create_indexes(connection: sqlite3.Connection) -> None:
+    for statement in SCHEMA_INDEXES:
+        connection.execute(statement)
+
+
+def validate_schema(connection: sqlite3.Connection) -> None:
+    for table, columns in REQUIRED_COLUMNS.items():
+        actual = {row[1] for row in connection.execute(f"PRAGMA table_info({table});")}
+        missing = columns - actual
+        if missing:
+            raise ImportErrorWithContext(
+                f"Schema mismatch for {table}: missing columns {', '.join(sorted(missing))}."
+            )
+
+
+def import_to_database(plan: ImportPlan, db_path: Path) -> ImportSummary:
+    inserted: Counter[str] = Counter()
+    disk_id_by_key: dict[tuple[str, int], int] = {}
+    folder_id_by_key_path: dict[tuple[tuple[str, int], str], int] = {}
+
+    connection = sqlite3.connect(db_path, isolation_level=None)
+    try:
+        connection.execute("PRAGMA foreign_keys=ON;")
+        create_schema(connection)
+        validate_schema(connection)
+        connection.execute("BEGIN;")
+        try:
+            connection.execute(
+                "UPDATE catalog_metadata SET description=? WHERE id=1;",
+                (plan.catalog_description,),
+            )
+            inserted["catalog_metadata"] = 1
+
+            for group in plan.disk_groups:
+                timestamp = parse_timestamp(group)
+                connection.execute(
+                    "INSERT INTO disk_groups(name,created_at,updated_at) VALUES(?,?,?);",
+                    (required_text(group, "NAME"), timestamp, timestamp),
+                )
+                inserted["disk_groups"] += 1
+
+            for disk in plan.disks:
+                cursor = connection.execute(
+                    "INSERT INTO disks("
+                    "disk_group_id,disk_name,disk_number,source_path,volume_label,total_capacity,"
+                    "free_space,cluster_size,serial_number,file_system,total_files,total_folders,"
+                    "added_at,updated_at,description,category,location,disk_type"
+                    ") VALUES(NULL,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);",
+                    (
+                        disk.name,
+                        disk.disk_number,
+                        disk.source_path,
+                        "",
+                        disk.total_capacity,
+                        0,
+                        0,
+                        "",
+                        "",
+                        0,
+                        0,
+                        disk.timestamp,
+                        disk.timestamp,
+                        disk.description,
+                        disk.category,
+                        disk.location,
+                        disk.disk_type,
+                    ),
+                )
+                disk_id = int(cursor.lastrowid)
+                disk_id_by_key[disk_key(disk.name, disk.disk_number)] = disk_id
+                inserted["disks"] += 1
+
+            for folder in sorted(plan.folders, key=lambda f: (f.disk_key, f.path.count("\\"), f.path.casefold())):
+                disk_id = disk_id_by_key[folder.disk_key]
+                parent_id = None
+                if folder.parent_path:
+                    parent_id = folder_id_by_key_path[(folder.disk_key, folder.parent_path.casefold())]
+                cursor = connection.execute(
+                    "INSERT INTO folders("
+                    "disk_id,parent_folder_id,path,name,created_at,modified_at,accessed_at,"
+                    "attributes,content_size,entry_type"
+                    ") VALUES(?,?,?,?,?,?,?,?,?,?);",
+                    (
+                        disk_id,
+                        parent_id,
+                        folder.path,
+                        folder.name,
+                        folder.timestamp,
+                        folder.timestamp,
+                        folder.timestamp,
+                        0,
+                        folder.content_size,
+                        folder.entry_type,
+                    ),
+                )
+                folder_id_by_key_path[(folder.disk_key, folder.path.casefold())] = int(cursor.lastrowid)
+                inserted["folders"] += 1
+
+            for file in plan.files:
+                disk_id = disk_id_by_key[file.disk_key]
+                folder_id = folder_id_by_key_path[(file.disk_key, file.folder_path.casefold())]
+                connection.execute(
+                    "INSERT INTO files("
+                    "disk_id,folder_id,name,description,extension,crc,size,created_at,"
+                    "modified_at,accessed_at,attributes"
+                    ") VALUES(?,?,?,?,?,?,?,?,?,?,?);",
+                    (
+                        disk_id,
+                        folder_id,
+                        file.name,
+                        file.description,
+                        file.extension,
+                        file.crc,
+                        file.size,
+                        file.timestamp,
+                        file.timestamp,
+                        file.timestamp,
+                        0,
+                    ),
+                )
+                inserted["files"] += 1
+
+            update_rollups(connection)
+            inserted["disk_scan_statistics"] = insert_scan_statistics(connection)
+            create_indexes(connection)
+            validate_schema(connection)
+            check_database(connection)
+            connection.execute("COMMIT;")
+        except Exception:
+            if connection.in_transaction:
+                connection.execute("ROLLBACK;")
+            raise
+        finally:
+            connection.execute("PRAGMA wal_checkpoint(TRUNCATE);")
+    finally:
+        connection.close()
+
+    return ImportSummary(
+        xml_counts=plan.xml_counts,
+        inserted=inserted,
+        warnings=plan.warnings,
+        unmapped_fields=plan.unmapped_fields,
+        output_path=db_path,
+    )
+
+
+def update_rollups(connection: sqlite3.Connection) -> None:
+    connection.execute(
+        "UPDATE folders SET content_size=("
+        "SELECT COALESCE(SUM(size),0) FROM files "
+        "WHERE files.disk_id=folders.disk_id AND ("
+        "files.folder_id=folders.id OR files.folder_id IN ("
+        "SELECT child.id FROM folders child "
+        "WHERE child.disk_id=folders.disk_id "
+        "AND child.path LIKE folders.path || '\\%'"
+        "))) WHERE content_size=0;"
+    )
+    connection.execute(
+        "UPDATE disks SET "
+        "total_files=(SELECT COUNT(*) FROM files WHERE files.disk_id=disks.id),"
+        "total_folders=(SELECT COUNT(*) FROM folders WHERE folders.disk_id=disks.id),"
+        "total_capacity=CASE "
+        "WHEN total_capacity > 0 THEN total_capacity "
+        "ELSE (SELECT COALESCE(SUM(size),0) FROM files WHERE files.disk_id=disks.id) "
+        "END;"
+    )
+
+
+def insert_scan_statistics(connection: sqlite3.Connection) -> int:
+    rows = list(
+        connection.execute(
+            "SELECT d.id,d.updated_at,"
+            "(SELECT COUNT(*) FROM files f WHERE f.disk_id=d.id AND f.description <> ''),"
+            "(SELECT COUNT(*) FROM files f WHERE f.disk_id=d.id AND f.crc IS NOT NULL),"
+            "(SELECT COUNT(*) FROM folders fo WHERE fo.disk_id=d.id AND fo.entry_type='archive') "
+            "FROM disks d;"
+        )
+    )
+    for disk_id, updated_at, description_count, crc_count, archive_count in rows:
+        connection.execute(
+            "INSERT INTO disk_scan_statistics("
+            "disk_id,last_scanned_at,image_scanning_time_ms,imported_descriptions_count,"
+            "calculated_file_crcs,scanned_archives,archive_files_count,archive_folders_count"
+            ") VALUES(?,?,?,?,?,?,?,?);",
+            (
+                disk_id,
+                updated_at,
+                0,
+                description_count,
+                1 if crc_count else 0,
+                archive_count,
+                0,
+                archive_count,
+            ),
+        )
+    return len(rows)
+
+
+def check_database(connection: sqlite3.Connection) -> None:
+    foreign_key_issues = list(connection.execute("PRAGMA foreign_key_check;"))
+    if foreign_key_issues:
+        raise ImportErrorWithContext(f"Foreign key check failed: {foreign_key_issues[:5]!r}")
+    integrity = connection.execute("PRAGMA integrity_check;").fetchone()
+    if not integrity or integrity[0] != "ok":
+        raise ImportErrorWithContext(f"SQLite integrity check failed: {integrity!r}")
+
+
+def sidecar_paths(path: Path) -> list[Path]:
+    return [Path(str(path) + suffix) for suffix in ("-wal", "-shm", "-journal")]
+
+
+def remove_file_if_exists(path: Path) -> None:
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        pass
+
+
+def write_database_safely(plan: ImportPlan, output_path: Path, overwrite: bool) -> ImportSummary:
+    output_path = output_path.resolve()
+    if output_path.exists() and not overwrite:
+        raise ImportErrorWithContext(
+            f"Output database already exists: {output_path}. Pass --overwrite to replace it."
+        )
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    temp_fd, temp_name = tempfile.mkstemp(
+        prefix=output_path.stem + ".",
+        suffix=".tmp.db",
+        dir=output_path.parent,
+    )
+    os.close(temp_fd)
+    temp_path = Path(temp_name)
+
+    try:
+        LOG.info("Writing temporary database: %s", temp_path)
+        summary = import_to_database(plan, temp_path)
+        for path in sidecar_paths(temp_path):
+            remove_file_if_exists(path)
+        if output_path.exists():
+            remove_file_if_exists(output_path)
+        for path in sidecar_paths(output_path):
+            remove_file_if_exists(path)
+        shutil.move(str(temp_path), str(output_path))
+        summary.output_path = output_path
+        LOG.info("Database written: %s", output_path)
+        return summary
+    except Exception:
+        remove_file_if_exists(temp_path)
+        for path in sidecar_paths(temp_path):
+            remove_file_if_exists(path)
+        raise
+
+
+def print_summary(summary: ImportSummary) -> None:
+    LOG.info("XML records parsed: %s", format_counter(summary.xml_counts))
+    LOG.info("Rows inserted: %s", format_counter(summary.inserted))
+    if summary.warnings:
+        LOG.warning("Warnings/defaults: %s", format_counter(summary.warnings))
+    else:
+        LOG.info("Warnings/defaults: none")
+    if summary.output_path:
+        LOG.info("Output database: %s", summary.output_path)
+
+
+def format_counter(counter: Counter[str]) -> str:
+    if not counter:
+        return "none"
+    return ", ".join(f"{key}={counter[key]}" for key in sorted(counter))
+
+
+def main(argv: list[str]) -> int:
+    args = parse_args(argv)
+    configure_logging(args.verbose)
+
+    try:
+        LOG.info("Reading XML: %s", args.xml)
+        plan = build_import_plan(args.xml)
+        LOG.info("Validated import plan for %d disks.", len(plan.disks))
+
+        if args.dry_run:
+            summary = ImportSummary(
+                xml_counts=plan.xml_counts,
+                inserted=Counter(),
+                warnings=plan.warnings,
+                unmapped_fields=plan.unmapped_fields,
+                output_path=None,
+            )
+            LOG.info("Dry run complete; no database was written.")
+            print_summary(summary)
+            return 0
+
+        summary = write_database_safely(plan, args.db, args.overwrite)
+        print_summary(summary)
+        return 0
+    except ImportErrorWithContext as exc:
+        LOG.error("%s", exc)
+        return 2
+    except sqlite3.Error as exc:
+        LOG.error("SQLite import failed: %s", exc)
+        return 3
+    except OSError as exc:
+        LOG.error("File operation failed: %s", exc)
+        return 4
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))

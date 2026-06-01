@@ -2,8 +2,8 @@
 """Import a WhereIsIt XML report into the current Where Is That? SQLite format.
 
 Usage:
-    python tools/import_home_xml.py --overwrite --verbose
-    python tools/import_home_xml.py --xml tools/import/home.xml --db home.db --overwrite
+    python import.py --xml home.xml --db home.db --overwrite --verbose
+    python import.py --overwrite --verbose
 
 The importer uses only the Python standard library. It writes the database to a
 temporary file first and replaces the requested output only after the full import,
@@ -20,7 +20,7 @@ import sqlite3
 import sys
 import tempfile
 import xml.etree.ElementTree as ET
-from collections import Counter, defaultdict
+from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path, PureWindowsPath
@@ -28,6 +28,10 @@ from typing import Iterable
 
 
 LOG = logging.getLogger("import_home_xml")
+SCRIPT_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = SCRIPT_DIR.parent.parent
+DEFAULT_XML_PATH = SCRIPT_DIR / "home.xml"
+DEFAULT_DB_PATH = PROJECT_ROOT / "home.db"
 
 SCHEMA_TABLES = [
     "CREATE TABLE IF NOT EXISTS catalog_metadata ("
@@ -221,8 +225,8 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Import a WhereIsIt XML report into a Where Is That? SQLite database."
     )
-    parser.add_argument("--xml", type=Path, default=Path("home.xml"), help="Input XML path.")
-    parser.add_argument("--db", type=Path, default=Path("home.db"), help="Output SQLite path.")
+    parser.add_argument("--xml", type=Path, default=DEFAULT_XML_PATH, help="Input XML path.")
+    parser.add_argument("--db", type=Path, default=DEFAULT_DB_PATH, help="Output SQLite path.")
     parser.add_argument(
         "--overwrite",
         action="store_true",

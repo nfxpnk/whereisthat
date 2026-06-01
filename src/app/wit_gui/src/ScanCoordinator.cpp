@@ -1,4 +1,5 @@
 #include <wit_gui/ScanCoordinator.h>
+#include <cassert>
 #include <filesystem>
 #include <string>
 #include <utility>
@@ -31,7 +32,12 @@ ScanCoordinator::~ScanCoordinator() {
     if (deliveryWindow_) DestroyWindow(deliveryWindow_);
 }
 
+void ScanCoordinator::AssertOwnerThread() const {
+    assert(ownerThreadId_ == GetCurrentThreadId());
+}
+
 bool ScanCoordinator::AttachTarget(HWND target) {
+    AssertOwnerThread();
     if (deliveryWindow_) {
         targetWindow_ = target;
         return true;
@@ -49,11 +55,28 @@ bool ScanCoordinator::AttachTarget(HWND target) {
 }
 
 void ScanCoordinator::DetachTarget() {
+    AssertOwnerThread();
     targetWindow_ = nullptr;
+}
+
+bool ScanCoordinator::IsRunning() const {
+    AssertOwnerThread();
+    return activeScanId_ != 0;
+}
+
+bool ScanCoordinator::IsCancelling() const {
+    AssertOwnerThread();
+    return cancellationRequested_;
+}
+
+bool ScanCoordinator::Targets(wit::core::CatalogId id) const {
+    AssertOwnerThread();
+    return activeScanId_ != 0 && activeCatalogId_ == id;
 }
 
 bool ScanCoordinator::Start(wit::storage::Database* source, const wit::core::ScanRequest& request,
     ScanId& scanId) {
+    AssertOwnerThread();
     if (IsRunning() || !deliveryWindow_ || !source) return false;
     auto candidate = std::make_unique<wit::storage::Database>();
     if (!candidate->CreateWorkingCopy(*source)) return false;
@@ -80,6 +103,7 @@ bool ScanCoordinator::Start(wit::storage::Database* source, const wit::core::Sca
 }
 
 bool ScanCoordinator::RequestCancel() {
+    AssertOwnerThread();
     if (!IsRunning()) return false;
     cancellationRequested_ = true;
     worker_.request_stop();
@@ -87,6 +111,7 @@ bool ScanCoordinator::RequestCancel() {
 }
 
 std::optional<ScanProgress> ScanCoordinator::TakeProgress(ScanId scanId) {
+    AssertOwnerThread();
     std::scoped_lock lock(mailboxMutex_);
     const auto found = progress_.find(scanId);
     if (found == progress_.end()) return std::nullopt;
@@ -96,6 +121,7 @@ std::optional<ScanProgress> ScanCoordinator::TakeProgress(ScanId scanId) {
 }
 
 std::optional<ScanResult> ScanCoordinator::TakeResult(ScanId scanId) {
+    AssertOwnerThread();
     std::scoped_lock lock(mailboxMutex_);
     const auto found = results_.find(scanId);
     if (found == results_.end()) return std::nullopt;
@@ -106,6 +132,7 @@ std::optional<ScanResult> ScanCoordinator::TakeResult(ScanId scanId) {
 }
 
 void ScanCoordinator::RetireWorker(ScanId scanId) {
+    AssertOwnerThread();
     if (scanId != activeScanId_) return;
     activeScanId_ = 0;
     activeCatalogId_ = 0;

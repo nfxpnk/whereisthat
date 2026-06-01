@@ -35,6 +35,8 @@ struct ScanResult {
     std::wstring error;
 };
 
+// Public methods are owner/UI-thread only. Worker threads communicate through
+// mailboxMutex_ and posted Win32 messages.
 class ScanCoordinator {
 public:
     ScanCoordinator();
@@ -44,9 +46,9 @@ public:
 
     bool AttachTarget(HWND target);
     void DetachTarget();
-    bool IsRunning() const { return activeScanId_ != 0; }
-    bool IsCancelling() const { return cancellationRequested_; }
-    bool Targets(wit::core::CatalogId id) const { return IsRunning() && activeCatalogId_ == id; }
+    bool IsRunning() const;
+    bool IsCancelling() const;
+    bool Targets(wit::core::CatalogId id) const;
     bool Start(wit::storage::Database* source, const wit::core::ScanRequest& request, ScanId& scanId);
     bool RequestCancel();
     std::optional<ScanProgress> TakeProgress(ScanId scanId);
@@ -54,6 +56,7 @@ public:
     void RetireWorker(ScanId scanId);
 
 private:
+    void AssertOwnerThread() const;
     static LRESULT CALLBACK DeliveryWindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lparam);
     LRESULT DispatchNotification(UINT message, WPARAM wparam, LPARAM lparam);
     void RunScan(std::stop_token stopToken, ScanId scanId, std::wstring root, std::wstring diskName,
@@ -66,6 +69,7 @@ private:
 
     HWND deliveryWindow_{};
     HWND targetWindow_{};
+    DWORD ownerThreadId_{GetCurrentThreadId()};
     ScanId nextScanId_{1};
     ScanId activeScanId_{};
     wit::core::CatalogId activeCatalogId_{};

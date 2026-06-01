@@ -15,7 +15,8 @@ The source tree establishes these responsibilities:
 | `src/app` | Entry point, WTL module/app lifetime, main frame composition/routing, window collaborators, Windows resources. |
 | `src/ui` | Win32/Common Controls view adapters and dialog presentation, using WTL wrappers where migrated. |
 | `src/core` | Catalog, disk, folder, file and scan-statistics models, scanning behavior, domain formatting. |
-| `src/storage` | SQLite connection, schema, queries, statement/resource management. |
+| `sql` | SQLite table/index/PRAGMA files used by the importer and native storage initializer. |
+| `src/storage` | SQLite connection, schema validation, queries, statement/resource management. |
 | `src/platform` | Win32-specific conversion, filesystem, path, and time helpers. |
 
 Dependencies should flow from application/UI orchestration into core, storage, and platform helpers. Storage must not own window behavior, and UI code must not encode the SQLite schema or SQL queries.

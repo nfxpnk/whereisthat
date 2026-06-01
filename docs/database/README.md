@@ -4,18 +4,18 @@
 
 Where Is That? uses SQLite through the native C API in `src/modules/wit_database`. Each user-selected SQLite file is one catalog. The current format is a replacement format: former databases containing the legacy `catalogs` and mixed folder/file `files` schema, and normalized catalogs without required stored folder content totals or archive-aware fields, are rejected and are not migrated.
 
-`Database::InitializeSchema()` is the executable schema authority for new catalog files. Add/Update work is staged in an in-memory database copy and becomes durable only when Save backs that replacement-format database into the active file.
+The root [`sql`](../../sql) directory is the schema authority for new catalog files. `CatalogSchema::Initialize()` executes SQL embedded from those files into the executable resources, then seeds the singleton metadata row. Add/Update work is staged in an in-memory database copy and becomes durable only when Save backs that replacement-format database into the active file.
 
 ## Tables
 
 | Table | Purpose | SQL | Field documentation |
 |---|---|---|---|
-| `catalog_metadata` | Singleton catalog-owned description metadata. | [schema/tables/catalog_metadata.sql](schema/tables/catalog_metadata.sql) | [tables/catalog_metadata.md](tables/catalog_metadata.md) |
-| `disk_groups` | Optional virtual root folders for grouping disks/media. | [schema/tables/disk_groups.sql](schema/tables/disk_groups.sql) | [tables/disk_groups.md](tables/disk_groups.md) |
-| `disks` | One added disk/media source and native/storage metadata. | [schema/tables/disks.sql](schema/tables/disks.sql) | [tables/disks.md](tables/disks.md) |
-| `disk_scan_statistics` | Latest successful scan statistics per disk, including readable archive counts. | [schema/tables/disk_scan_statistics.sql](schema/tables/disk_scan_statistics.sql) | [tables/disk_scan_statistics.md](tables/disk_scan_statistics.md) |
-| `folders` | Normalized physical/archive-backed folder hierarchy and stored recursive file-byte totals for offline browsing. | [schema/tables/folders.sql](schema/tables/folders.sql) | [tables/folders.md](tables/folders.md) |
-| `files` | File-only metadata stored in folders. | [schema/tables/files.sql](schema/tables/files.sql) | [tables/files.md](tables/files.md) |
+| `catalog_metadata` | Singleton catalog-owned description metadata. | [../../sql/tables/catalog_metadata.sql](../../sql/tables/catalog_metadata.sql) | [tables/catalog_metadata.md](tables/catalog_metadata.md) |
+| `disk_groups` | Optional virtual root folders for grouping disks/media. | [../../sql/tables/disk_groups.sql](../../sql/tables/disk_groups.sql) | [tables/disk_groups.md](tables/disk_groups.md) |
+| `disks` | One added disk/media source and native/storage metadata. | [../../sql/tables/disks.sql](../../sql/tables/disks.sql) | [tables/disks.md](tables/disks.md) |
+| `disk_scan_statistics` | Latest successful scan statistics per disk, including readable archive counts. | [../../sql/tables/disk_scan_statistics.sql](../../sql/tables/disk_scan_statistics.sql) | [tables/disk_scan_statistics.md](tables/disk_scan_statistics.md) |
+| `folders` | Normalized physical/archive-backed folder hierarchy and stored recursive file-byte totals for offline browsing. | [../../sql/tables/folders.sql](../../sql/tables/folders.sql) | [tables/folders.md](tables/folders.md) |
+| `files` | File-only metadata stored in folders. | [../../sql/tables/files.sql](../../sql/tables/files.sql) | [tables/files.md](tables/files.md) |
 
 ## Relationships
 
@@ -58,13 +58,13 @@ Stored disk scan results include `disks.total_files` and `disks.total_folders`, 
 
 - New catalog creation initializes the tables and indexes above and inserts `catalog_metadata.id = 1`.
 - Existing catalog open validates all required replacement-format columns, including `folders.content_size`, `folders.entry_type`, and archive scan counts; it includes no upgrade or backfill branch.
-- SQLite configuration PRAGMAs are listed in [schema/pragmas.sql](schema/pragmas.sql).
-- Defined indexes are listed in [schema/indexes.sql](schema/indexes.sql).
-- No application views or triggers are defined: [schema/views.sql](schema/views.sql), [schema/triggers.sql](schema/triggers.sql).
+- SQLite configuration PRAGMAs are listed in [../../sql/pragmas.sql](../../sql/pragmas.sql).
+- Defined indexes are listed in [../../sql/indexes.sql](../../sql/indexes.sql).
+- No application views or triggers are defined.
 
 ## Updating This Documentation
 
-When schema code changes, update the affected SQL/table pages and [schema-inventory.md](schema-inventory.md), then run:
+When schema SQL changes, update the affected SQL/table pages and [schema-inventory.md](schema-inventory.md), then run:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/database-docs/verify.ps1

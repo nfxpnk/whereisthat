@@ -25,10 +25,10 @@ Stores one disk/media source added to a catalog. `MainFrame::OnAddOrUpdateDiskIm
 
 | Field | Type | Nullable | Default | Key/Index | Description | Used in code | Confidence |
 |---|---|---:|---|---|---|---|---|
-| `id` | `INTEGER` | No | none | `PRIMARY KEY AUTOINCREMENT` | Disk record identifier. | `src/storage/Database.cpp`; `src/app/ScanCoordinator.cpp`; navigation projections | Explicit |
+| `id` | `INTEGER` | No | none | `PRIMARY KEY AUTOINCREMENT` | Disk record identifier. | `sql/tables/disks.sql`; `src/modules/wit_database/src/Database.cpp`; `src/app/wit_gui/src/ScanCoordinator.cpp`; navigation projections | Explicit |
 | `disk_group_id` | `INTEGER` | Yes | `NULL` | `FOREIGN KEY`; `idx_disks_group` | Optional virtual disk group parent; `NULL` displays the disk at catalog root. | `ScanCoordinator::Start`; root/group browser projection | Explicit |
-| `disk_name` | `TEXT` | No | none | none | User-visible disk/media name. | `src/ui/AddNewDiskMediaDialog.cpp`; `src/app/ScanCoordinator.cpp`; `Database::GetCatalogs`, `GetDisksPage` | Explicit |
-| `disk_number` | `INTEGER` | No | `0` | none | Numeric identifier accepted for the disk. | `src/app/ScanCoordinator.cpp`; `Database::AddDisk`, `UpdateDisk` | Explicit |
+| `disk_name` | `TEXT` | No | none | none | User-visible disk/media name. | `src/app/wit_gui/src/AddDiskDialog.cpp`; `src/app/wit_gui/src/ScanCoordinator.cpp`; `Database::GetCatalogs`, `GetDisksPage` | Explicit |
+| `disk_number` | `INTEGER` | No | `0` | none | Numeric identifier accepted for the disk. | `src/app/wit_gui/src/ScanCoordinator.cpp`; `Database::AddDisk`, `UpdateDisk` | Explicit |
 | `source_path` | `TEXT` | No | none | `UNIQUE`; `idx_disks_source_path` | Current normalized scan/browse root; normally identifies rescans, and is refreshed if a matched ISO mount root changes. | `ScanCoordinator::Start`; `Database::FindDiskBySourcePath`, `UpdateDisk`; browser projection | Explicit |
 | `volume_label` | `TEXT` | No | `''` | none | Native volume label when available. | `src/platform/VolumeInfo.cpp`; `Database` disk writes | Explicit |
 | `total_capacity` | `INTEGER` | No | `0` | none | Total capacity in bytes. | `VolumeInfo.cpp`; `Database::GetCatalogSummary`, `GetDisksPage` | Explicit |
@@ -43,4 +43,4 @@ Stores one disk/media source added to a catalog. `MainFrame::OnAddOrUpdateDiskIm
 | `description` | `TEXT` | No | `''` | none | Free-text disk description reserved for persisted editing. | `Database::AddDisk`; retained by update behavior | Explicit |
 | `category` | `TEXT` | No | `''` | none | Free-text disk category reserved for persisted editing. | `Database::AddDisk`; retained by update behavior | Explicit |
 | `location` | `TEXT` | No | `''` | none | Accepted original media location; for an ISO, this stable image path participates in rescan matching when its mount root changes. | `ScanCoordinator::Start`; `Database::FindDiskBySourcePath`, disk writes | Explicit |
-| `disk_type` | `TEXT` | No | none | `CHECK` allowed values | Supported disk classification; mounted ISO-file sources are `VirtualDisk`, Windows CD/DVD drive volumes are `CD`, Windows removable drives are `RemovableUSB`, fixed drives are `HardDisk`/`SolidStateDisk` when native seek-penalty data is available, and unknown classification is `Other`. | `src/core/Disk.h`; `src/app/ScanCoordinator.cpp`; `src/platform/VolumeInfo.cpp`; disk writes | Explicit |
+| `disk_type` | `TEXT` | No | none | `CHECK` allowed values | Supported disk classification; mounted ISO-file sources are `VirtualDisk`, Windows CD/DVD drive volumes are `CD`, Windows removable drives are `RemovableUSB`, fixed drives are `HardDisk`/`SolidStateDisk` when native seek-penalty data is available, and unknown classification is `Other`. | `src/modules/wit_types/include/wit_types/Disk.h`; `src/app/wit_gui/src/ScanCoordinator.cpp`; `src/modules/wit_infra/src/VolumeInfo.cpp`; disk writes | Explicit |

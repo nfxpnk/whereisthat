@@ -14,6 +14,7 @@ The canonical build, dependency, and acceptance rules are in [`spec/build.md`](s
 
 The project links against the precompiled SQLite DLL in `third_party/sqlite`.
 The post-build step copies `sqlite3.dll` next to `WhereIsThat.exe`.
+The root `sql` schema files are embedded into `WhereIsThat.exe` as resources at build time.
 WTL 10.0 is vendored as headers in `third_party/wtl/Include` and relies on the MSVC ATL component; it adds no separately deployed runtime.
 
 ## Command-line

@@ -25,7 +25,7 @@ A proposal that would require any forbidden technology must first revise the can
 - Put Windows application startup, main frame composition/routing, main-window collaborators, resources, and top-level lifetime in `src/app`.
 - Put native view adapters and dialog UI behavior in `src/ui`.
 - Put reusable application models and scanning/domain operations in `src/core`.
-- Put SQLite schema, connection, statements, and queries in `src/storage`.
+- Put SQLite table/index DDL in the root `sql` directory. Keep SQLite connection, statements, queries, and schema validation in the storage module.
 - Put focused Windows platform conversion or filesystem helpers in `src/platform`.
 - Do not bypass these ownership boundaries by placing SQL in UI code or control presentation inside storage code.
 

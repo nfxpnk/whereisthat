@@ -1,10 +1,22 @@
 #include "wit_database/CatalogSchema.h"
 #include "wit_database/SqliteConnection.h"
+#include "resource.h"
 #include "third_party/sqlite/sqlite3.h"
+#include <array>
 #include <string>
+#include <windows.h>
 
 namespace wit::storage {
 namespace {
+constexpr std::array<int, 6> kSchemaTableResources = {
+    IDR_SQL_TABLE_CATALOG_METADATA,
+    IDR_SQL_TABLE_DISK_GROUPS,
+    IDR_SQL_TABLE_DISKS,
+    IDR_SQL_TABLE_DISK_SCAN_STATISTICS,
+    IDR_SQL_TABLE_FOLDERS,
+    IDR_SQL_TABLE_FILES,
+};
+
 bool TableHasColumn(sqlite3* db, const char* table, const char* expectedColumn) {
     sqlite3_stmt* stmt{};
     const std::string query = "PRAGMA table_info(" + std::string(table) + ");";
@@ -20,27 +32,32 @@ bool TableHasColumn(sqlite3* db, const char* table, const char* expectedColumn) 
     sqlite3_finalize(stmt);
     return found;
 }
+
+std::string LoadSqlResource(int resourceId) {
+    HMODULE module = GetModuleHandleW(nullptr);
+    HRSRC resource = FindResourceW(module, MAKEINTRESOURCEW(resourceId), RT_RCDATA);
+    if (!resource) return {};
+    HGLOBAL handle = LoadResource(module, resource);
+    if (!handle) return {};
+    const auto* data = static_cast<const char*>(LockResource(handle));
+    const DWORD size = SizeofResource(module, resource);
+    if (!data || size == 0) return {};
+    return std::string(data, data + size);
+}
+
+bool ExecSqlResource(SqliteConnection& connection, int resourceId) {
+    const std::string sql = LoadSqlResource(resourceId);
+    return !sql.empty() && connection.Exec(sql.c_str());
+}
 }
 
 bool CatalogSchema::Initialize(SqliteConnection& connection) {
-    return connection.Exec("PRAGMA foreign_keys=ON;") &&
-        connection.Exec("PRAGMA journal_mode=WAL;") &&
-        connection.Exec("PRAGMA synchronous=NORMAL;") &&
-        connection.Exec("CREATE TABLE IF NOT EXISTS catalog_metadata (id INTEGER PRIMARY KEY CHECK (id=1),description TEXT NOT NULL DEFAULT '');") &&
-        connection.Exec("CREATE TABLE IF NOT EXISTS disk_groups (id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL COLLATE NOCASE UNIQUE,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL);") &&
-        connection.Exec("CREATE TABLE IF NOT EXISTS disks (id INTEGER PRIMARY KEY AUTOINCREMENT,disk_group_id INTEGER,disk_name TEXT NOT NULL,disk_number INTEGER NOT NULL DEFAULT 0,source_path TEXT NOT NULL COLLATE NOCASE UNIQUE,volume_label TEXT NOT NULL DEFAULT '',total_capacity INTEGER NOT NULL DEFAULT 0,free_space INTEGER NOT NULL DEFAULT 0,cluster_size INTEGER NOT NULL DEFAULT 0,serial_number TEXT NOT NULL DEFAULT '',file_system TEXT NOT NULL DEFAULT '',total_files INTEGER NOT NULL DEFAULT 0,total_folders INTEGER NOT NULL DEFAULT 0,added_at INTEGER NOT NULL,updated_at INTEGER NOT NULL,description TEXT NOT NULL DEFAULT '',category TEXT NOT NULL DEFAULT '',location TEXT NOT NULL DEFAULT '',disk_type TEXT NOT NULL CHECK (disk_type IN ('CD','DVD','BluRay','HardDisk','SolidStateDisk','RemovableUSB','VirtualDisk','Other')),FOREIGN KEY (disk_group_id) REFERENCES disk_groups(id) ON DELETE SET NULL);") &&
-        connection.Exec("CREATE TABLE IF NOT EXISTS disk_scan_statistics (disk_id INTEGER PRIMARY KEY,last_scanned_at INTEGER NOT NULL,image_scanning_time_ms INTEGER NOT NULL DEFAULT 0,imported_descriptions_count INTEGER NOT NULL DEFAULT 0,calculated_file_crcs INTEGER NOT NULL DEFAULT 0 CHECK (calculated_file_crcs IN (0,1)),scanned_archives INTEGER NOT NULL DEFAULT 0 CHECK (scanned_archives >= 0),archive_files_count INTEGER NOT NULL DEFAULT 0 CHECK (archive_files_count >= 0),archive_folders_count INTEGER NOT NULL DEFAULT 0 CHECK (archive_folders_count >= 0),FOREIGN KEY (disk_id) REFERENCES disks(id) ON DELETE CASCADE);") &&
-        connection.Exec("CREATE TABLE IF NOT EXISTS folders (id INTEGER PRIMARY KEY AUTOINCREMENT,disk_id INTEGER NOT NULL,parent_folder_id INTEGER,path TEXT NOT NULL,name TEXT NOT NULL,created_at INTEGER NOT NULL,modified_at INTEGER NOT NULL,accessed_at INTEGER NOT NULL,attributes INTEGER NOT NULL DEFAULT 0,content_size INTEGER NOT NULL DEFAULT 0,entry_type TEXT NOT NULL DEFAULT 'directory' CHECK (entry_type IN ('directory','archive')),FOREIGN KEY (disk_id) REFERENCES disks(id) ON DELETE CASCADE,FOREIGN KEY (parent_folder_id) REFERENCES folders(id) ON DELETE CASCADE);") &&
-        connection.Exec("CREATE TABLE IF NOT EXISTS files (id INTEGER PRIMARY KEY AUTOINCREMENT,disk_id INTEGER NOT NULL,folder_id INTEGER NOT NULL,name TEXT NOT NULL,description TEXT NOT NULL DEFAULT '',extension TEXT NOT NULL DEFAULT '',crc TEXT,size INTEGER NOT NULL,created_at INTEGER NOT NULL,modified_at INTEGER NOT NULL,accessed_at INTEGER NOT NULL,attributes INTEGER NOT NULL DEFAULT 0,FOREIGN KEY (disk_id) REFERENCES disks(id) ON DELETE CASCADE,FOREIGN KEY (folder_id) REFERENCES folders(id) ON DELETE CASCADE);") &&
-        connection.Exec("INSERT OR IGNORE INTO catalog_metadata(id,description) VALUES(1,'');") &&
-        connection.Exec("CREATE INDEX IF NOT EXISTS idx_disk_groups_name ON disk_groups(name COLLATE NOCASE);") &&
-        connection.Exec("CREATE INDEX IF NOT EXISTS idx_disks_group ON disks(disk_group_id,disk_name COLLATE NOCASE);") &&
-        connection.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_disks_source_path ON disks(source_path COLLATE NOCASE);") &&
-        connection.Exec("CREATE INDEX IF NOT EXISTS idx_folders_parent ON folders(disk_id,parent_folder_id);") &&
-        connection.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_folders_disk_path ON folders(disk_id,path COLLATE NOCASE);") &&
-        connection.Exec("CREATE INDEX IF NOT EXISTS idx_files_folder ON files(folder_id);") &&
-        connection.Exec("CREATE INDEX IF NOT EXISTS idx_files_disk_name ON files(disk_id,name);") &&
-        connection.Exec("CREATE INDEX IF NOT EXISTS idx_files_extension ON files(extension);");
+    if (!ExecSqlResource(connection, IDR_SQL_PRAGMAS)) return false;
+    for (const int tableResource : kSchemaTableResources) {
+        if (!ExecSqlResource(connection, tableResource)) return false;
+    }
+    return connection.Exec("INSERT OR IGNORE INTO catalog_metadata(id,description) VALUES(1,'');") &&
+        ExecSqlResource(connection, IDR_SQL_INDEXES);
 }
 
 bool CatalogSchema::Validate(SqliteConnection& connection) {

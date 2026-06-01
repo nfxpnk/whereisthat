@@ -14,6 +14,7 @@ New-Item -ItemType Directory -Path $buildDir | Out-Null
 try {
     $exe = Join-Path $buildDir "storage-smoke.exe"
     $response = Join-Path $buildDir "compile.rsp"
+    $resource = Join-Path $buildDir "app.res"
     @(
         "/nologo"
         "/std:c++20"
@@ -36,6 +37,7 @@ try {
         "/I`"$(Join-Path $root 'third_party\libarchive\include')`""
         "/I`"$(Join-Path $root 'third_party\wtl\Include')`""
         "`"$(Join-Path $root 'tools\storage-smoke\StorageSmoke.cpp')`""
+        "`"$resource`""
         "`"$(Join-Path $root 'src\app\wit_gui\src\ScanCoordinator.cpp')`""
         "`"$(Join-Path $root 'src\modules\wit_scanner\src\FileScanner.cpp')`""
         "`"$(Join-Path $root 'src\modules\wit_database\src\CatalogSchema.cpp')`""
@@ -67,7 +69,9 @@ try {
 
     Push-Location $buildDir
     try {
-        $compile = "call `"$vcVars`" >nul && cl.exe @`"$response`""
+        $resourceScript = Join-Path $root "src\app\wit_gui\res\app.rc"
+        $resourceInclude = Join-Path $root "src\app\wit_gui\res"
+        $compile = "call `"$vcVars`" >nul && rc.exe /nologo /I `"$resourceInclude`" /fo `"$resource`" `"$resourceScript`" && cl.exe @`"$response`""
         & cmd.exe /d /c $compile
         if ($LASTEXITCODE -ne 0) { throw "Storage smoke compilation failed." }
         Copy-Item -LiteralPath (Join-Path $root "third_party\sqlite\sqlite3.dll") -Destination $buildDir

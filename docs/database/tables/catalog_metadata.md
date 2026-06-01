@@ -2,7 +2,7 @@
 
 ## Purpose And Lifecycle
 
-Contains the single catalog-owned metadata record. `Database::InitializeSchema()` inserts row `id = 1` for a new catalog, `Database::SetCatalogDescription()` updates it, and `Database::GetCatalogMetadata()` reads it.
+Contains the single catalog-owned metadata record. `CatalogSchema::Initialize()` inserts row `id = 1` for a new catalog, `Database::SetCatalogDescription()` updates it, and `Database::GetCatalogMetadata()` reads it.
 
 ## Keys, Constraints, And Relationships
 
@@ -14,12 +14,12 @@ Contains the single catalog-owned metadata record. `Database::InitializeSchema()
 
 | Source | Functions / classes |
 |---|---|
-| `src/storage/Database.cpp` | `InitializeSchema`, `SetCatalogDescription`, `GetCatalogMetadata` |
+| `sql/tables/catalog_metadata.sql`; `src/modules/wit_database/src/Database.cpp` | `CatalogSchema::Initialize`, `SetCatalogDescription`, `GetCatalogMetadata` |
 | `src/core/Disk.h` | `CatalogMetadata`, `CatalogSummary` |
 
 ## Field Reference
 
 | Field | Type | Nullable | Default | Key/Index | Description | Used in code | Confidence |
 |---|---|---:|---|---|---|---|---|
-| `id` | `INTEGER` | No | none | `PRIMARY KEY`, `CHECK (id=1)` | Singleton catalog metadata key. | `src/storage/Database.cpp`: initialization and description reads/writes | Explicit |
-| `description` | `TEXT` | No | `''` | none | Free-text catalog description. | `src/storage/Database.cpp`: `SetCatalogDescription`, `GetCatalogMetadata` | Explicit |
+| `id` | `INTEGER` | No | none | `PRIMARY KEY`, `CHECK (id=1)` | Singleton catalog metadata key. | `sql/tables/catalog_metadata.sql`; `CatalogSchema::Initialize` metadata seed | Explicit |
+| `description` | `TEXT` | No | `''` | none | Free-text catalog description. | `Database::SetCatalogDescription`, `Database::GetCatalogMetadata` | Explicit |

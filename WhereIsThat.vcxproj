@@ -268,6 +268,14 @@ copy /Y "$(ProjectDir)third_party\libarchive\bin\*.dll" "$(OutDir)"</Command>
     </ItemGroup>
     <ItemGroup>
         <None Include="src\app\wit_gui\res\icons\fugue\NOTICE.txt" />
+        <None Include="sql\indexes.sql" />
+        <None Include="sql\pragmas.sql" />
+        <None Include="sql\tables\catalog_metadata.sql" />
+        <None Include="sql\tables\disk_groups.sql" />
+        <None Include="sql\tables\disk_scan_statistics.sql" />
+        <None Include="sql\tables\disks.sql" />
+        <None Include="sql\tables\files.sql" />
+        <None Include="sql\tables\folders.sql" />
     </ItemGroup>
     <ItemGroup>
         <ResourceCompile Include="src\app\wit_gui\res\app.rc" />

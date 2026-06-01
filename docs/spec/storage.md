@@ -61,7 +61,7 @@ Catalog-wide summary values are not cached in SQLite:
 
 - Use prepared statements for values supplied by application state or filesystem data.
 - Manage SQLite handles and prepared statements with deterministic lifetime management.
-- Keep schema creation and supported-format validation centralized in the storage layer.
+- Keep schema creation and supported-format validation centralized in the storage layer, with table/index DDL sourced from the root `sql` directory.
 - Reject former-format catalog files and normalized catalog files without required stored folder content sizes or archive-aware fields without attempting upgrade, conversion, or backfill.
 - Do not execute SQLite reads or writes by embedding SQL in window/view classes.
 - Keep hierarchy/list/search reads paged and available offline from persisted data.

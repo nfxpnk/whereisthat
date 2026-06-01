@@ -2,18 +2,18 @@
 
 ## Authority And Compatibility
 
-The application schema is created and validated in `src/modules/wit_database/src/CatalogSchema.cpp`; values are populated primarily through `src/app/wit_gui/src/ScanCoordinator.cpp`, `src/modules/wit_scanner/src/FileScanner.cpp`, and `src/modules/wit_infra/src/VolumeInfo.cpp`. This inventory documents only the replacement catalog format. Old `catalogs`/mixed `files` files and normalized catalogs lacking required folder content totals or archive-aware fields are unsupported; no migration SQL exists.
+The application schema SQL is stored in the root `sql` directory, embedded into the executable resources, and executed by `src/modules/wit_database/src/CatalogSchema.cpp`; values are populated primarily through `src/app/wit_gui/src/ScanCoordinator.cpp`, `src/modules/wit_scanner/src/FileScanner.cpp`, and `src/modules/wit_infra/src/VolumeInfo.cpp`. This inventory documents only the replacement catalog format. Old `catalogs`/mixed `files` files and normalized catalogs lacking required folder content totals or archive-aware fields are unsupported; no migration SQL exists.
 
 ## Tables And Columns
 
 | Table | Columns | SQL | Documentation |
 |---|---|---|---|
-| `catalog_metadata` | `id`, `description` | [schema/tables/catalog_metadata.sql](schema/tables/catalog_metadata.sql) | [tables/catalog_metadata.md](tables/catalog_metadata.md) |
-| `disk_groups` | `id`, `name`, `created_at`, `updated_at` | [schema/tables/disk_groups.sql](schema/tables/disk_groups.sql) | [tables/disk_groups.md](tables/disk_groups.md) |
-| `disks` | `id`, `disk_group_id`, `disk_name`, `disk_number`, `source_path`, `volume_label`, `total_capacity`, `free_space`, `cluster_size`, `serial_number`, `file_system`, `total_files`, `total_folders`, `added_at`, `updated_at`, `description`, `category`, `location`, `disk_type` | [schema/tables/disks.sql](schema/tables/disks.sql) | [tables/disks.md](tables/disks.md) |
-| `disk_scan_statistics` | `disk_id`, `last_scanned_at`, `image_scanning_time_ms`, `imported_descriptions_count`, `calculated_file_crcs`, `scanned_archives`, `archive_files_count`, `archive_folders_count` | [schema/tables/disk_scan_statistics.sql](schema/tables/disk_scan_statistics.sql) | [tables/disk_scan_statistics.md](tables/disk_scan_statistics.md) |
-| `folders` | `id`, `disk_id`, `parent_folder_id`, `path`, `name`, `created_at`, `modified_at`, `accessed_at`, `attributes`, `content_size`, `entry_type` | [schema/tables/folders.sql](schema/tables/folders.sql) | [tables/folders.md](tables/folders.md) |
-| `files` | `id`, `disk_id`, `folder_id`, `name`, `description`, `extension`, `crc`, `size`, `created_at`, `modified_at`, `accessed_at`, `attributes` | [schema/tables/files.sql](schema/tables/files.sql) | [tables/files.md](tables/files.md) |
+| `catalog_metadata` | `id`, `description` | [../../sql/tables/catalog_metadata.sql](../../sql/tables/catalog_metadata.sql) | [tables/catalog_metadata.md](tables/catalog_metadata.md) |
+| `disk_groups` | `id`, `name`, `created_at`, `updated_at` | [../../sql/tables/disk_groups.sql](../../sql/tables/disk_groups.sql) | [tables/disk_groups.md](tables/disk_groups.md) |
+| `disks` | `id`, `disk_group_id`, `disk_name`, `disk_number`, `source_path`, `volume_label`, `total_capacity`, `free_space`, `cluster_size`, `serial_number`, `file_system`, `total_files`, `total_folders`, `added_at`, `updated_at`, `description`, `category`, `location`, `disk_type` | [../../sql/tables/disks.sql](../../sql/tables/disks.sql) | [tables/disks.md](tables/disks.md) |
+| `disk_scan_statistics` | `disk_id`, `last_scanned_at`, `image_scanning_time_ms`, `imported_descriptions_count`, `calculated_file_crcs`, `scanned_archives`, `archive_files_count`, `archive_folders_count` | [../../sql/tables/disk_scan_statistics.sql](../../sql/tables/disk_scan_statistics.sql) | [tables/disk_scan_statistics.md](tables/disk_scan_statistics.md) |
+| `folders` | `id`, `disk_id`, `parent_folder_id`, `path`, `name`, `created_at`, `modified_at`, `accessed_at`, `attributes`, `content_size`, `entry_type` | [../../sql/tables/folders.sql](../../sql/tables/folders.sql) | [tables/folders.md](tables/folders.md) |
+| `files` | `id`, `disk_id`, `folder_id`, `name`, `description`, `extension`, `crc`, `size`, `created_at`, `modified_at`, `accessed_at`, `attributes` | [../../sql/tables/files.sql](../../sql/tables/files.sql) | [tables/files.md](tables/files.md) |
 
 ## Indexes
 
@@ -53,7 +53,7 @@ No CRC index is defined because no CRC lookup query is implemented.
 
 | Category | Inventory |
 |---|---|
-| Configuration PRAGMAs | `foreign_keys=ON`, `journal_mode=WAL`, `synchronous=NORMAL`; see [schema/pragmas.sql](schema/pragmas.sql). |
+| Configuration PRAGMAs | `foreign_keys=ON`, `journal_mode=WAL`, `synchronous=NORMAL`; see [../../sql/pragmas.sql](../../sql/pragmas.sql). |
 | Validation PRAGMA | `PRAGMA table_info(...)` is used by C++ to recognize required replacement-format columns. |
 | Triggers | None defined by the application. |
 | Views | None defined by the application. |
@@ -64,7 +64,7 @@ No CRC index is defined because no CRC lookup query is implemented.
 
 | Area | Code entry points | Stored objects |
 |---|---|---|
-| Initialization / validation | `Database::InitializeSchema`, `Database::HasCatalogSchema` | All tables, indexes, metadata singleton. |
+| Initialization / validation | `CatalogSchema::Initialize`, `CatalogSchema::Validate`, `Database::InitializeSchema`, `Database::HasCatalogSchema` | All tables, indexes, metadata singleton. |
 | Staged save | `Database::CreateWorkingCopy`, `Database::ReplaceCatalogDataFrom` | Whole replacement-format database through SQLite backup. |
 | Disk add/rescan | `ScanCoordinator::Start`, `Database::AddDisk`, `FindDiskBySourcePath`, `DeleteContentForDisk`, `UpdateDisk` | `disks`, folder/file replacement. |
 | Latest statistics | `FileScanner::ScanFolder`, `Database::UpdateDiskScanStatistics` | `disk_scan_statistics`. |

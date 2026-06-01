@@ -39,6 +39,7 @@ SQLite must remain dynamically deployed:
 - Keep `third_party/sqlite/sqlite3.dll` as a separate runtime DLL.
 - Copy `sqlite3.dll` next to `WhereIsThat.exe` after every successful build.
 - Do not statically compile SQLite into `WhereIsThat.exe`.
+- Embed the root `sql` schema files into `WhereIsThat.exe` as resources at build time.
 
 The expected release runtime output includes:
 

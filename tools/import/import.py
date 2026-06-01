@@ -28,92 +28,18 @@ from typing import Iterable
 
 
 LOG = logging.getLogger("import_xml")
-SCRIPT_DIR = Path.cwd()
-PROJECT_ROOT = SCRIPT_DIR
+SCRIPT_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = SCRIPT_DIR.parent.parent
 DEFAULT_XML_PATH = SCRIPT_DIR / "catalog.xml"
-DEFAULT_DB_PATH = PROJECT_ROOT / "catalog.db"
-
-SCHEMA_TABLES = [
-    "CREATE TABLE IF NOT EXISTS catalog_metadata ("
-    "id INTEGER PRIMARY KEY CHECK (id=1),"
-    "description TEXT NOT NULL DEFAULT '');",
-    "CREATE TABLE IF NOT EXISTS disk_groups ("
-    "id INTEGER PRIMARY KEY AUTOINCREMENT,"
-    "name TEXT NOT NULL COLLATE NOCASE UNIQUE,"
-    "created_at INTEGER NOT NULL,"
-    "updated_at INTEGER NOT NULL);",
-    "CREATE TABLE IF NOT EXISTS disks ("
-    "id INTEGER PRIMARY KEY AUTOINCREMENT,"
-    "disk_group_id INTEGER,"
-    "disk_name TEXT NOT NULL,"
-    "disk_number INTEGER NOT NULL DEFAULT 0,"
-    "source_path TEXT NOT NULL COLLATE NOCASE UNIQUE,"
-    "volume_label TEXT NOT NULL DEFAULT '',"
-    "total_capacity INTEGER NOT NULL DEFAULT 0,"
-    "free_space INTEGER NOT NULL DEFAULT 0,"
-    "cluster_size INTEGER NOT NULL DEFAULT 0,"
-    "serial_number TEXT NOT NULL DEFAULT '',"
-    "file_system TEXT NOT NULL DEFAULT '',"
-    "total_files INTEGER NOT NULL DEFAULT 0,"
-    "total_folders INTEGER NOT NULL DEFAULT 0,"
-    "added_at INTEGER NOT NULL,"
-    "updated_at INTEGER NOT NULL,"
-    "description TEXT NOT NULL DEFAULT '',"
-    "category TEXT NOT NULL DEFAULT '',"
-    "location TEXT NOT NULL DEFAULT '',"
-    "disk_type TEXT NOT NULL CHECK (disk_type IN "
-    "('CD','DVD','BluRay','HardDisk','SolidStateDisk','RemovableUSB','VirtualDisk','Other')),"
-    "FOREIGN KEY (disk_group_id) REFERENCES disk_groups(id) ON DELETE SET NULL);",
-    "CREATE TABLE IF NOT EXISTS disk_scan_statistics ("
-    "disk_id INTEGER PRIMARY KEY,"
-    "last_scanned_at INTEGER NOT NULL,"
-    "image_scanning_time_ms INTEGER NOT NULL DEFAULT 0,"
-    "imported_descriptions_count INTEGER NOT NULL DEFAULT 0,"
-    "calculated_file_crcs INTEGER NOT NULL DEFAULT 0 CHECK (calculated_file_crcs IN (0,1)),"
-    "scanned_archives INTEGER NOT NULL DEFAULT 0 CHECK (scanned_archives >= 0),"
-    "archive_files_count INTEGER NOT NULL DEFAULT 0 CHECK (archive_files_count >= 0),"
-    "archive_folders_count INTEGER NOT NULL DEFAULT 0 CHECK (archive_folders_count >= 0),"
-    "FOREIGN KEY (disk_id) REFERENCES disks(id) ON DELETE CASCADE);",
-    "CREATE TABLE IF NOT EXISTS folders ("
-    "id INTEGER PRIMARY KEY AUTOINCREMENT,"
-    "disk_id INTEGER NOT NULL,"
-    "parent_folder_id INTEGER,"
-    "path TEXT NOT NULL,"
-    "name TEXT NOT NULL,"
-    "created_at INTEGER NOT NULL,"
-    "modified_at INTEGER NOT NULL,"
-    "accessed_at INTEGER NOT NULL,"
-    "attributes INTEGER NOT NULL DEFAULT 0,"
-    "content_size INTEGER NOT NULL DEFAULT 0,"
-    "entry_type TEXT NOT NULL DEFAULT 'directory' CHECK (entry_type IN ('directory','archive')),"
-    "FOREIGN KEY (disk_id) REFERENCES disks(id) ON DELETE CASCADE,"
-    "FOREIGN KEY (parent_folder_id) REFERENCES folders(id) ON DELETE CASCADE);",
-    "CREATE TABLE IF NOT EXISTS files ("
-    "id INTEGER PRIMARY KEY AUTOINCREMENT,"
-    "disk_id INTEGER NOT NULL,"
-    "folder_id INTEGER NOT NULL,"
-    "name TEXT NOT NULL,"
-    "description TEXT NOT NULL DEFAULT '',"
-    "extension TEXT NOT NULL DEFAULT '',"
-    "crc TEXT,"
-    "size INTEGER NOT NULL,"
-    "created_at INTEGER NOT NULL,"
-    "modified_at INTEGER NOT NULL,"
-    "accessed_at INTEGER NOT NULL,"
-    "attributes INTEGER NOT NULL DEFAULT 0,"
-    "FOREIGN KEY (disk_id) REFERENCES disks(id) ON DELETE CASCADE,"
-    "FOREIGN KEY (folder_id) REFERENCES folders(id) ON DELETE CASCADE);",
-]
-
-SCHEMA_INDEXES = [
-    "CREATE INDEX IF NOT EXISTS idx_disk_groups_name ON disk_groups(name COLLATE NOCASE);",
-    "CREATE INDEX IF NOT EXISTS idx_disks_group ON disks(disk_group_id,disk_name COLLATE NOCASE);",
-    "CREATE UNIQUE INDEX IF NOT EXISTS idx_disks_source_path ON disks(source_path COLLATE NOCASE);",
-    "CREATE INDEX IF NOT EXISTS idx_folders_parent ON folders(disk_id,parent_folder_id);",
-    "CREATE UNIQUE INDEX IF NOT EXISTS idx_folders_disk_path ON folders(disk_id,path COLLATE NOCASE);",
-    "CREATE INDEX IF NOT EXISTS idx_files_folder ON files(folder_id);",
-    "CREATE INDEX IF NOT EXISTS idx_files_disk_name ON files(disk_id,name);",
-    "CREATE INDEX IF NOT EXISTS idx_files_extension ON files(extension);",
+DEFAULT_DB_PATH = SCRIPT_DIR / "catalog.db"
+SQL_ROOT = PROJECT_ROOT / "sql"
+SCHEMA_TABLE_FILES = [
+    "catalog_metadata.sql",
+    "disk_groups.sql",
+    "disks.sql",
+    "disk_scan_statistics.sql",
+    "folders.sql",
+    "files.sql",
 ]
 
 REQUIRED_COLUMNS = {
@@ -729,17 +655,14 @@ def validate_plan(plan: ImportPlan) -> None:
 
 
 def create_schema(connection: sqlite3.Connection) -> None:
-    connection.execute("PRAGMA foreign_keys=ON;")
-    connection.execute("PRAGMA journal_mode=WAL;")
-    connection.execute("PRAGMA synchronous=NORMAL;")
-    for statement in SCHEMA_TABLES:
-        connection.execute(statement)
+    connection.executescript((SQL_ROOT / "pragmas.sql").read_text(encoding="utf-8"))
+    for file_name in SCHEMA_TABLE_FILES:
+        connection.executescript((SQL_ROOT / "tables" / file_name).read_text(encoding="utf-8"))
     connection.execute("INSERT OR IGNORE INTO catalog_metadata(id,description) VALUES(1,'');")
 
 
 def create_indexes(connection: sqlite3.Connection) -> None:
-    for statement in SCHEMA_INDEXES:
-        connection.execute(statement)
+    connection.executescript((SQL_ROOT / "indexes.sql").read_text(encoding="utf-8"))
 
 
 def validate_schema(connection: sqlite3.Connection) -> None:

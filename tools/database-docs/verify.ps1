@@ -1,7 +1,9 @@
 [CmdletBinding()]
 param(
-    [string]$SourceFile = "src/modules/wit_database/src/CatalogSchema.cpp",
-    [string]$DocsRoot = "docs/database"
+    [string]$SqlRoot = "sql",
+    [string]$DocsRoot = "docs/database",
+    [string]$CatalogSchemaSource = "src/modules/wit_database/src/CatalogSchema.cpp",
+    [string]$ImportScript = "tools/import/import.py"
 )
 
 $ErrorActionPreference = "Stop"
@@ -48,47 +50,39 @@ function Columns-FromBody([string]$body) {
     return $columns
 }
 
-if (-not (Test-Path -LiteralPath $SourceFile)) {
-    throw "Schema source file not found: $SourceFile"
+if (-not (Test-Path -LiteralPath $SqlRoot)) {
+    throw "Schema SQL directory not found: $SqlRoot"
 }
 if (-not (Test-Path -LiteralPath $DocsRoot)) {
     throw "Database documentation directory not found: $DocsRoot"
 }
 
-$source = Get-Content -LiteralPath $SourceFile -Raw
-$tablePattern = 'Exec\("(?<statement>CREATE TABLE IF NOT EXISTS (?<name>[A-Za-z_][A-Za-z0-9_]*) \((?<body>[^"]+)\);)"\)'
-$sourceTables = [regex]::Matches($source, $tablePattern)
-if ($sourceTables.Count -eq 0) {
-    Fail "No CREATE TABLE statements were extracted from $SourceFile."
+$tableFiles = Get-ChildItem -LiteralPath (Join-Path $SqlRoot "tables") -Filter "*.sql" -ErrorAction SilentlyContinue |
+    Sort-Object Name
+if ($tableFiles.Count -eq 0) {
+    Fail "No table SQL files were found under $SqlRoot/tables."
 }
 
-foreach ($table in $sourceTables) {
-    $name = $table.Groups["name"].Value
-    $sourceStatement = Normalize-Sql $table.Groups["statement"].Value
-    $sourceColumns = Columns-FromBody $table.Groups["body"].Value
-    $sqlFile = Join-Path $DocsRoot "schema/tables/$name.sql"
+foreach ($sqlFileInfo in $tableFiles) {
+    $name = $sqlFileInfo.BaseName
+    $sqlFile = $sqlFileInfo.FullName
     $mdFile = Join-Path $DocsRoot "tables/$name.md"
+    $sql = Get-Content -LiteralPath $sqlFile -Raw
+    $ddlMatch = [regex]::Match($sql,
+        "(?is)CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS\s+$name\s*\((?<body>.*?)\)\s*;")
 
-    if (-not (Test-Path -LiteralPath $sqlFile)) {
-        Fail "Missing table SQL file: $sqlFile"
-    } else {
-        $documentedSql = Get-Content -LiteralPath $sqlFile -Raw
-        $ddlMatch = [regex]::Match($documentedSql,
-            "(?is)CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS\s+$name\s*\((?<body>.*?)\)\s*;")
-        if (-not $ddlMatch.Success) {
-            Fail "No CREATE TABLE statement for '$name' found in $sqlFile."
-        } else {
-            $docStatement = Normalize-Sql $ddlMatch.Value
-            if ($docStatement -ne $sourceStatement) {
-                Fail "Documented CREATE TABLE for '$name' differs from the C++ initializer."
-            }
-            $docColumns = Columns-FromBody $ddlMatch.Groups["body"].Value
-            if (Compare-Object $sourceColumns $docColumns) {
-                Fail "Column list in $sqlFile differs from the C++ initializer."
-            }
-        }
+    if (-not $ddlMatch.Success) {
+        Fail "No CREATE TABLE statement for '$name' found in $sqlFile."
+        continue
     }
 
+    $normalizedFileSql = Normalize-Sql $sql
+    $normalizedDdl = Normalize-Sql $ddlMatch.Value
+    if ($normalizedFileSql -ne $normalizedDdl) {
+        Fail "$sqlFile should contain only the CREATE TABLE statement for '$name'."
+    }
+
+    $sourceColumns = Columns-FromBody $ddlMatch.Groups["body"].Value
     if (-not (Test-Path -LiteralPath $mdFile)) {
         Fail "Missing table Markdown file: $mdFile"
     } else {
@@ -117,45 +111,44 @@ foreach ($table in $sourceTables) {
             Fail "Missing summary file: $summaryFile"
         } elseif ((Get-Content -LiteralPath $summaryFile -Raw) -notmatch [regex]::Escape("``$name``")) {
             Fail "$summaryFile has no entry for table '$name'."
+        } elseif ((Get-Content -LiteralPath $summaryFile -Raw) -notmatch [regex]::Escape("../../sql/tables/$name.sql")) {
+            Fail "$summaryFile does not link table '$name' to the root sql directory."
         }
     }
 }
 
-$knownSqlFiles = Get-ChildItem -LiteralPath (Join-Path $DocsRoot "schema/tables") -Filter "*.sql" -ErrorAction SilentlyContinue
-foreach ($file in $knownSqlFiles) {
-    if ($file.BaseName -notin @($sourceTables | ForEach-Object { $_.Groups["name"].Value })) {
-        Fail "Documented table SQL has no matching initializer table: $($file.FullName)."
+foreach ($sharedSqlFile in @("indexes.sql", "pragmas.sql")) {
+    $path = Join-Path $SqlRoot $sharedSqlFile
+    if (-not (Test-Path -LiteralPath $path)) {
+        Fail "Missing shared SQL file: $path"
+    } elseif ([string]::IsNullOrWhiteSpace((Get-Content -LiteralPath $path -Raw))) {
+        Fail "Shared SQL file is empty: $path"
     }
 }
 
-$sharedChecks = @(
-    @{ Pattern = 'CREATE (?:UNIQUE )?INDEX IF NOT EXISTS [^"]+;'; File = "schema/indexes.sql"; Label = "index" },
-    @{ Pattern = 'PRAGMA (foreign_keys|journal_mode|synchronous)=[^"]+;'; File = "schema/pragmas.sql"; Label = "configuration PRAGMA" }
-)
-foreach ($check in $sharedChecks) {
-    $documentPath = Join-Path $DocsRoot $check.File
-    if (-not (Test-Path -LiteralPath $documentPath)) {
-        Fail "Missing shared SQL file: $documentPath"
+$oldDocsSchema = Join-Path $DocsRoot "schema"
+if (Test-Path -LiteralPath $oldDocsSchema) {
+    $duplicatedSql = Get-ChildItem -LiteralPath $oldDocsSchema -Filter "*.sql" -Recurse -ErrorAction SilentlyContinue
+    if ($duplicatedSql.Count -gt 0) {
+        Fail "Documentation schema SQL duplicates the root sql authority: $oldDocsSchema"
+    }
+}
+
+foreach ($sourcePath in @($CatalogSchemaSource, $ImportScript)) {
+    if (-not (Test-Path -LiteralPath $sourcePath)) {
+        Fail "Schema consumer source file not found: $sourcePath"
         continue
     }
-    $documentText = Normalize-Sql (Get-Content -LiteralPath $documentPath -Raw)
-    foreach ($statement in [regex]::Matches($source, $check.Pattern)) {
-        if ($documentText -notlike "*$(Normalize-Sql $statement.Value)*") {
-            Fail "Missing documented $($check.Label) statement in $documentPath`: $($statement.Value)"
-        }
+    $source = Get-Content -LiteralPath $sourcePath -Raw
+    if ($source -match '(?i)CREATE\s+(?:UNIQUE\s+)?(?:TABLE|INDEX)\b') {
+        Fail "Schema DDL is duplicated in ${sourcePath}; use files under $SqlRoot instead."
     }
-}
-
-foreach ($emptyObjectFile in @("schema/triggers.sql", "schema/views.sql")) {
-    if (-not (Test-Path -LiteralPath (Join-Path $DocsRoot $emptyObjectFile))) {
-        Fail "Missing empty-object inventory file: $emptyObjectFile"
+    if ($source -match '(?i)ALTER\s+TABLE\s+') {
+        Fail "Legacy-style ALTER TABLE SQL exists in ${sourcePath}; the replacement catalog format must not define migrations."
     }
-}
-if ($source -match '(?i)ALTER\s+TABLE\s+') {
-    Fail "Legacy-style ALTER TABLE SQL exists; the replacement catalog format must not define migrations."
-}
-if ($source -match '(?i)CREATE\s+(TRIGGER|VIEW)\s+') {
-    Fail "Application-defined trigger or view SQL exists; extend this verifier and documentation inventory."
+    if ($source -match '(?i)CREATE\s+(TRIGGER|VIEW)\b') {
+        Fail "Application-defined trigger or view SQL exists in ${sourcePath}; extend this verifier and documentation inventory."
+    }
 }
 
 if ($failures.Count -gt 0) {
@@ -163,5 +156,5 @@ if ($failures.Count -gt 0) {
     exit 1
 }
 
-Write-Output "Database documentation verified: $($sourceTables.Count) tables and their documented fields match $SourceFile."
-Write-Output "Checked table SQL, shared index/PRAGMA SQL, absence of migration DDL, overview coverage, and schema inventory coverage."
+Write-Output "Database documentation verified: $($tableFiles.Count) root SQL table files and their documented fields match."
+Write-Output "Checked shared SQL files, absence of duplicated schema DDL, overview coverage, and schema inventory coverage."

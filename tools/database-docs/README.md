@@ -6,13 +6,13 @@ Run from the repository root:
 powershell -ExecutionPolicy Bypass -File tools/database-docs/verify.ps1
 ```
 
-`verify.ps1` extracts application-defined `CREATE TABLE`, `CREATE INDEX`, and schema-configuration `PRAGMA` statements from `src/storage/Database.cpp`. It checks that:
+`verify.ps1` treats the root `sql` directory as the schema authority. It checks that:
 
-- every source-defined table has a formatted SQL file and Markdown table page;
-- SQL table definitions and shared schema statements remain equivalent to the initializer;
+- every source-defined table has a Markdown table page;
+- table SQL files match the documented field tables;
 - every schema column is present in its Markdown field table, with no additional documented columns;
 - each table appears in `docs/database/README.md` and `docs/database/schema-inventory.md`;
-- trigger and view inventory files remain present, and the script fails if application trigger/view DDL is introduced without corresponding extension.
+- schema DDL is not duplicated back into the C++ initializer;
 - no `ALTER TABLE` migration statement is introduced for the new-format-only catalog contract, including required stored folder-size and archive-aware data.
 
 The script intentionally verifies rather than auto-writes narrative Markdown. Purpose, lifecycle, and field meaning require review against application behavior; generating those claims from column names would risk documenting invented semantics.

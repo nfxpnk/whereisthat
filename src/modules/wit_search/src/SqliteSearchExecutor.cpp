@@ -1,5 +1,6 @@
 #include "wit_search/SqliteSearchExecutor.h"
 
+#include "wit_database/SQLiteStatement.h"
 #include <wit_infra/Win32Helpers.h>
 #include "third_party/sqlite/sqlite3.h"
 
@@ -8,35 +9,6 @@
 
 namespace wit::search {
 namespace {
-class Statement {
-public:
-    Statement(sqlite3* db, const char* sql) {
-        sqlite3_prepare_v2(db, sql, -1, &stmt_, nullptr);
-    }
-
-    ~Statement() {
-        sqlite3_finalize(stmt_);
-    }
-
-    Statement(const Statement&) = delete;
-    Statement& operator=(const Statement&) = delete;
-
-    void BindInt64(int index, long long value) {
-        sqlite3_bind_int64(stmt_, index, value);
-    }
-
-    void BindText(int index, const std::string& value) {
-        sqlite3_bind_text(stmt_, index, value.c_str(), -1, SQLITE_TRANSIENT);
-    }
-
-    sqlite3_stmt* Raw() const {
-        return stmt_;
-    }
-
-private:
-    sqlite3_stmt* stmt_{};
-};
-
 std::string ItemNameLikePattern(const std::wstring& term) {
     const auto utf8 = wit::platform::ToUtf8(term);
     std::string pattern{"%"};
@@ -71,7 +43,7 @@ void PopulateDisplayEntry(wit::core::FileEntry& entry, sqlite3_stmt* stmt) {
 SqliteSearchExecutor::SqliteSearchExecutor(sqlite3* db) : db_(db) {}
 
 int SqliteSearchExecutor::CountByName(const std::wstring& nameTerm) {
-    Statement statement(db_,
+    wit::storage::SQLiteStatement statement(db_,
         "SELECT (SELECT COUNT(*) FROM files WHERE name LIKE ? ESCAPE '\\') + "
         "(SELECT COUNT(*) FROM folders WHERE name LIKE ? ESCAPE '\\');");
     const auto pattern = ItemNameLikePattern(nameTerm);
@@ -83,7 +55,7 @@ int SqliteSearchExecutor::CountByName(const std::wstring& nameTerm) {
 std::vector<wit::core::FileEntry> SqliteSearchExecutor::PageByName(
     const std::wstring& nameTerm, int offset, int limit) {
     std::vector<wit::core::FileEntry> files;
-    Statement statement(db_,
+    wit::storage::SQLiteStatement statement(db_,
         "SELECT id,disk_id,parent_path,name,extension,size,modified_at,attributes,is_directory,entry_type FROM ("
         "SELECT f.id,f.disk_id,p.path AS parent_path,f.name,f.extension,f.size,f.modified_at,f.attributes,0 AS is_directory,'file' AS entry_type "
         "FROM files f JOIN folders p ON f.folder_id=p.id WHERE f.name LIKE ? ESCAPE '\\' "

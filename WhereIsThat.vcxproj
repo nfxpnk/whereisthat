@@ -79,6 +79,7 @@ copy /Y "$(ProjectDir)third_party\libarchive\bin\*.dll" "$(OutDir)"</Command>
         <ClCompile Include="src\modules\wit_scanner\src\FileScanner.cpp"/>
         <ClCompile Include="src\modules\wit_search\src\QueryBuilder.cpp"/>
         <ClCompile Include="src\modules\wit_search\src\SearchExecutor.cpp"/>
+        <ClCompile Include="src\modules\wit_search\src\SqliteSearchExecutor.cpp"/>
         <ClCompile Include="src\modules\wit_infra\src\AppSettings.cpp"/>
         <ClCompile Include="src\modules\wit_infra\src\PathHelpers.cpp"/>
         <ClCompile Include="src\modules\wit_infra\src\VolumeInfo.cpp"/>
@@ -127,6 +128,7 @@ copy /Y "$(ProjectDir)third_party\libarchive\bin\*.dll" "$(OutDir)"</Command>
         <ClInclude Include="src\modules\wit_scanner\include\wit_scanner\ScanRequest.h"/>
         <ClInclude Include="src\modules\wit_search\include\wit_search\ISearchExecutor.h"/>
         <ClInclude Include="src\modules\wit_search\include\wit_search\SearchResult.h"/>
+        <ClInclude Include="src\modules\wit_search\include\wit_search\SqliteSearchExecutor.h"/>
         <ClInclude Include="src\modules\wit_types\include\wit_types\BrowserLocation.h"/>
         <ClInclude Include="src\modules\wit_types\include\wit_types\CatalogIdentity.h"/>
         <ClInclude Include="src\modules\wit_types\include\wit_types\Disk.h"/>

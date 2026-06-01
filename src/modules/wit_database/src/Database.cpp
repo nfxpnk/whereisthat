@@ -3,6 +3,7 @@
 #include "wit_database/SQLiteStatement.h"
 #include <wit_infra/VolumeInfo.h>
 #include <wit_infra/Win32Helpers.h>
+#include <wit_search/SqliteSearchExecutor.h>
 #include "third_party/sqlite/sqlite3.h"
 #include <Windows.h>
 #include <algorithm>
@@ -12,17 +13,6 @@
 
 namespace wit::storage {
 namespace {
-std::string ItemNameLikePattern(const std::wstring& term) {
-    const auto utf8 = wit::platform::ToUtf8(term);
-    std::string pattern{"%"};
-    for (const auto character : utf8) {
-        if (character == '%' || character == '_' || character == '\\') pattern.push_back('\\');
-        pattern.push_back(character);
-    }
-    pattern.push_back('%');
-    return pattern;
-}
-
 std::wstring Text(sqlite3_stmt* stmt, int column) {
     const auto* value = reinterpret_cast<const char*>(sqlite3_column_text(stmt, column));
     return value ? wit::platform::ToUtf16(value) : std::wstring{};
@@ -452,34 +442,12 @@ std::vector<wit::core::FileEntry> Database::GetChildFolders(
 }
 
 int Database::GetItemSearchCount(const std::wstring& nameTerm) {
-    SQLiteStatement statement(connection_.Raw(),
-        "SELECT (SELECT COUNT(*) FROM files WHERE name LIKE ? ESCAPE '\\') + "
-        "(SELECT COUNT(*) FROM folders WHERE name LIKE ? ESCAPE '\\');");
-    const auto pattern = ItemNameLikePattern(nameTerm);
-    statement.BindText(1, pattern);
-    statement.BindText(2, pattern);
-    return sqlite3_step(statement.Raw()) == SQLITE_ROW ? sqlite3_column_int(statement.Raw(), 0) : 0;
+    wit::search::SqliteSearchExecutor search(connection_.Raw());
+    return search.CountByName(nameTerm);
 }
 
 std::vector<wit::core::FileEntry> Database::GetItemSearchPage(const std::wstring& nameTerm, int offset, int limit) {
-    std::vector<wit::core::FileEntry> files;
-    SQLiteStatement statement(connection_.Raw(),
-        "SELECT id,disk_id,parent_path,name,extension,size,modified_at,attributes,is_directory,entry_type FROM ("
-        "SELECT f.id,f.disk_id,p.path AS parent_path,f.name,f.extension,f.size,f.modified_at,f.attributes,0 AS is_directory,'file' AS entry_type "
-        "FROM files f JOIN folders p ON f.folder_id=p.id WHERE f.name LIKE ? ESCAPE '\\' "
-        "UNION ALL SELECT c.id,c.disk_id,COALESCE(p.path,''),c.name,'',c.content_size,c.modified_at,c.attributes,1,c.entry_type "
-        "FROM folders c LEFT JOIN folders p ON c.parent_folder_id=p.id WHERE c.name LIKE ? ESCAPE '\\') "
-        "ORDER BY is_directory DESC,name,parent_path LIMIT ? OFFSET ?;");
-    const auto pattern = ItemNameLikePattern(nameTerm);
-    statement.BindText(1, pattern);
-    statement.BindText(2, pattern);
-    statement.BindInt64(3, limit);
-    statement.BindInt64(4, offset);
-    while (sqlite3_step(statement.Raw()) == SQLITE_ROW) {
-        wit::core::FileEntry file;
-        PopulateDisplayEntry(file, statement.Raw());
-        files.push_back(file);
-    }
-    return files;
+    wit::search::SqliteSearchExecutor search(connection_.Raw());
+    return search.PageByName(nameTerm, offset, limit);
 }
 }

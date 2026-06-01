@@ -70,6 +70,7 @@ copy /Y "$(ProjectDir)third_party\libarchive\bin\*.dll" "$(OutDir)"</Command>
         <ClCompile Include="src\modules\wit_catalog\src\CatalogSession.cpp"/>
         <ClCompile Include="src\modules\wit_database\src\CatalogSchema.cpp"/>
         <ClCompile Include="src\modules\wit_database\src\Database.cpp"/>
+        <ClCompile Include="src\modules\wit_database\src\SqliteBrowserRepository.cpp"/>
         <ClCompile Include="src\modules\wit_database\src\SqliteConnection.cpp"/>
         <ClCompile Include="src\modules\wit_database\src\SQLiteStatement.cpp"/>
         <ClCompile Include="src\modules\wit_extractors\src\ArchiveExtractor.cpp"/>
@@ -115,6 +116,7 @@ copy /Y "$(ProjectDir)third_party\libarchive\bin\*.dll" "$(OutDir)"</Command>
         <ClInclude Include="src\modules\wit_database\include\wit_database\CatalogSchema.h"/>
         <ClInclude Include="src\modules\wit_database\include\wit_database\Database.h"/>
         <ClInclude Include="src\modules\wit_database\include\wit_database\IDatabase.h"/>
+        <ClInclude Include="src\modules\wit_database\include\wit_database\SqliteBrowserRepository.h"/>
         <ClInclude Include="src\modules\wit_database\include\wit_database\SqliteConnection.h"/>
         <ClInclude Include="src\modules\wit_database\include\wit_database\SQLiteStatement.h"/>
         <ClInclude Include="src\modules\wit_database\include\wit_database\SqlParam.h"/>

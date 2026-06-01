@@ -16,7 +16,7 @@ struct FileExtensionImage {
 
 const wchar_t* DiskTypeLabel(wit::core::DiskType type) {
     switch (type) {
-    case wit::core::DiskType::CD: return L"CD";
+    case wit::core::DiskType::CD: return L"CD/DVD";
     case wit::core::DiskType::DVD: return L"DVD";
     case wit::core::DiskType::BluRay: return L"BluRay";
     case wit::core::DiskType::HardDisk: return L"HardDisk";

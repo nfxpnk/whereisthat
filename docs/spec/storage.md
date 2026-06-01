@@ -41,7 +41,7 @@ SQLite must not be replaced with a managed data layer, framework database abstra
 - Persist folder entry type as `directory` or `archive`; a readable physical archive uses `archive` while its internal directory descendants use `directory`.
 - Persist file extensions without the leading dot and use empty text for no extension.
 - Persist file CRC as nullable text; it remains null when CRC calculation is disabled or a CRC is unavailable.
-- Persist disk type as exactly one of `CD`, `DVD`, `BluRay`, `HardDisk`, `SolidStateDisk`, `RemovableUSB`, `VirtualDisk`, or `Other`; mounted ISO sources resolve to `VirtualDisk`, removable volumes resolve to `RemovableUSB`, and fixed volumes resolve to `HardDisk` or `SolidStateDisk` only when a native seek-penalty device query reports the distinction reliably. Unavailable or unsafe classification resolves to `Other`.
+- Persist disk type as exactly one of `CD`, `DVD`, `BluRay`, `HardDisk`, `SolidStateDisk`, `RemovableUSB`, `VirtualDisk`, or `Other`; mounted ISO-file sources resolve to `VirtualDisk`, Windows CD/DVD drive volumes resolve to `CD`, removable volumes resolve to `RemovableUSB`, and fixed volumes resolve to `HardDisk` or `SolidStateDisk` only when a native seek-penalty device query reports the distinction reliably. Unavailable or unsafe classification resolves to `Other`.
 - Retain the accepted original media location so a mounted image can be matched for rescan even when Windows assigns it a different current browse root.
 
 ## Derived Catalog Values

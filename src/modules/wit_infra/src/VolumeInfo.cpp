@@ -26,8 +26,9 @@ bool QuerySeekPenalty(const wchar_t* volumeRoot, bool& incursSeekPenalty) {
 }
 
 wit::core::DiskType ClassifyVolumeDiskType(wit::core::DiskType selectedType, bool removable, bool fixed,
-    std::optional<bool> incursSeekPenalty) {
+    bool optical, std::optional<bool> incursSeekPenalty) {
     if (selectedType == wit::core::DiskType::VirtualDisk) return selectedType;
+    if (optical) return wit::core::DiskType::CD;
     if (removable) return wit::core::DiskType::RemovableUSB;
     if (fixed && incursSeekPenalty) {
         return *incursSeekPenalty ? wit::core::DiskType::HardDisk : wit::core::DiskType::SolidStateDisk;
@@ -66,7 +67,7 @@ void PopulateVolumeMetadata(const std::wstring& scanRoot, wit::core::Disk& disk)
         if (QuerySeekPenalty(metadataRoot, value)) incursSeekPenalty = value;
     }
     disk.diskType = ClassifyVolumeDiskType(disk.diskType, driveType == DRIVE_REMOVABLE,
-        driveType == DRIVE_FIXED, incursSeekPenalty);
+        driveType == DRIVE_FIXED, driveType == DRIVE_CDROM, incursSeekPenalty);
 }
 
 std::uint64_t FileSize(const std::wstring& path) {

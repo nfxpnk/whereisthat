@@ -55,6 +55,10 @@ bool IsDirectory(const std::wstring& path) {
     return attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
 }
 
+bool IsSupportedDriveType(UINT type) {
+    return type == DRIVE_FIXED || type == DRIVE_REMOVABLE || type == DRIVE_CDROM;
+}
+
 std::wstring SourceName(const std::wstring& path) {
     wchar_t volume[MAX_PATH]{};
     if (path.size() >= 3 && path[1] == L':' &&
@@ -230,7 +234,7 @@ void AddNewDiskMediaDialog::PopulateDriveButtons() {
         if ((available & (1UL << index)) == 0) continue;
         std::wstring root{static_cast<wchar_t>(L'A' + index), L':', L'\\'};
         const auto type = GetDriveTypeW(root.c_str());
-        if (type == DRIVE_FIXED || type == DRIVE_REMOVABLE) drives_.push_back(root);
+        if (IsSupportedDriveType(type)) drives_.push_back(root);
     }
     for (std::size_t index = 0; index < kDriveControls.size(); ++index) {
         const auto button = ::GetDlgItem(m_hWnd, kDriveControls[index]);

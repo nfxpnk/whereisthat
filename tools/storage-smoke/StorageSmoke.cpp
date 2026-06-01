@@ -145,16 +145,18 @@ int wmain() {
         "path display ignores trailing separator");
     Check(wit::platform::DisplayNameForPath(testRoot.root_path()) == testRoot.root_path().wstring(),
         "path display retains drive root");
-    Check(wit::platform::ClassifyVolumeDiskType(wit::core::DiskType::Other, false, true, true) ==
+    Check(wit::platform::ClassifyVolumeDiskType(wit::core::DiskType::Other, false, true, false, true) ==
         wit::core::DiskType::HardDisk, "fixed seek-penalty media is classified as hard disk");
-    Check(wit::platform::ClassifyVolumeDiskType(wit::core::DiskType::Other, false, true, false) ==
+    Check(wit::platform::ClassifyVolumeDiskType(wit::core::DiskType::Other, false, true, false, false) ==
         wit::core::DiskType::SolidStateDisk, "fixed no-seek-penalty media is classified as solid-state disk");
-    Check(wit::platform::ClassifyVolumeDiskType(wit::core::DiskType::Other, false, true, std::nullopt) ==
+    Check(wit::platform::ClassifyVolumeDiskType(wit::core::DiskType::Other, false, true, false, std::nullopt) ==
         wit::core::DiskType::Other, "fixed media with unavailable property retains unknown type");
-    Check(wit::platform::ClassifyVolumeDiskType(wit::core::DiskType::VirtualDisk, true, true, true) ==
+    Check(wit::platform::ClassifyVolumeDiskType(wit::core::DiskType::VirtualDisk, true, true, true, true) ==
         wit::core::DiskType::VirtualDisk, "explicit virtual media classification is retained");
-    Check(wit::platform::ClassifyVolumeDiskType(wit::core::DiskType::Other, true, false, std::nullopt) ==
+    Check(wit::platform::ClassifyVolumeDiskType(wit::core::DiskType::Other, true, false, false, std::nullopt) ==
         wit::core::DiskType::RemovableUSB, "removable media classification is retained");
+    Check(wit::platform::ClassifyVolumeDiskType(wit::core::DiskType::Other, false, false, true, std::nullopt) ==
+        wit::core::DiskType::CD, "optical media is classified as CD/DVD media");
 
     std::filesystem::remove_all(testRoot);
     std::filesystem::create_directories(mediaWithCrc);

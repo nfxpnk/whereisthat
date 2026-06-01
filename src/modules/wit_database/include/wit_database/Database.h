@@ -2,12 +2,12 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+#include "wit_database/SqliteConnection.h"
 #include "wit_types/BrowserLocation.h"
 #include "wit_catalog/Catalog.h"
 #include <wit_types/Disk.h>
 #include <wit_types/FileEntry.h>
 #include "wit_types/FolderEntry.h"
-struct sqlite3;
 
 namespace wit::storage {
 class Database {
@@ -23,7 +23,7 @@ public:
     bool CreateWorkingCopy(const Database& source);
     bool ReplaceCatalogDataFrom(const Database& source);
     void Close();
-    bool IsOpen() const { return db_ != nullptr; }
+    bool IsOpen() const { return connection_.IsOpen(); }
     bool IsEditable() const { return editable_; }
     bool InitializeSchema();
     bool BeginTransaction();
@@ -55,9 +55,8 @@ private:
     bool OpenInternal(const std::wstring& path, bool requireExistingSchema, bool readOnly = false);
     bool HasCatalogSchema();
     bool Exec(const char* sql);
-    sqlite3* db_{};
+    SqliteConnection connection_;
     bool editable_{};
-    std::wstring path_;
 };
 }
 

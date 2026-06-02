@@ -108,6 +108,29 @@ void BrowserController::RefreshCatalog(wit::core::CatalogId id, const std::wstri
     if (select || (hasTarget_ && currentTarget_.catalogId == id)) NavigateTo({id, {}}, true);
 }
 
+void BrowserController::MoveDiskToGroup(wit::core::CatalogId id, std::int64_t diskId,
+    std::int64_t diskGroupId, wit::storage::Database* database) {
+    if (!database || !database->IsOpen()) return;
+    std::wstring diskGroupName;
+    for (const auto& group : database->GetDiskGroups()) {
+        if (group.id == diskGroupId) {
+            diskGroupName = group.name;
+            break;
+        }
+    }
+    if (diskGroupName.empty()) return;
+    if (!tree_.MoveDiskToGroup(id, diskId, diskGroupId, database)) {
+        OutputDebugStringW(L"WhereIsThat: MoveDiskToGroup skipped TreeView full refresh; affected node was not found.\n");
+        return;
+    }
+    UpdateMovedDiskTargets(id, diskId, diskGroupId, diskGroupName);
+    if (hasTarget_ && currentTarget_.catalogId == id) {
+        files_.SetLocation(currentTarget_.location, database);
+        const auto address = AddressFor(currentTarget_);
+        SetWindowTextW(addressHandle_, address.c_str());
+    }
+}
+
 void BrowserController::RemoveCatalog(wit::core::CatalogId id) {
     tree_.RemoveCatalog(id);
     history_.erase(std::remove_if(history_.begin(), history_.end(),
@@ -120,6 +143,19 @@ void BrowserController::RemoveCatalog(wit::core::CatalogId id) {
         SetWindowTextW(addressHandle_, L"");
     }
     UpdateNavigationControls();
+}
+
+void BrowserController::UpdateMovedDiskTargets(wit::core::CatalogId id, std::int64_t diskId,
+    std::int64_t diskGroupId, const std::wstring& diskGroupName) {
+    auto updateTarget = [&](wit::core::BrowserTarget& target) {
+        auto& location = target.location;
+        if (target.catalogId == id && location.sourceId == diskId) {
+            location.diskGroupId = diskGroupId;
+            location.diskGroupName = diskGroupName;
+        }
+    };
+    if (hasTarget_) updateTarget(currentTarget_);
+    for (auto& target : history_) updateTarget(target);
 }
 
 bool BrowserController::SelectCatalogRoot(wit::core::CatalogId id) {

@@ -25,6 +25,8 @@ public:
         wit::storage::Database* database, bool select);
     void RefreshCatalog(wit::core::CatalogId id, const std::wstring& label,
         wit::storage::Database* database, bool select);
+    void MoveDiskToGroup(wit::core::CatalogId id, std::int64_t diskId,
+        std::int64_t diskGroupId, wit::storage::Database* database);
     void RemoveCatalog(wit::core::CatalogId id);
     bool SelectCatalogRoot(wit::core::CatalogId id);
     bool SelectFirstCatalogRoot();
@@ -64,6 +66,8 @@ private:
     void NavigateTo(const wit::core::BrowserTarget& target, bool addToHistory, bool syncTreeSelection = true);
     void UpdateNavigationControls();
     std::wstring AddressFor(const wit::core::BrowserTarget& target) const;
+    void UpdateMovedDiskTargets(wit::core::CatalogId id, std::int64_t diskId,
+        std::int64_t diskGroupId, const std::wstring& diskGroupName);
 };
 
 }

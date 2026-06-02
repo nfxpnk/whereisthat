@@ -14,6 +14,7 @@ namespace wit::app {
 enum class BrowserEffectKind {
     AddCatalog,
     RefreshCatalog,
+    MoveDiskToGroup,
     RemoveCatalog,
     SelectCatalog,
     Clear
@@ -25,6 +26,8 @@ struct BrowserEffect {
     std::wstring label;
     wit::storage::Database* database{};
     bool select{};
+    std::int64_t diskId{};
+    std::int64_t diskGroupId{};
 };
 
 struct MessageEffect {

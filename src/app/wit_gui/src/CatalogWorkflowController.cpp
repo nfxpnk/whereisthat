@@ -187,9 +187,7 @@ ControllerResult CatalogWorkflowController::SaveCatalog(wit::core::CatalogId id)
         return result;
     }
     if (hadPendingChanges) {
-        const bool active = ActiveCatalog() && ActiveCatalog()->id == id;
-        result.browserEffects.push_back({BrowserEffectKind::RefreshCatalog, id, catalog->label,
-            catalog->WorkingDatabase(), active});
+        OutputDebugStringW(L"WhereIsThat: SaveCatalog persisted pending changes without refreshing the TreeView.\n");
         result.presentation.refreshBrowserStatus = true;
     }
     PopulatePresentation(result);
@@ -452,8 +450,8 @@ ControllerResult CatalogWorkflowController::MoveDiskToGroup(wit::core::CatalogId
     }
     session_.AcceptPending(catalogId, std::move(pending));
     const bool active = ActiveCatalog() && ActiveCatalog()->id == catalogId;
-    result.browserEffects.push_back({BrowserEffectKind::RefreshCatalog, catalogId, catalog->label,
-        catalog->WorkingDatabase(), active});
+    result.browserEffects.push_back({BrowserEffectKind::MoveDiskToGroup, catalogId, catalog->label,
+        catalog->WorkingDatabase(), active, diskId, diskGroupId});
     result.presentation.refreshBrowserStatus = true;
     PopulatePresentation(result);
     return result;

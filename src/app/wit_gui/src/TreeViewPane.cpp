@@ -35,7 +35,7 @@ void CatalogTreeView::Clear() {
 
 HTREEITEM CatalogTreeView::InsertNode(HTREEITEM parent, wit::core::CatalogId catalogId,
     const std::wstring& text, const wit::core::BrowserLocation& location, bool catalogRoot,
-    bool mayHaveChildren, int image) {
+    bool mayHaveChildren, int image, HTREEITEM insertAfter) {
     auto node = std::make_unique<Node>();
     node->target.catalogId = catalogId;
     node->target.location = location;
@@ -44,9 +44,9 @@ HTREEITEM CatalogTreeView::InsertNode(HTREEITEM parent, wit::core::CatalogId cat
     auto* nodePointer = node.get();
     nodes_.push_back(std::move(node));
 
-        TVINSERTSTRUCTW insert{};
+    TVINSERTSTRUCTW insert{};
     insert.hParent = parent;
-    insert.hInsertAfter = TVI_LAST;
+    insert.hInsertAfter = insertAfter;
     insert.item.mask = TVIF_TEXT | TVIF_PARAM | TVIF_CHILDREN | TVIF_IMAGE | TVIF_SELECTEDIMAGE;
     if (catalogRoot) {
         insert.item.mask |= TVIF_STATE;
@@ -151,6 +151,56 @@ void CatalogTreeView::RefreshCatalog(wit::core::CatalogId id, const std::wstring
     if (select) TreeView_SelectItem(hwnd_, root->item);
 }
 
+bool CatalogTreeView::MoveDiskToGroup(wit::core::CatalogId id, std::int64_t diskId,
+    std::int64_t diskGroupId, wit::storage::Database* database) {
+    if (!hwnd_ || !database) return false;
+    const auto* root = FindRoot(id);
+    if (!root) return false;
+    const auto sourceItem = FindSource(id, diskId);
+    const auto groupItem = FindDiskGroup(id, diskGroupId);
+    if (!sourceItem || !groupItem) return false;
+
+    std::wstring groupName;
+    std::int64_t groupDiskCount{};
+    for (const auto& group : database->GetDiskGroups()) {
+        if (group.id == diskGroupId) {
+            groupName = group.name;
+            groupDiskCount = group.totalDisks;
+            break;
+        }
+    }
+    if (groupName.empty()) return false;
+
+    const auto sourceTarget = TargetFor(sourceItem);
+    if (!sourceTarget) return false;
+    const auto oldParent = TreeView_GetParent(hwnd_, sourceItem);
+    const bool wasSelected = TreeView_GetSelection(hwnd_) == sourceItem;
+    const bool oldParentExpanded = oldParent &&
+        (TreeView_GetItemState(hwnd_, oldParent, TVIS_EXPANDED) & TVIS_EXPANDED) != 0;
+    const bool newParentExpanded = (TreeView_GetItemState(hwnd_, groupItem, TVIS_EXPANDED) & TVIS_EXPANDED) != 0;
+    const auto insertAfter = FindSortedInsertAfter(groupItem, sourceTarget->location.sourceName, sourceItem);
+
+    SendMessageW(hwnd_, WM_SETREDRAW, FALSE, 0);
+    const auto movedItem = CloneDisplayedSubtree(sourceItem, groupItem, insertAfter, diskGroupId, groupName);
+    if (!movedItem) {
+        SendMessageW(hwnd_, WM_SETREDRAW, TRUE, 0);
+        return false;
+    }
+    TreeView_DeleteItem(hwnd_, sourceItem);
+    SetMayHaveChildren(oldParent, TreeView_GetChild(hwnd_, oldParent) != nullptr);
+    SetMayHaveChildren(groupItem, groupDiskCount > 0);
+    if (oldParentExpanded) TreeView_Expand(hwnd_, oldParent, TVE_EXPAND);
+    if (newParentExpanded) TreeView_Expand(hwnd_, groupItem, TVE_EXPAND);
+    if (wasSelected) {
+        TreeView_SelectItem(hwnd_, movedItem);
+        TreeView_EnsureVisible(hwnd_, movedItem);
+    }
+    SendMessageW(hwnd_, WM_SETREDRAW, TRUE, 0);
+    InvalidateRect(hwnd_, nullptr, FALSE);
+    OutputDebugStringW(L"WhereIsThat: MoveDiskToGroup updated one TreeView disk node without RefreshCatalog.\n");
+    return movedItem != nullptr;
+}
+
 void CatalogTreeView::RemoveCatalog(wit::core::CatalogId id) {
     const auto position = std::find_if(roots_.begin(), roots_.end(),
         [id](const Root& root) { return root.id == id; });
@@ -225,6 +275,87 @@ HTREEITEM CatalogTreeView::FindSource(wit::core::CatalogId catalogId, std::int64
         }
     }
     return nullptr;
+}
+
+HTREEITEM CatalogTreeView::FindDiskGroup(wit::core::CatalogId catalogId, std::int64_t diskGroupId) const {
+    const auto* root = FindRoot(catalogId);
+    if (!root) return nullptr;
+    for (auto item = TreeView_GetChild(hwnd_, root->item); item; item = TreeView_GetNextSibling(hwnd_, item)) {
+        const auto* target = TargetFor(item);
+        if (target && target->location.isDiskGroup && target->location.diskGroupId == diskGroupId) return item;
+    }
+    return nullptr;
+}
+
+HTREEITEM CatalogTreeView::FindSortedInsertAfter(HTREEITEM parent, const std::wstring& text,
+    HTREEITEM excluding) const {
+    HTREEITEM previous = TVI_FIRST;
+    for (auto item = TreeView_GetChild(hwnd_, parent); item; item = TreeView_GetNextSibling(hwnd_, item)) {
+        if (item == excluding) continue;
+        wchar_t buffer[512]{};
+        TVITEMW treeItem{};
+        treeItem.mask = TVIF_TEXT;
+        treeItem.hItem = item;
+        treeItem.pszText = buffer;
+        treeItem.cchTextMax = ARRAYSIZE(buffer);
+        if (TreeView_GetItem(hwnd_, &treeItem) &&
+            CompareStringOrdinal(text.c_str(), -1, buffer, -1, TRUE) == CSTR_LESS_THAN) {
+            return previous;
+        }
+        previous = item;
+    }
+    return previous == TVI_FIRST ? TVI_FIRST : previous;
+}
+
+HTREEITEM CatalogTreeView::CloneDisplayedSubtree(HTREEITEM source, HTREEITEM parent, HTREEITEM insertAfter,
+    std::int64_t diskGroupId, const std::wstring& diskGroupName) {
+    wchar_t text[512]{};
+    TVITEMW sourceItem{};
+    sourceItem.mask = TVIF_TEXT | TVIF_PARAM | TVIF_IMAGE | TVIF_SELECTEDIMAGE | TVIF_CHILDREN | TVIF_STATE;
+    sourceItem.stateMask = TVIS_EXPANDED;
+    sourceItem.hItem = source;
+    sourceItem.pszText = text;
+    sourceItem.cchTextMax = ARRAYSIZE(text);
+    if (!TreeView_GetItem(hwnd_, &sourceItem)) return nullptr;
+    const auto* sourceNode = reinterpret_cast<const Node*>(sourceItem.lParam);
+    if (!sourceNode) return nullptr;
+
+    auto location = sourceNode->target.location;
+    location.diskGroupId = diskGroupId;
+    location.diskGroupName = diskGroupName;
+    const auto cloned = InsertNode(parent, sourceNode->target.catalogId, text, location,
+        sourceNode->catalogRoot, sourceItem.cChildren != 0, sourceItem.iImage, insertAfter);
+    if (!cloned) return nullptr;
+
+    TVITEMW clonedItem{};
+    clonedItem.mask = TVIF_PARAM;
+    clonedItem.hItem = cloned;
+    if (TreeView_GetItem(hwnd_, &clonedItem)) {
+        auto* clonedNode = reinterpret_cast<Node*>(clonedItem.lParam);
+        if (clonedNode) {
+            clonedNode->target = sourceNode->target;
+            clonedNode->target.location = location;
+            clonedNode->catalogRoot = sourceNode->catalogRoot;
+            clonedNode->populated = sourceNode->populated;
+        }
+    }
+
+    HTREEITEM lastChild = TVI_FIRST;
+    for (auto child = TreeView_GetChild(hwnd_, source); child; child = TreeView_GetNextSibling(hwnd_, child)) {
+        const auto clonedChild = CloneDisplayedSubtree(child, cloned, lastChild, diskGroupId, diskGroupName);
+        if (clonedChild) lastChild = clonedChild;
+    }
+    if ((sourceItem.state & TVIS_EXPANDED) != 0) TreeView_Expand(hwnd_, cloned, TVE_EXPAND);
+    return cloned;
+}
+
+void CatalogTreeView::SetMayHaveChildren(HTREEITEM item, bool mayHaveChildren) {
+    if (!item) return;
+    TVITEMW treeItem{};
+    treeItem.mask = TVIF_CHILDREN;
+    treeItem.hItem = item;
+    treeItem.cChildren = mayHaveChildren ? 1 : 0;
+    TreeView_SetItem(hwnd_, &treeItem);
 }
 
 bool CatalogTreeView::SelectLocation(const wit::core::BrowserTarget& target) {

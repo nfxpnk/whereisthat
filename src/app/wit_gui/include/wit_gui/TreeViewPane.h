@@ -20,6 +20,8 @@ public:
         wit::storage::Database* database, bool select);
     void RefreshCatalog(wit::core::CatalogId id, const std::wstring& catalogLabel,
         wit::storage::Database* database, bool select);
+    bool MoveDiskToGroup(wit::core::CatalogId id, std::int64_t diskId,
+        std::int64_t diskGroupId, wit::storage::Database* database);
     void RemoveCatalog(wit::core::CatalogId id);
     void Expand(HTREEITEM item);
     const wit::core::BrowserTarget* TargetFor(HTREEITEM item) const;
@@ -46,10 +48,16 @@ private:
     std::vector<std::unique_ptr<Node>> nodes_;
 
     HTREEITEM InsertNode(HTREEITEM parent, wit::core::CatalogId catalogId, const std::wstring& text,
-        const wit::core::BrowserLocation& location, bool catalogRoot, bool mayHaveChildren, int image);
+        const wit::core::BrowserLocation& location, bool catalogRoot, bool mayHaveChildren, int image,
+        HTREEITEM insertAfter = TVI_LAST);
     Root* FindRoot(wit::core::CatalogId id);
     const Root* FindRoot(wit::core::CatalogId id) const;
+    HTREEITEM FindDiskGroup(wit::core::CatalogId catalogId, std::int64_t diskGroupId) const;
     HTREEITEM FindSource(wit::core::CatalogId catalogId, std::int64_t sourceId) const;
+    HTREEITEM FindSortedInsertAfter(HTREEITEM parent, const std::wstring& text, HTREEITEM excluding) const;
+    HTREEITEM CloneDisplayedSubtree(HTREEITEM source, HTREEITEM parent, HTREEITEM insertAfter,
+        std::int64_t diskGroupId, const std::wstring& diskGroupName);
+    void SetMayHaveChildren(HTREEITEM item, bool mayHaveChildren);
     void PopulateRoot(Root& root, const std::wstring& label, wit::storage::Database* database);
 };
 }

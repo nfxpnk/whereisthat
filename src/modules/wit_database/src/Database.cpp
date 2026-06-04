@@ -376,7 +376,7 @@ bool Database::InsertFile(const wit::core::FileEntry& file) {
     if (file.crc) statement.BindText(6, wit::platform::ToUtf8(*file.crc)); else statement.BindNull(6);
     statement.BindInt64(7, static_cast<long long>(file.size));
     statement.BindInt64(8, file.createdAt);
-    statement.BindInt64(9, file.modifiedAtValue);
+    statement.BindInt64(9, file.modifiedAt);
     statement.BindInt64(10, file.accessedAt);
     statement.BindInt64(11, file.attributes);
     return sqlite3_step(statement.Raw()) == SQLITE_DONE;

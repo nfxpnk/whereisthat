@@ -1,5 +1,6 @@
 #include "wit_gui/SearchPane.h"
 #include "wit_infra/StringUtils.h"
+#include <wit_infra/Win32Helpers.h>
 #include <CommCtrl.h>
 #include <format>
 #include <utility>
@@ -147,7 +148,7 @@ std::wstring SearchDialog::TextFor(int row, int column) {
     case 3:
         return file.parentPath;
     case 4:
-        return file.modifiedAt;
+        return wit::platform::FormatUnixTimestamp(file.modifiedAt);
     default:
         return L"";
     }

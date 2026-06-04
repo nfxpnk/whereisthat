@@ -288,7 +288,7 @@ bool StoreArchive(const ParsedArchive& parsed, const std::wstring& physicalPath,
         file.extension = wit::platform::FileExtension(file.name);
         file.size = member.size;
         file.createdAt = archiveFolder.createdAt;
-        file.modifiedAtValue = member.modifiedAt != 0 ? member.modifiedAt : archiveFolder.modifiedAt;
+        file.modifiedAt = member.modifiedAt != 0 ? member.modifiedAt : archiveFolder.modifiedAt;
         file.accessedAt = archiveFolder.accessedAt;
         file.crc = member.crc;
         if (!db.InsertFile(file)) return false;
@@ -470,7 +470,7 @@ bool FileScanner::ScanFolder(const std::wstring& rootPath, std::int64_t diskId, 
                             entry.size = (static_cast<std::uint64_t>(findData.nFileSizeHigh) << 32) |
                                 findData.nFileSizeLow;
                             entry.createdAt = wit::platform::FileTimeToUnixSeconds(findData.ftCreationTime);
-                            entry.modifiedAtValue = wit::platform::FileTimeToUnixSeconds(findData.ftLastWriteTime);
+                            entry.modifiedAt = wit::platform::FileTimeToUnixSeconds(findData.ftLastWriteTime);
                             entry.accessedAt = wit::platform::FileTimeToUnixSeconds(findData.ftLastAccessTime);
                             entry.attributes = findData.dwFileAttributes;
                             bool crcCancelled{};

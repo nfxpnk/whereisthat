@@ -21,8 +21,7 @@ void PopulateDisplayEntry(wit::core::FileEntry& entry, sqlite3_stmt* stmt) {
     entry.name = Text(stmt, 3);
     entry.extension = Text(stmt, 4);
     entry.size = static_cast<std::uint64_t>(sqlite3_column_int64(stmt, 5));
-    entry.modifiedAtValue = sqlite3_column_int64(stmt, 6);
-    entry.modifiedAt = wit::platform::FormatUnixTimestamp(entry.modifiedAtValue);
+    entry.modifiedAt = sqlite3_column_int64(stmt, 6);
     entry.attributes = static_cast<std::uint32_t>(sqlite3_column_int(stmt, 7));
     entry.isDirectory = sqlite3_column_int(stmt, 8) != 0;
     entry.isArchive = Text(stmt, 9) == L"archive";

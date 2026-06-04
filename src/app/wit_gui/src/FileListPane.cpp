@@ -285,7 +285,7 @@ std::wstring FileListView::TextFor(int row, int column) {
     case 3:
         return file.parentPath;
     case 4:
-        return file.modifiedAt;
+        return wit::platform::FormatUnixTimestamp(file.modifiedAt);
     default:
         return L"";
     }

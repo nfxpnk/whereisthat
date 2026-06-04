@@ -176,8 +176,9 @@ void CatalogSession::DiscardPending(wit::core::CatalogId id) {
     WIT_LOG_INFO(std::format(L"session discarded pending catalog id={}", id));
 }
 
-bool CatalogSession::Remove(wit::core::CatalogId id) {
+bool CatalogSession::Remove(wit::core::CatalogId id, bool* settingsSaved) {
     AssertOwnerThread();
+    if (settingsSaved) *settingsSaved = true;
     const auto position = std::find_if(catalogs_.begin(), catalogs_.end(),
         [id](const auto& catalog) { return catalog->id == id; });
     if (position == catalogs_.end()) return false;
@@ -185,6 +186,10 @@ bool CatalogSession::Remove(wit::core::CatalogId id) {
     if (activeCatalogId_ == id) {
         activeCatalogId_ = catalogs_.empty() ? 0 : catalogs_.front()->id;
     }
+    const auto* active = ActiveCatalog();
+    settings_.lastCatalogPath = active ? active->path : L"";
+    const bool saved = wit::platform::SaveAppSettings(settings_);
+    if (settingsSaved) *settingsSaved = saved;
     return true;
 }
 

@@ -308,7 +308,8 @@ ControllerResult CatalogWorkflowController::ContinueCloseCatalog(wit::core::Cata
         PopulatePresentation(result);
         return result;
     }
-    if (!session_.Remove(id)) {
+    bool settingsSaved{};
+    if (!session_.Remove(id, &settingsSaved)) {
         PopulatePresentation(result);
         return result;
     }
@@ -318,8 +319,13 @@ ControllerResult CatalogWorkflowController::ContinueCloseCatalog(wit::core::Cata
     } else {
         result.browserEffects.push_back({BrowserEffectKind::Clear});
     }
+    if (!settingsSaved) {
+        result.messages.push_back(Message(
+            L"The catalog closed, but the startup catalog setting could not be saved in settings.ini.",
+            L"Catalog Settings", MB_OK | MB_ICONWARNING));
+    }
     result.presentation.refreshBrowserStatus = true;
-    PopulatePresentation(result);
+    PopulatePresentation(result, settingsSaved);
     return result;
 }
 

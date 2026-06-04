@@ -46,7 +46,7 @@ public:
     void AcceptPending(wit::core::CatalogId id, std::unique_ptr<wit::storage::Database> pending);
     [[nodiscard]] bool SavePending(wit::core::CatalogId id);
     void DiscardPending(wit::core::CatalogId id);
-    [[nodiscard]] bool Remove(wit::core::CatalogId id);
+    [[nodiscard]] bool Remove(wit::core::CatalogId id, bool* settingsSaved = nullptr);
 
 private:
     void AssertOwnerThread() const;

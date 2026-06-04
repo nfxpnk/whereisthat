@@ -3,6 +3,7 @@
 #include <wit_gui/CatalogWorkflowController.h>
 #include <wit_gui/ScanCoordinator.h>
 #include <wit_infra/PathHelpers.h>
+#include <wit_infra/AppSettings.h>
 #include <wit_infra/VolumeInfo.h>
 #include <wit_infra/Win32Helpers.h>
 #include <wit_scanner/FileScanner.h>
@@ -44,6 +45,20 @@ bool WaitForCompletion(wit::app::ScanId scanId) {
     }
     return false;
 }
+
+class AppSettingsGuard {
+public:
+    AppSettingsGuard() : original_(wit::platform::LoadAppSettings()) {}
+    ~AppSettingsGuard() {
+        (void)wit::platform::SaveAppSettings(original_);
+    }
+
+    AppSettingsGuard(const AppSettingsGuard&) = delete;
+    AppSettingsGuard& operator=(const AppSettingsGuard&) = delete;
+
+private:
+    wit::platform::AppSettings original_;
+};
 
 std::optional<wit::app::ScanResult> WaitForResult(wit::app::ScanCoordinator& coordinator, wit::app::ScanId scanId) {
     const auto deadline = GetTickCount64() + 5000;
@@ -610,5 +625,45 @@ TEST(StorageSmoke, ImportedCatalogGroupAndDiskMovesSaveThroughAppWorkflow) {
         }
         reopened.Close();
     }
+    std::filesystem::remove_all(testRoot);
+}
+
+TEST(StorageSmoke, ClosingLastCatalogClearsStartupRestorePath) {
+    AppSettingsGuard settingsGuard;
+
+    const auto testRoot = std::filesystem::temp_directory_path() /
+        (L"whereisthat-close-catalog-settings-" + std::to_wstring(GetCurrentProcessId()));
+    std::filesystem::remove_all(testRoot);
+    std::filesystem::create_directories(testRoot);
+    const auto catalogPath = testRoot / L"startup-restore.db";
+    const auto normalizedCatalogPath = std::filesystem::absolute(catalogPath).wstring();
+
+    {
+        wit::app::CatalogWorkflowController controller;
+        auto createResult = controller.CreateCatalogPathSelected(catalogPath.wstring());
+        ASSERT_TRUE(createResult.messages.empty()) << "catalog creates through app controller";
+        ASSERT_FALSE(createResult.browserEffects.empty()) << "create publishes browser effect";
+
+        auto savedAfterCreate = wit::platform::LoadAppSettings();
+        ASSERT_EQ(savedAfterCreate.lastCatalogPath, normalizedCatalogPath);
+        ASSERT_FALSE(savedAfterCreate.recentCatalogPaths.empty());
+        ASSERT_EQ(savedAfterCreate.recentCatalogPaths.front(), normalizedCatalogPath);
+
+        auto requestClose = controller.RequestCloseCatalog();
+        ASSERT_EQ(requestClose.request.kind, wit::app::RequestKind::ConfirmCloseCatalog);
+
+        auto closeResult = controller.AnswerCloseCatalog(IDYES);
+        ASSERT_TRUE(closeResult.messages.empty()) << "closing catalog saves startup settings";
+        ASSERT_TRUE(closeResult.presentation.refreshBrowserStatus);
+
+        auto savedAfterClose = wit::platform::LoadAppSettings();
+        EXPECT_TRUE(savedAfterClose.lastCatalogPath.empty());
+        ASSERT_FALSE(savedAfterClose.recentCatalogPaths.empty());
+        EXPECT_EQ(savedAfterClose.recentCatalogPaths.front(), normalizedCatalogPath);
+
+        auto appCloseResult = controller.RequestWindowClose();
+        EXPECT_TRUE(appCloseResult.destroyWindow);
+    }
+
     std::filesystem::remove_all(testRoot);
 }

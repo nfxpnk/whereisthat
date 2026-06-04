@@ -6,8 +6,11 @@
 #include "third_party/sqlite/sqlite3.h"
 #include <Windows.h>
 #include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <string>
+#include <thread>
 #include <utility>
 
 namespace wit::storage {
@@ -41,6 +44,123 @@ void PopulateDisk(wit::core::Disk& disk, sqlite3_stmt* stmt) {
     disk.category = Text(stmt, 9);
     disk.location = Text(stmt, 10);
     disk.diskType = DiskTypeFromText(Text(stmt, 11));
+}
+
+bool BackupDatabase(sqlite3* destination, sqlite3* source) {
+    auto* backup = sqlite3_backup_init(destination, "main", source, "main");
+    if (!backup) return false;
+
+    constexpr int kPageChunkSize = 128;
+    constexpr int kMaxBusyRetries = 50;
+    constexpr auto kBusyRetryDelay = std::chrono::milliseconds(20);
+
+    bool copied = false;
+    int busyRetries = 0;
+    for (;;) {
+        const int stepResult = sqlite3_backup_step(backup, kPageChunkSize);
+        if (stepResult == SQLITE_DONE) {
+            copied = true;
+            break;
+        }
+        if (stepResult == SQLITE_OK) {
+            busyRetries = 0;
+            continue;
+        }
+        if ((stepResult == SQLITE_BUSY || stepResult == SQLITE_LOCKED) && busyRetries < kMaxBusyRetries) {
+            ++busyRetries;
+            std::this_thread::sleep_for(kBusyRetryDelay);
+            continue;
+        }
+        break;
+    }
+
+    const int finishResult = sqlite3_backup_finish(backup);
+    return copied && finishResult == SQLITE_OK;
+}
+
+std::wstring MakeTempCatalogPath(const std::wstring& catalogPath) {
+    static std::atomic<unsigned long> counter{0};
+    const auto sequence = counter.fetch_add(1, std::memory_order_relaxed);
+    return catalogPath + L".tmp." + std::to_wstring(GetCurrentProcessId()) + L"." + std::to_wstring(sequence);
+}
+
+void DeleteCatalogFileSet(const std::wstring& path) {
+    DeleteFileW(path.c_str());
+    DeleteFileW((path + L"-journal").c_str());
+    DeleteFileW((path + L"-wal").c_str());
+    DeleteFileW((path + L"-shm").c_str());
+}
+
+bool IntegrityCheckOk(SqliteConnection& connection) {
+    sqlite3_stmt* statement{};
+    if (sqlite3_prepare_v2(connection.Raw(), "PRAGMA integrity_check;", -1, &statement, nullptr) != SQLITE_OK) {
+        return false;
+    }
+    bool ok = false;
+    if (sqlite3_step(statement) == SQLITE_ROW) {
+        const auto* result = reinterpret_cast<const char*>(sqlite3_column_text(statement, 0));
+        ok = result && std::string(result) == "ok" && sqlite3_step(statement) == SQLITE_DONE;
+    }
+    sqlite3_finalize(statement);
+    return ok;
+}
+
+bool PragmaReturns(SqliteConnection& connection, const char* sql, const char* expectedText) {
+    sqlite3_stmt* statement{};
+    if (sqlite3_prepare_v2(connection.Raw(), sql, -1, &statement, nullptr) != SQLITE_OK) {
+        return false;
+    }
+    bool ok = false;
+    if (sqlite3_step(statement) == SQLITE_ROW) {
+        const auto* result = reinterpret_cast<const char*>(sqlite3_column_text(statement, 0));
+        ok = result && std::string(result) == expectedText;
+    }
+    sqlite3_finalize(statement);
+    return ok;
+}
+
+bool CatalogSidecarsAbsent(const std::wstring& path) {
+    return GetFileAttributesW((path + L"-journal").c_str()) == INVALID_FILE_ATTRIBUTES &&
+        GetFileAttributesW((path + L"-wal").c_str()) == INVALID_FILE_ATTRIBUTES &&
+        GetFileAttributesW((path + L"-shm").c_str()) == INVALID_FILE_ATTRIBUTES;
+}
+
+bool PrepareSingleFileCatalog(SqliteConnection& connection) {
+    return connection.Exec("PRAGMA wal_checkpoint(TRUNCATE);") &&
+        PragmaReturns(connection, "PRAGMA journal_mode=DELETE;", "delete");
+}
+
+bool VerifyCatalog(SqliteConnection& connection) {
+    return connection.Exec("PRAGMA foreign_keys=ON;") &&
+        IntegrityCheckOk(connection) &&
+        CatalogSchema::Validate(connection);
+}
+
+bool ReplaceCatalogFile(const std::wstring& catalogPath, const std::wstring& replacementPath,
+    const std::wstring& backupPath) {
+    DeleteCatalogFileSet(backupPath);
+    if (ReplaceFileW(catalogPath.c_str(), replacementPath.c_str(), backupPath.c_str(),
+        REPLACEFILE_WRITE_THROUGH, nullptr, nullptr)) {
+        return true;
+    }
+    if (GetFileAttributesW(catalogPath.c_str()) != INVALID_FILE_ATTRIBUTES) return false;
+    return MoveFileExW(replacementPath.c_str(), catalogPath.c_str(),
+        MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != FALSE;
+}
+
+bool RestoreCatalogFile(const std::wstring& catalogPath, const std::wstring& backupPath) {
+    if (backupPath.empty() || GetFileAttributesW(backupPath.c_str()) == INVALID_FILE_ATTRIBUTES) return false;
+    DeleteFileW((catalogPath + L"-journal").c_str());
+    DeleteFileW((catalogPath + L"-wal").c_str());
+    DeleteFileW((catalogPath + L"-shm").c_str());
+    return MoveFileExW(backupPath.c_str(), catalogPath.c_str(),
+        MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != FALSE;
+}
+
+bool ApplyEditableCatalogPragmas(SqliteConnection& connection) {
+    return connection.Exec("PRAGMA foreign_keys=ON;") &&
+        connection.Exec("PRAGMA journal_mode=WAL;") &&
+        connection.Exec("PRAGMA synchronous=NORMAL;");
 }
 }
 
@@ -102,7 +222,7 @@ bool Database::OpenInternal(const std::wstring& path, bool requireExistingSchema
     }
     if (readOnly) return Exec("PRAGMA foreign_keys=ON;");
     if (!requireExistingSchema && InitializeSchema()) return true;
-    if (requireExistingSchema && Exec("PRAGMA foreign_keys=ON;")) return true;
+    if (requireExistingSchema && ApplyEditableCatalogPragmas(connection_)) return true;
     Close();
     return false;
 }
@@ -113,25 +233,79 @@ bool Database::CreateWorkingCopy(const Database& source) {
     if (!connection_.OpenMemory()) return false;
     RebindRepositories();
     editable_ = true;
-    auto* backup = sqlite3_backup_init(connection_.Raw(), "main", source.connection_.Raw(), "main");
-    if (!backup) {
-        Close();
-        return false;
-    }
-    const int stepResult = sqlite3_backup_step(backup, -1);
-    const int finishResult = sqlite3_backup_finish(backup);
-    const bool success = stepResult == SQLITE_DONE && finishResult == SQLITE_OK && Exec("PRAGMA foreign_keys=ON;");
+    const bool success = BackupDatabase(connection_.Raw(), source.connection_.Raw()) && Exec("PRAGMA foreign_keys=ON;");
     if (!success) Close();
     return success;
 }
 
-bool Database::ReplaceCatalogDataFrom(const Database& source) {
+// Manual smoke checklist when changing this path:
+// 1. Save pending edits into a normal editable catalog and reopen it.
+// 2. Make the catalog read-only or locked by another process; save must fail and leave pending edits.
+// 3. Break temp verification or replacement under a debugger; the original catalog must still open.
+bool Database::SaveCatalogDataFrom(const Database& source) {
     if (!connection_.IsOpen() || !editable_ || !source.connection_.IsOpen()) return false;
-    auto* backup = sqlite3_backup_init(connection_.Raw(), "main", source.connection_.Raw(), "main");
-    if (!backup) return false;
-    const int stepResult = sqlite3_backup_step(backup, -1);
-    const int finishResult = sqlite3_backup_finish(backup);
-    return stepResult == SQLITE_DONE && finishResult == SQLITE_OK && Exec("PRAGMA foreign_keys=ON;");
+    const std::wstring catalogPath = connection_.Path();
+    if (catalogPath.empty()) return false;
+
+    std::wstring tempPath;
+    bool tempCreated = false;
+    for (int attempt = 0; attempt < 16; ++attempt) {
+        tempPath = MakeTempCatalogPath(catalogPath);
+        if (GetFileAttributesW(tempPath.c_str()) != INVALID_FILE_ATTRIBUTES) continue;
+        SqliteConnection tempConnection;
+        if (!tempConnection.Open(tempPath, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_EXCLUSIVE)) {
+            DeleteCatalogFileSet(tempPath);
+            continue;
+        }
+        tempCreated = true;
+        if (!BackupDatabase(tempConnection.Raw(), source.connection_.Raw()) || !VerifyCatalog(tempConnection)) {
+            tempConnection.Close();
+            DeleteCatalogFileSet(tempPath);
+            return false;
+        }
+        if (!PrepareSingleFileCatalog(tempConnection)) {
+            tempConnection.Close();
+            DeleteCatalogFileSet(tempPath);
+            return false;
+        }
+        tempConnection.Close();
+        if (!CatalogSidecarsAbsent(tempPath)) {
+            DeleteCatalogFileSet(tempPath);
+            return false;
+        }
+        break;
+    }
+    if (!tempCreated) return false;
+
+    if (!PrepareSingleFileCatalog(connection_)) {
+        DeleteCatalogFileSet(tempPath);
+        return false;
+    }
+    const std::wstring backupPath = MakeTempCatalogPath(catalogPath + L".backup");
+    Close();
+    if (!CatalogSidecarsAbsent(catalogPath)) {
+        DeleteCatalogFileSet(tempPath);
+        const bool reopened = OpenInternal(catalogPath, true) || OpenInternal(catalogPath, true, true);
+        (void)reopened;
+        return false;
+    }
+    if (!ReplaceCatalogFile(catalogPath, tempPath, backupPath)) {
+        DeleteCatalogFileSet(tempPath);
+        DeleteCatalogFileSet(backupPath);
+        const bool reopened = OpenInternal(catalogPath, true) || OpenInternal(catalogPath, true, true);
+        (void)reopened;
+        return false;
+    }
+
+    if (OpenInternal(catalogPath, true)) {
+        DeleteCatalogFileSet(backupPath);
+        return true;
+    }
+    Close();
+    const bool restored = RestoreCatalogFile(catalogPath, backupPath);
+    const bool reopenedOriginal = restored && (OpenInternal(catalogPath, true) || OpenInternal(catalogPath, true, true));
+    (void)reopenedOriginal;
+    return false;
 }
 
 bool Database::HasCatalogSchema() {

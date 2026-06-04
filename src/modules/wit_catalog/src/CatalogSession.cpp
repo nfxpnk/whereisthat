@@ -133,7 +133,7 @@ bool CatalogSession::SavePending(wit::core::CatalogId id) {
     if (!catalog || !catalog->database.IsOpen() || catalog->path.empty()) return true;
     if (!catalog->database.IsEditable()) return false;
     if (!catalog->dirty || !catalog->pendingDatabase) return true;
-    if (!catalog->database.ReplaceCatalogDataFrom(*catalog->pendingDatabase)) return false;
+    if (!catalog->database.SaveCatalogDataFrom(*catalog->pendingDatabase)) return false;
     catalog->pendingDatabase.reset();
     catalog->dirty = false;
     return true;

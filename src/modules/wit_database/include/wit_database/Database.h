@@ -23,7 +23,7 @@ public:
     [[nodiscard]] bool CreateNew(const std::wstring& path, bool overwriteExisting);
     [[nodiscard]] bool OpenExisting(const std::wstring& path);
     [[nodiscard]] bool CreateWorkingCopy(const Database& source);
-    [[nodiscard]] bool ReplaceCatalogDataFrom(const Database& source);
+    [[nodiscard]] bool SaveCatalogDataFrom(const Database& source);
     void Close();
     bool IsOpen() const { return connection_.IsOpen(); }
     bool IsEditable() const { return editable_; }

@@ -1,7 +1,6 @@
 #include <wit_infra/AppSettings.h>
 
 #include <Windows.h>
-#include <algorithm>
 #include <format>
 #include <vector>
 #include <wit_infra/PathHelpers.h>
@@ -83,10 +82,9 @@ bool SaveAppSettings(const AppSettings& settings) {
 
 void RememberRecentCatalog(AppSettings& settings, const std::wstring& path) {
     if (path.empty()) return;
-    settings.recentCatalogPaths.erase(std::remove_if(settings.recentCatalogPaths.begin(),
-        settings.recentCatalogPaths.end(), [&path](const std::wstring& existing) {
-            return CompareStringOrdinal(existing.c_str(), -1, path.c_str(), -1, TRUE) == CSTR_EQUAL;
-        }), settings.recentCatalogPaths.end());
+    std::erase_if(settings.recentCatalogPaths, [&path](const std::wstring& existing) {
+        return CompareStringOrdinal(existing.c_str(), -1, path.c_str(), -1, TRUE) == CSTR_EQUAL;
+    });
     settings.recentCatalogPaths.insert(settings.recentCatalogPaths.begin(), path);
     if (settings.recentCatalogPaths.size() > kMaximumRecentCatalogs) {
         settings.recentCatalogPaths.resize(kMaximumRecentCatalogs);

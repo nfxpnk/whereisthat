@@ -134,8 +134,7 @@ void BrowserController::MoveDiskToGroup(wit::core::CatalogId id, std::int64_t di
 
 void BrowserController::RemoveCatalog(wit::core::CatalogId id) {
     tree_.RemoveCatalog(id);
-    history_.erase(std::remove_if(history_.begin(), history_.end(),
-        [id](const auto& target) { return target.catalogId == id; }), history_.end());
+    std::erase_if(history_, [id](const auto& target) { return target.catalogId == id; });
     historyIndex_ = history_.empty() ? -1 : (std::min)(historyIndex_, static_cast<int>(history_.size()) - 1);
     if (hasTarget_ && currentTarget_.catalogId == id) {
         currentTarget_ = {};

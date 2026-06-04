@@ -201,7 +201,8 @@ LRESULT MainFrame::OnMouseMove(UINT, WPARAM, LPARAM lparam, BOOL& handled) {
 
 LRESULT MainFrame::OnLeftButtonUp(UINT, WPARAM, LPARAM, BOOL& handled) {
     if (chrome_.OnLeftButtonUp()) {
-        controller_.SaveMainSplitterPosition(chrome_.SplitterPosition());
+        // Best-effort preference save while dragging the splitter.
+        (void)controller_.SaveMainSplitterPosition(chrome_.SplitterPosition());
         return 0;
     }
     handled = FALSE;
@@ -302,12 +303,14 @@ bool MainFrame::InitializeFrame() {
 }
 
 void MainFrame::RequestClose() {
-    controller_.SaveMainSplitterPosition(chrome_.SplitterPosition());
+    // Best-effort preference save before close handling continues.
+    (void)controller_.SaveMainSplitterPosition(chrome_.SplitterPosition());
     ApplyControllerResult(controller_.RequestWindowClose());
 }
 
 void MainFrame::CleanupFrame() {
-    controller_.SaveMainSplitterPosition(chrome_.SplitterPosition());
+    // Best-effort final preference save during teardown.
+    (void)controller_.SaveMainSplitterPosition(chrome_.SplitterPosition());
     searchDialog_.Close();
     scanProgressDialog_.Close();
     controller_.DetachTarget();

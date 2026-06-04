@@ -31,8 +31,8 @@ public:
     bool SelectCatalogRoot(wit::core::CatalogId id);
     bool SelectFirstCatalogRoot();
     bool IsCatalogRoot(HTREEITEM item) const { return tree_.IsCatalogRoot(item); }
-    std::optional<wit::core::BrowserTarget> TargetForTreeItem(HTREEITEM item) const;
-    std::optional<wit::core::BrowserTarget> SelectedTreeTarget() const;
+    [[nodiscard]] std::optional<wit::core::BrowserTarget> TargetForTreeItem(HTREEITEM item) const;
+    [[nodiscard]] std::optional<wit::core::BrowserTarget> SelectedTreeTarget() const;
     wit::core::CatalogId SelectedCatalogId() const;
     void NavigateBack();
     void NavigateForward();

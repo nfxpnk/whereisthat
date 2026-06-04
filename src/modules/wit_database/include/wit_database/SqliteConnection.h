@@ -13,12 +13,12 @@ public:
     SqliteConnection(SqliteConnection&& other) noexcept;
     SqliteConnection& operator=(SqliteConnection&& other) noexcept;
 
-    bool Open(const std::wstring& path, int flags);
-    bool OpenMemory();
+    [[nodiscard]] bool Open(const std::wstring& path, int flags);
+    [[nodiscard]] bool OpenMemory();
     void Close();
     bool IsOpen() const { return db_ != nullptr; }
     sqlite3* Raw() const { return db_; }
-    bool Exec(const char* sql);
+    [[nodiscard]] bool Exec(const char* sql);
     const std::wstring& Path() const { return path_; }
     int LastErrorCode() const { return lastErrorCode_; }
     const std::string& LastErrorMessage() const { return lastErrorMessage_; }

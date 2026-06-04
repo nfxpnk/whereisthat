@@ -49,10 +49,10 @@ public:
     bool IsRunning() const;
     bool IsCancelling() const;
     bool Targets(wit::core::CatalogId id) const;
-    bool Start(wit::storage::Database* source, const wit::core::ScanRequest& request, ScanId& scanId);
-    bool RequestCancel();
-    std::optional<ScanProgress> TakeProgress(ScanId scanId);
-    std::optional<ScanResult> TakeResult(ScanId scanId);
+    [[nodiscard]] bool Start(wit::storage::Database* source, const wit::core::ScanRequest& request, ScanId& scanId);
+    [[nodiscard]] bool RequestCancel();
+    [[nodiscard]] std::optional<ScanProgress> TakeProgress(ScanId scanId);
+    [[nodiscard]] std::optional<ScanResult> TakeResult(ScanId scanId);
     void RetireWorker(ScanId scanId);
 
 private:

@@ -366,7 +366,10 @@ bool FileScanner::ScanFolder(const std::wstring& rootPath, std::int64_t diskId, 
     std::uint64_t archiveFolderCount = 0;
     if (manageTransaction && !db.BeginTransaction()) return false;
     const auto fail = [&db, manageTransaction]() {
-        if (manageTransaction) db.Rollback();
+        if (manageTransaction) {
+            // Best-effort cleanup; callers receive false for the scan failure.
+            (void)db.Rollback();
+        }
         return false;
     };
     const auto cancelled = [&stopToken, &fail]() {

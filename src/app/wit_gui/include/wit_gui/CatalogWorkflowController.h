@@ -99,7 +99,7 @@ struct ScanDialogEffect {
     bool counting{};
 };
 
-struct ControllerResult {
+struct [[nodiscard]] ControllerResult {
     std::vector<BrowserEffect> browserEffects;
     std::vector<MessageEffect> messages;
     RequestEffect request;
@@ -137,11 +137,11 @@ public:
     ControllerResult GeneralSettingsCompleted(const std::optional<wit::platform::AppSettings>& settings);
     ControllerResult ToggleToolbar();
     ControllerResult ToggleStatusBar();
-    bool SaveMainSplitterPosition(int position);
+    [[nodiscard]] bool SaveMainSplitterPosition(int position);
     ControllerResult OnScanProgress(ScanId scanId);
     ControllerResult OnScanComplete(ScanId scanId);
 
-    wit::storage::Database* WorkingDatabase(wit::core::CatalogId id);
+    [[nodiscard]] wit::storage::Database* WorkingDatabase(wit::core::CatalogId id);
     std::wstring CatalogLabel(wit::core::CatalogId id) const;
 
 private:

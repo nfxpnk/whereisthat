@@ -22,7 +22,8 @@ ScanCoordinator::ScanCoordinator() : reaper_([this]() { ReapWorkers(); }) {
 
 ScanCoordinator::~ScanCoordinator() {
     DetachTarget();
-    RequestCancel();
+    // Best-effort shutdown cleanup before joining the worker.
+    (void)RequestCancel();
     if (worker_.joinable()) worker_.join();
     {
         std::scoped_lock lock(reaperMutex_);
@@ -194,7 +195,10 @@ void ScanCoordinator::RunScan(std::stop_token stopToken, ScanId scanId, std::wst
     result.error = L"The scan could not be staged. The saved catalog was not changed.";
     const auto cancelled = [&]() {
         if (!stopToken.stop_requested()) return false;
-        if (staged->IsOpen()) staged->Rollback();
+        if (staged->IsOpen()) {
+            // Best-effort cleanup; the cancellation result is already recorded below.
+            (void)staged->Rollback();
+        }
         result.outcome = ScanOutcome::Cancelled;
         result.error.clear();
         return true;
@@ -266,10 +270,12 @@ void ScanCoordinator::RunScan(std::stop_token stopToken, ScanId scanId, std::wst
                 result.pending = std::move(staged);
             }
         } else {
-            staged->Rollback();
+            // Best-effort cleanup; the commit failure remains the reported error.
+            (void)staged->Rollback();
         }
     } else if (result.outcome != ScanOutcome::Cancelled && staged->IsOpen()) {
-        staged->Rollback();
+        // Best-effort cleanup; the earlier failure remains the reported error.
+        (void)staged->Rollback();
     }
     PublishResult(std::move(result));
 }

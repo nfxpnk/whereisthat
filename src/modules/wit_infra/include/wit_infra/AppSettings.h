@@ -15,7 +15,7 @@ struct AppSettings {
 
 std::wstring SettingsFilePath();
 AppSettings LoadAppSettings();
-bool SaveAppSettings(const AppSettings& settings);
+[[nodiscard]] bool SaveAppSettings(const AppSettings& settings);
 void RememberRecentCatalog(AppSettings& settings, const std::wstring& path);
 
 }

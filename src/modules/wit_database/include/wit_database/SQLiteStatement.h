@@ -13,7 +13,7 @@ public:
     void BindInt64(int index, long long value);
     void BindText(int index, const std::string& value);
     void BindNull(int index);
-    bool Step();
+    [[nodiscard]] bool Step();
     void Reset();
     sqlite3_stmt* Raw() const { return stmt_; }
 private:

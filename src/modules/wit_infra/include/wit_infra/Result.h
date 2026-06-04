@@ -3,7 +3,7 @@
 
 namespace wit::infra {
 template <typename T, typename E>
-class Result {
+class [[nodiscard]] Result {
 public:
     Result(T value) : storage_(std::move(value)) {}
     Result(E error) : storage_(std::move(error)) {}

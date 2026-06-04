@@ -21,7 +21,7 @@ struct OpenCatalog {
     bool IsOpen() const { return database.IsOpen(); }
     bool IsEditable() const { return database.IsEditable(); }
     bool HasPendingChanges() const { return dirty; }
-    wit::storage::Database* WorkingDatabase() {
+    [[nodiscard]] wit::storage::Database* WorkingDatabase() {
         return pendingDatabase ? pendingDatabase.get() : &database;
     }
 };
@@ -30,23 +30,23 @@ class CatalogSession {
 public:
     void LoadSettings();
     const wit::platform::AppSettings& Settings() const { return settings_; }
-    bool SaveSettings(const wit::platform::AppSettings& settings);
+    [[nodiscard]] bool SaveSettings(const wit::platform::AppSettings& settings);
 
-    OpenCatalog* Open(const std::wstring& path, bool createNew, bool persistPath,
+    [[nodiscard]] OpenCatalog* Open(const std::wstring& path, bool createNew, bool persistPath,
         bool& settingsSaved, bool& alreadyOpen);
     bool IsPathOpen(const std::wstring& path) const;
-    OpenCatalog* Find(wit::core::CatalogId id);
-    const OpenCatalog* Find(wit::core::CatalogId id) const;
-    OpenCatalog* ActiveCatalog();
-    const OpenCatalog* ActiveCatalog() const;
-    bool SetActive(wit::core::CatalogId id);
+    [[nodiscard]] OpenCatalog* Find(wit::core::CatalogId id);
+    [[nodiscard]] const OpenCatalog* Find(wit::core::CatalogId id) const;
+    [[nodiscard]] OpenCatalog* ActiveCatalog();
+    [[nodiscard]] const OpenCatalog* ActiveCatalog() const;
+    [[nodiscard]] bool SetActive(wit::core::CatalogId id);
     bool HasCatalogs() const { return !catalogs_.empty(); }
     std::vector<OpenCatalog*> OpenCatalogs();
 
     void AcceptPending(wit::core::CatalogId id, std::unique_ptr<wit::storage::Database> pending);
-    bool SavePending(wit::core::CatalogId id);
+    [[nodiscard]] bool SavePending(wit::core::CatalogId id);
     void DiscardPending(wit::core::CatalogId id);
-    bool Remove(wit::core::CatalogId id);
+    [[nodiscard]] bool Remove(wit::core::CatalogId id);
 
 private:
     void AssertOwnerThread() const;

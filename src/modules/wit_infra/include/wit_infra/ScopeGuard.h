@@ -16,6 +16,6 @@ private:
 };
 
 template <typename F>
-ScopeGuard<F> OnExit(F action) { return ScopeGuard<F>(std::move(action)); }
+[[nodiscard]] ScopeGuard<F> OnExit(F action) { return ScopeGuard<F>(std::move(action)); }
 }
 

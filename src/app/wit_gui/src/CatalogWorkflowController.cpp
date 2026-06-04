@@ -18,13 +18,17 @@ bool CatalogWorkflowController::AttachTarget(HWND target) {
 
 void CatalogWorkflowController::DetachTarget() {
     scans_.DetachTarget();
-    scans_.RequestCancel();
+    // Best-effort shutdown cleanup; no UI result can be reported after detaching.
+    (void)scans_.RequestCancel();
 }
 
 ControllerResult CatalogWorkflowController::Initialize() {
     session_.LoadSettings();
-    session_.SaveSettings(session_.Settings());
     ControllerResult result;
+    if (!session_.SaveSettings(session_.Settings())) {
+        result.messages.push_back(Message(L"Unable to save settings.ini.", L"Application Settings",
+            MB_OK | MB_ICONWARNING));
+    }
     result.presentation.updateStatusVisibility = true;
     result.presentation.statusVisible = session_.Settings().showStatusBar;
     result.presentation.updateToolbarVisibility = true;
@@ -40,7 +44,10 @@ ControllerResult CatalogWorkflowController::Initialize() {
 
 ControllerResult CatalogWorkflowController::SelectCatalog(wit::core::CatalogId id) {
     ControllerResult result;
-    if (id != 0) session_.SetActive(id);
+    if (id != 0 && !session_.SetActive(id)) {
+        result.messages.push_back(Message(L"The selected catalog is no longer available.",
+            L"Select Catalog", MB_OK | MB_ICONINFORMATION));
+    }
     PopulatePresentation(result);
     result.presentation.refreshBrowserStatus = true;
     return result;
@@ -286,8 +293,11 @@ ControllerResult CatalogWorkflowController::ContinueCloseCatalog(wit::core::Cata
         PopulatePresentation(result);
         return result;
     }
+    if (!session_.Remove(id)) {
+        PopulatePresentation(result);
+        return result;
+    }
     result.browserEffects.push_back({BrowserEffectKind::RemoveCatalog, id});
-    session_.Remove(id);
     if (const auto* next = session_.ActiveCatalog()) {
         result.browserEffects.push_back({BrowserEffectKind::SelectCatalog, next->id});
     } else {
@@ -303,7 +313,8 @@ ControllerResult CatalogWorkflowController::RequestWindowClose() {
     if (scans_.IsRunning()) {
         if (!closePending_) {
             closePending_ = true;
-            scans_.RequestCancel();
+            // Best-effort close flow; the UI is already moving into cancelling state.
+            (void)scans_.RequestCancel();
         }
         result.scanDialog.action = ScanDialogAction::Cancelling;
         PopulatePresentation(result);
@@ -354,7 +365,8 @@ ControllerResult CatalogWorkflowController::RequestAddOrUpdateMedia() {
     ControllerResult result;
     if (scans_.IsRunning()) {
         if (!scans_.IsCancelling()) {
-            scans_.RequestCancel();
+            // Best-effort cancellation; the user-visible state below remains cancelling.
+            (void)scans_.RequestCancel();
             result.messages.push_back(Message(
                 L"The active scan is being cancelled. Start the new scan after cancellation completes.",
                 L"Cancelling scan", MB_OK | MB_ICONINFORMATION));
@@ -490,7 +502,10 @@ ControllerResult CatalogWorkflowController::MediaSelectionCompleted(
 ControllerResult CatalogWorkflowController::RequestCancelScan() {
     ControllerResult result;
     if (scans_.IsRunning()) {
-        if (!scans_.IsCancelling()) scans_.RequestCancel();
+        if (!scans_.IsCancelling()) {
+            // Best-effort cancellation; the scan dialog is already entering cancelling state.
+            (void)scans_.RequestCancel();
+        }
         result.scanDialog.action = ScanDialogAction::Cancelling;
     }
     PopulatePresentation(result);
@@ -568,7 +583,8 @@ ControllerResult CatalogWorkflowController::OnScanProgress(ScanId scanId) {
                 progress->totalFiles, progress->remainingFiles, progress->totalKnown, progress->counting};
         }
     } else {
-        scans_.TakeProgress(scanId);
+        // Drain stale progress for a scan that is no longer active.
+        (void)scans_.TakeProgress(scanId);
     }
     PopulatePresentation(result);
     return result;

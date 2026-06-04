@@ -3,6 +3,7 @@
 #include <cerrno>
 #include <cstdlib>
 #include <cwctype>
+#include <format>
 #include <shellapi.h>
 #include <shobjidl.h>
 #include <vector>
@@ -392,7 +393,7 @@ bool AddNewDiskMediaDialog::Confirm() {
             ::SetFocus(::GetDlgItem(m_hWnd, IDC_MEDIA_NUMBER));
             return false;
         }
-        result_.diskNumber = std::to_wstring(value);
+        result_.diskNumber = std::format(L"{}", value);
     } else {
         result_.diskNumber = L"0";
     }

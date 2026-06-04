@@ -1,6 +1,7 @@
 #include "wit_gui/SearchPane.h"
 #include "wit_infra/StringUtils.h"
 #include <CommCtrl.h>
+#include <format>
 #include <utility>
 
 namespace wit::ui {
@@ -116,7 +117,7 @@ void SearchDialog::Search() {
     ListView_SetItemCountEx(results_, total_, LVSICF_NOINVALIDATEALL);
     ::InvalidateRect(results_, nullptr, TRUE);
     const auto summary = total_ == 0 ? std::wstring(L"No matching items found.") :
-        std::to_wstring(total_) + (total_ == 1 ? L" matching item." : L" matching items.");
+        std::format(L"{} matching item{}.", total_, total_ == 1 ? L"" : L"s");
     SetDlgItemTextW(IDC_SEARCH_SUMMARY, summary.c_str());
 }
 

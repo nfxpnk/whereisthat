@@ -1,6 +1,7 @@
 #include "wit_gui/MainWindow.h"
 #include <algorithm>
 #include <cwctype>
+#include <format>
 #include <optional>
 #include <utility>
 #include "wit_gui/AddDiskDialog.h"
@@ -512,7 +513,7 @@ void MainFrame::RenderRecentMenu(const std::vector<std::wstring>& paths) {
         const auto limit = (std::min)(paths.size(),
             static_cast<std::size_t>(ID_FILE_RECENT_LAST - ID_FILE_RECENT_FIRST + 1));
         for (std::size_t index = 0; index < limit; ++index) {
-            auto label = L"&" + std::to_wstring(index + 1) + L" " + paths[index];
+            auto label = std::format(L"&{} {}", index + 1, paths[index]);
             for (std::size_t pos = label.find(L'&', 2); pos != std::wstring::npos;
                 pos = label.find(L'&', pos + 2)) label.insert(pos, 1, L'&');
             AppendMenuW(recentMenu, MF_STRING, ID_FILE_RECENT_FIRST + static_cast<UINT>(index), label.c_str());

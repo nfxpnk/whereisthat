@@ -2,6 +2,7 @@
 
 #include <Windows.h>
 #include <algorithm>
+#include <format>
 #include <vector>
 #include <wit_infra/PathHelpers.h>
 
@@ -51,7 +52,7 @@ AppSettings LoadAppSettings() {
         L"General", L"MainSplitterPosition", kDefaultMainSplitterPosition, path.c_str());
     settings.lastCatalogPath = ReadProfileString(L"General", L"LastCatalogPath", path);
     for (std::size_t index = kMaximumRecentCatalogs; index > 0; --index) {
-        const auto key = L"Path" + std::to_wstring(index);
+        const auto key = std::format(L"Path{}", index);
         auto recentPath = ReadProfileString(L"RecentCatalogs", key.c_str(), path);
         if (!recentPath.empty()) RememberRecentCatalog(settings, recentPath);
     }
@@ -61,7 +62,7 @@ AppSettings LoadAppSettings() {
 
 bool SaveAppSettings(const AppSettings& settings) {
     const auto path = SettingsFilePath();
-    const auto splitterPosition = std::to_wstring(settings.mainSplitterPosition);
+    const auto splitterPosition = std::format(L"{}", settings.mainSplitterPosition);
     bool success = WritePrivateProfileStringW(L"General", L"ShowStatusBar",
         settings.showStatusBar ? L"1" : L"0", path.c_str()) != FALSE &&
         WritePrivateProfileStringW(L"General", L"ShowToolbar",
@@ -71,7 +72,7 @@ bool SaveAppSettings(const AppSettings& settings) {
         WritePrivateProfileStringW(L"General", L"LastCatalogPath",
             settings.lastCatalogPath.c_str(), path.c_str()) != FALSE;
     for (std::size_t index = 0; index < kMaximumRecentCatalogs; ++index) {
-        const auto key = L"Path" + std::to_wstring(index + 1);
+        const auto key = std::format(L"Path{}", index + 1);
         const wchar_t* value = index < settings.recentCatalogPaths.size()
             ? settings.recentCatalogPaths[index].c_str() : nullptr;
         success = WritePrivateProfileStringW(L"RecentCatalogs", key.c_str(), value, path.c_str()) != FALSE &&

@@ -1,4 +1,5 @@
 #include "wit_gui/ProgressDialog.h"
+#include <format>
 #include <string>
 #include <utility>
 
@@ -18,11 +19,13 @@ void ProgressDialog::Update(std::uint64_t files, std::uint64_t folders, std::uin
     if (!m_hWnd) return;
     SetDlgItemTextW(IDC_SCAN_STATUS, counting ? L"Counting files..." : L"Scanning files and folders...");
     const auto filesText = totalKnown
-        ? std::to_wstring(files) + L" / " + std::to_wstring(totalFiles)
-        : std::to_wstring(files);
+        ? std::format(L"{} / {}", files, totalFiles)
+        : std::format(L"{}", files);
     SetDlgItemTextW(IDC_SCAN_FILES, filesText.c_str());
-    SetDlgItemTextW(IDC_SCAN_REMAINING, totalKnown ? std::to_wstring(remainingFiles).c_str() : L"-");
-    SetDlgItemTextW(IDC_SCAN_FOLDERS, std::to_wstring(folders).c_str());
+    const auto remainingText = totalKnown ? std::format(L"{}", remainingFiles) : std::wstring(L"-");
+    const auto foldersText = std::format(L"{}", folders);
+    SetDlgItemTextW(IDC_SCAN_REMAINING, remainingText.c_str());
+    SetDlgItemTextW(IDC_SCAN_FOLDERS, foldersText.c_str());
 }
 
 void ProgressDialog::SetCancelling() {

@@ -1,6 +1,7 @@
 #include <wit_infra/Win32Helpers.h>
 #include <algorithm>
 #include <cstdint>
+#include <format>
 
 namespace wit::platform {
 std::string ToUtf8(const std::wstring& value) {
@@ -18,9 +19,8 @@ std::wstring ToUtf16(const std::string& value) {
     return out;
 }
 static std::wstring SystemTimeToIso(const SYSTEMTIME& st) {
-    wchar_t buffer[64]{};
-    swprintf_s(buffer, L"%04u-%02u-%02uT%02u:%02u:%02uZ", st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);
-    return buffer;
+    return std::format(L"{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
+        st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);
 }
 static bool UnixTimestampToSystemTime(std::int64_t timestamp, SYSTEMTIME& utc) {
     constexpr std::uint64_t epochDifference = 116444736000000000ULL;
@@ -50,8 +50,6 @@ std::wstring FormatUnixTimestamp(std::int64_t timestamp) {
 std::wstring FormatUnixDate(std::int64_t timestamp) {
     SYSTEMTIME utc{};
     if (!UnixTimestampToSystemTime(timestamp, utc)) return {};
-    wchar_t buffer[16]{};
-    swprintf_s(buffer, L"%u/%02u/%04u", utc.wMonth, utc.wDay, utc.wYear);
-    return buffer;
+    return std::format(L"{}/{:02}/{:04}", utc.wMonth, utc.wDay, utc.wYear);
 }
 }

@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <array>
 #include <cwctype>
+#include <format>
 
 namespace wit::ui {
 namespace {
@@ -252,7 +253,7 @@ std::wstring FileListView::TextFor(int row, int column) {
             case 0: return item->group.name;
             case 1: return L"Disk Group";
             case 4: return wit::platform::FormatUnixTimestamp(item->group.updatedAt);
-            case 5: return std::to_wstring(item->group.totalDisks);
+            case 5: return std::format(L"{}", item->group.totalDisks);
             default: return L"";
             }
         }
@@ -263,7 +264,7 @@ std::wstring FileListView::TextFor(int row, int column) {
         case 2: return wit::core::FormatSize(disk->totalCapacity);
         case 3: return wit::core::FormatSize(disk->freeSpace);
         case 4: return wit::platform::FormatUnixTimestamp(disk->updatedAt);
-        case 5: return std::to_wstring(disk->diskNumber);
+        case 5: return std::format(L"{}", disk->diskNumber);
         case 6: return disk->description;
         case 7: return disk->category;
         case 8: return disk->location;

@@ -1,5 +1,5 @@
 #include "wit_infra/StringUtils.h"
-#include <cwchar>
+#include <format>
 
 namespace wit::core {
 std::wstring FormatSize(std::uint64_t bytes) {
@@ -10,9 +10,7 @@ std::wstring FormatSize(std::uint64_t bytes) {
         value /= 1024;
         ++index;
     }
-    wchar_t buffer[64];
-    swprintf_s(buffer, L"%.2f %s", value, units[index]);
-    return buffer;
+    return std::format(L"{:.2f} {}", value, units[index]);
 }
 }
 

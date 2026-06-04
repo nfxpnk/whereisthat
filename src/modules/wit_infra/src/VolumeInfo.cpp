@@ -1,5 +1,6 @@
 #include <wit_infra/VolumeInfo.h>
 #include <Windows.h>
+#include <format>
 #include <winioctl.h>
 
 namespace wit::platform {
@@ -49,7 +50,7 @@ void PopulateVolumeMetadata(const std::wstring& scanRoot, wit::core::Disk& disk)
         fileSystem, MAX_PATH)) {
         disk.volumeLabel = volumeLabel;
         disk.fileSystem = fileSystem;
-        disk.serialNumber = std::to_wstring(serial);
+        disk.serialNumber = std::format(L"{}", serial);
     }
     ULARGE_INTEGER freeAvailable{}, capacity{}, freeSpace{};
     if (GetDiskFreeSpaceExW(metadataRoot, &freeAvailable, &capacity, &freeSpace)) {

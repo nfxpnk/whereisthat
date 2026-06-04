@@ -1,5 +1,6 @@
 #include "wit_gui/BrowserController.h"
 #include <algorithm>
+#include <format>
 #include "wit_infra/StringUtils.h"
 #include <wit_infra/Win32Helpers.h>
 
@@ -268,7 +269,7 @@ std::wstring BrowserController::FocusedItemStatus() {
     const int index = filesHandle_ ? ListView_GetNextItem(filesHandle_, -1, LVNI_FOCUSED) : -1;
     if (const auto* item = index >= 0 ? files_.BrowserItemAt(index) : nullptr) {
         if (item->type == wit::core::BrowserItemType::DiskGroup) {
-            return item->group.name + L" | Disks: " + std::to_wstring(item->group.totalDisks);
+            return std::format(L"{} | Disks: {}", item->group.name, item->group.totalDisks);
         }
         auto text = item->disk.diskName + L" | " + CompactSize(item->disk.totalCapacity);
         const auto updatedAt = wit::platform::FormatUnixTimestamp(item->disk.updatedAt);
@@ -299,8 +300,7 @@ std::wstring BrowserController::SelectionSummaryStatus() {
             }
         }
     }
-    return L"Selected item(s): " + std::to_wstring(selected) +
-        L" (total: " + CompactSize(totalSize) + L")";
+    return std::format(L"Selected item(s): {} (total: {})", selected, CompactSize(totalSize));
 }
 
 }

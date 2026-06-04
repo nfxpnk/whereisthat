@@ -17,6 +17,9 @@
         <ClCompile Include="tests\unit\SmokeTests.cpp">
             <Filter>Tests</Filter>
         </ClCompile>
+        <ClCompile Include="tests\unit\PathHelpersTests.cpp">
+            <Filter>Tests</Filter>
+        </ClCompile>
         <ClCompile Include="tests\unit\storage\StorageSmokeTests.cpp">
             <Filter>Tests</Filter>
         </ClCompile>

@@ -99,12 +99,29 @@ struct MoveDiskToGroupState {
     const std::vector<wit::core::DiskGroup>* groups{};
     std::int64_t selectedGroupId{};
     std::int64_t currentGroupId{};
+    std::int64_t excludedGroupId{};
 };
 
 bool IsDiskMediaTarget(const wit::core::BrowserTarget& target) {
     const auto& location = target.location;
     return !location.isRoot && !location.isDiskGroup && location.sourceId != 0 &&
         location.path == location.sourceRoot;
+}
+
+bool IsDiskGroupTarget(const wit::core::BrowserTarget& target) {
+    return !target.location.isRoot && target.location.isDiskGroup && target.location.diskGroupId != 0;
+}
+
+bool IsDescendantGroup(const std::vector<wit::core::DiskGroup>& groups, std::int64_t groupId,
+    std::int64_t possibleAncestorId) {
+    auto current = groupId;
+    while (current != 0) {
+        if (current == possibleAncestorId) return true;
+        const auto found = std::find_if(groups.begin(), groups.end(),
+            [current](const wit::core::DiskGroup& group) { return group.id == current; });
+        current = found == groups.end() ? 0 : found->parentGroupId;
+    }
+    return false;
 }
 
 INT_PTR CALLBACK MoveDiskToGroupDialogProc(HWND dialog, UINT message, WPARAM wparam, LPARAM lparam) {
@@ -115,7 +132,17 @@ INT_PTR CALLBACK MoveDiskToGroupDialogProc(HWND dialog, UINT message, WPARAM wpa
         const auto combo = GetDlgItem(dialog, IDC_MOVE_DISK_GROUP);
         if (state && state->groups) {
             int selectedIndex = 0;
+            const auto rootIndex = static_cast<int>(SendMessageW(combo, CB_ADDSTRING, 0,
+                reinterpret_cast<LPARAM>(L"(Catalog root)")));
+            if (rootIndex != CB_ERR && rootIndex != CB_ERRSPACE) {
+                SendMessageW(combo, CB_SETITEMDATA, rootIndex, 0);
+            }
             for (const auto& group : *state->groups) {
+                if (group.id == state->excludedGroupId ||
+                    (state->excludedGroupId != 0 &&
+                        IsDescendantGroup(*state->groups, group.id, state->excludedGroupId))) {
+                    continue;
+                }
                 const auto index = static_cast<int>(SendMessageW(combo, CB_ADDSTRING, 0,
                     reinterpret_cast<LPARAM>(group.name.c_str())));
                 if (index == CB_ERR || index == CB_ERRSPACE) continue;
@@ -135,7 +162,7 @@ INT_PTR CALLBACK MoveDiskToGroupDialogProc(HWND dialog, UINT message, WPARAM wpa
     if (LOWORD(wparam) != IDOK || !state) return FALSE;
     const auto selection = SendDlgItemMessageW(dialog, IDC_MOVE_DISK_GROUP, CB_GETCURSEL, 0, 0);
     if (selection == CB_ERR) {
-        MessageBoxW(dialog, L"Select a disk group.", L"Move to Group", MB_OK | MB_ICONWARNING);
+        MessageBoxW(dialog, L"Select a destination.", L"Move to Group", MB_OK | MB_ICONWARNING);
         return TRUE;
     }
     state->selectedGroupId = static_cast<std::int64_t>(
@@ -145,8 +172,8 @@ INT_PTR CALLBACK MoveDiskToGroupDialogProc(HWND dialog, UINT message, WPARAM wpa
 }
 
 bool PromptMoveDiskToGroup(HWND owner, const std::vector<wit::core::DiskGroup>& groups,
-    std::int64_t currentGroupId, std::int64_t& selectedGroupId) {
-    MoveDiskToGroupState state{&groups, 0, currentGroupId};
+    std::int64_t currentGroupId, std::int64_t excludedGroupId, std::int64_t& selectedGroupId) {
+    MoveDiskToGroupState state{&groups, 0, currentGroupId, excludedGroupId};
     const bool accepted = DialogBoxParamW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDD_MOVE_DISK_TO_GROUP),
         owner, MoveDiskToGroupDialogProc, reinterpret_cast<LPARAM>(&state)) == IDOK;
     if (accepted) selectedGroupId = state.selectedGroupId;
@@ -336,7 +363,7 @@ void MainFrame::HandleCommand(int id) {
     } else if (id == ID_WIT_FILE_SAVE) ApplyControllerResult(controller_.RequestSave());
     else if (id == ID_WIT_FILE_CLOSE) ApplyControllerResult(controller_.RequestCloseCatalog());
     else if (id == ID_EDIT_ADDDISKIMAGE) ApplyControllerResult(controller_.RequestAddOrUpdateMedia());
-    else if (id == ID_TREE_CONTEXT_MOVE_TO_GROUP) OnMoveSelectedDiskToGroup();
+    else if (id == ID_TREE_CONTEXT_MOVE_TO_GROUP) OnMoveSelectedItemToGroup();
     else if (id == ID_TREE_CONTEXT_ADD_NEW_DISK_GROUP_PLACEHOLDER) {
         std::wstring name;
         if (PromptDiskGroupName(m_hWnd, name)) ApplyControllerResult(controller_.CreateDiskGroup(name));
@@ -360,26 +387,37 @@ void MainFrame::HandleCommand(int id) {
     else if (id == ID_HELP_ABOUT) OnAbout();
 }
 
-void MainFrame::OnMoveSelectedDiskToGroup() {
+void MainFrame::OnMoveSelectedItemToGroup() {
     const auto target = browser_.SelectedTreeTarget();
-    if (!target || !IsDiskMediaTarget(*target)) return;
+    if (!target || (!IsDiskMediaTarget(*target) && !IsDiskGroupTarget(*target))) return;
     auto* database = controller_.WorkingDatabase(target->catalogId);
     if (!database || !database->IsEditable()) {
-        ::MessageBoxW(m_hWnd, L"Open an editable catalog before moving a disk image.",
+        ::MessageBoxW(m_hWnd, L"Open an editable catalog before moving this item.",
             L"Move to Group", MB_OK | MB_ICONINFORMATION);
         return;
     }
     const auto groups = database->GetDiskGroups();
-    if (groups.empty()) {
-        ::MessageBoxW(m_hWnd, L"Create a disk group before moving a disk image.",
-            L"Move to Group", MB_OK | MB_ICONINFORMATION);
+    std::int64_t selectedGroupId{};
+    if (IsDiskMediaTarget(*target)) {
+        if (!PromptMoveDiskToGroup(m_hWnd, groups, target->location.diskGroupId, 0, selectedGroupId)) return;
+        if (selectedGroupId == target->location.diskGroupId) return;
+        ApplyControllerResult(controller_.MoveDiskToGroup(target->catalogId,
+            target->location.sourceId, selectedGroupId));
         return;
     }
-    std::int64_t selectedGroupId{};
-    if (!PromptMoveDiskToGroup(m_hWnd, groups, target->location.diskGroupId, selectedGroupId)) return;
-    if (selectedGroupId == 0 || selectedGroupId == target->location.diskGroupId) return;
-    ApplyControllerResult(controller_.MoveDiskToGroup(target->catalogId,
-        target->location.sourceId, selectedGroupId));
+
+    std::int64_t currentParentGroupId{};
+    for (const auto& group : groups) {
+        if (group.id == target->location.diskGroupId) {
+            currentParentGroupId = group.parentGroupId;
+            break;
+        }
+    }
+    if (!PromptMoveDiskToGroup(m_hWnd, groups, currentParentGroupId,
+        target->location.diskGroupId, selectedGroupId)) return;
+    if (selectedGroupId == currentParentGroupId) return;
+    ApplyControllerResult(controller_.MoveDiskGroupToGroup(target->catalogId,
+        target->location.diskGroupId, selectedGroupId));
 }
 
 LRESULT MainFrame::ShowTreeContextMenu() {
@@ -395,7 +433,7 @@ LRESULT MainFrame::ShowTreeContextMenu() {
     const auto target = browser_.TargetForTreeItem(item);
     const auto menu = CreatePopupMenu();
     if (!menu) return 0;
-    if (target && IsDiskMediaTarget(*target)) {
+    if (target && (IsDiskMediaTarget(*target) || IsDiskGroupTarget(*target))) {
         AppendMenuW(menu, MF_STRING, ID_TREE_CONTEXT_MOVE_TO_GROUP, L"Move to Group");
         AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     }

@@ -49,6 +49,11 @@ bool ExecSqlResource(SqliteConnection& connection, int resourceId) {
     const std::string sql = LoadSqlResource(resourceId);
     return !sql.empty() && connection.Exec(sql.c_str());
 }
+
+bool EnsureDiskGroupParentColumn(SqliteConnection& connection) {
+    if (TableHasColumn(connection.Raw(), "disk_groups", "parent_group_id")) return true;
+    return connection.Exec("ALTER TABLE disk_groups ADD COLUMN parent_group_id INTEGER;");
+}
 }
 
 bool CatalogSchema::Initialize(SqliteConnection& connection) {
@@ -57,11 +62,13 @@ bool CatalogSchema::Initialize(SqliteConnection& connection) {
         if (!ExecSqlResource(connection, tableResource)) return false;
     }
     return connection.Exec("INSERT OR IGNORE INTO catalog_metadata(id,description) VALUES(1,'');") &&
+        EnsureDiskGroupParentColumn(connection) &&
         ExecSqlResource(connection, IDR_SQL_INDEXES);
 }
 
 bool CatalogSchema::Validate(SqliteConnection& connection) {
     return TableHasColumn(connection.Raw(), "catalog_metadata", "description") &&
+        TableHasColumn(connection.Raw(), "disk_groups", "parent_group_id") &&
         TableHasColumn(connection.Raw(), "disk_groups", "name") &&
         TableHasColumn(connection.Raw(), "disk_groups", "updated_at") &&
         TableHasColumn(connection.Raw(), "disks", "disk_group_id") &&

@@ -2,6 +2,7 @@
 #include "wit_gui/BrowserItemIcons.h"
 #include <wit_infra/PathHelpers.h>
 #include <algorithm>
+#include <functional>
 
 namespace wit::ui {
 namespace {
@@ -67,7 +68,7 @@ const CatalogTreeView::Root* CatalogTreeView::FindRoot(wit::core::CatalogId id) 
 }
 
 void CatalogTreeView::PopulateRoot(Root& root, const std::wstring& label, wit::storage::Database* database) {
-        TVITEMW text{};
+    TVITEMW text{};
     text.mask = TVIF_TEXT | TVIF_CHILDREN | TVIF_STATE;
     text.stateMask = TVIS_BOLD;
     text.state = TVIS_BOLD;
@@ -78,46 +79,39 @@ void CatalogTreeView::PopulateRoot(Root& root, const std::wstring& label, wit::s
     TreeView_SetItem(hwnd_, &text);
     while (const auto child = TreeView_GetChild(hwnd_, root.item)) TreeView_DeleteItem(hwnd_, child);
     if (!database) return;
-    const auto groups = database->GetDiskGroups();
-    for (const auto& group : groups) {
-        wit::core::BrowserLocation groupLocation;
-        groupLocation.isRoot = false;
-        groupLocation.isDiskGroup = true;
-        groupLocation.diskGroupId = group.id;
-        groupLocation.diskGroupName = group.name;
-        const auto groupItem = InsertNode(root.item, root.id, group.name, groupLocation, false,
-            group.totalDisks != 0, BrowserFolderImage);
-        const auto disks = database->GetBrowserRootItemsPage(groupLocation, 0,
-            static_cast<int>((std::max)(group.totalDisks, static_cast<std::int64_t>(0))));
-        for (const auto& item : disks) {
-            if (item.type != wit::core::BrowserItemType::Disk) continue;
-            const auto& disk = item.disk;
-            wit::core::BrowserLocation location;
-            location.isRoot = false;
-            location.diskGroupId = group.id;
-            location.diskGroupName = group.name;
-            location.sourceId = disk.id;
-            location.sourceName = disk.diskName;
-            location.sourceRoot = disk.sourcePath;
-            location.path = disk.sourcePath;
-            InsertNode(groupItem, root.id, disk.diskName, location, false,
-                database->HasChildFolders(location.sourceId, location.path), BrowserDriveImage);
-        }
-    }
-    wit::core::BrowserLocation rootLocation;
-    const auto rootItems = database->GetBrowserRootItemsPage(rootLocation, 0, itemCount);
-    for (const auto& item : rootItems) {
-        if (item.type != wit::core::BrowserItemType::Disk) continue;
-        const auto& source = item.disk;
-        wit::core::BrowserLocation location;
-        location.isRoot = false;
-        location.sourceId = source.id;
-        location.sourceName = source.diskName;
-        location.sourceRoot = source.sourcePath;
-        location.path = source.sourcePath;
-        InsertNode(root.item, root.id, source.diskName, location, false,
-            database && database->HasChildFolders(location.sourceId, location.path), BrowserDriveImage);
-    }
+
+    std::function<void(HTREEITEM, const wit::core::BrowserLocation&)> populateContainer =
+        [&](HTREEITEM parentItem, const wit::core::BrowserLocation& parentLocation) {
+            const auto count = database->GetBrowserRootItemCount(parentLocation);
+            const auto items = database->GetBrowserRootItemsPage(parentLocation, 0, count);
+            for (const auto& item : items) {
+                if (item.type == wit::core::BrowserItemType::DiskGroup) {
+                    wit::core::BrowserLocation groupLocation;
+                    groupLocation.isRoot = false;
+                    groupLocation.isDiskGroup = true;
+                    groupLocation.diskGroupId = item.group.id;
+                    groupLocation.diskGroupName = item.group.name;
+                    const auto childCount = database->GetBrowserRootItemCount(groupLocation);
+                    const auto groupItem = InsertNode(parentItem, root.id, item.group.name, groupLocation, false,
+                        childCount != 0, BrowserFolderImage);
+                    populateContainer(groupItem, groupLocation);
+                    continue;
+                }
+                const auto& source = item.disk;
+                wit::core::BrowserLocation location;
+                location.isRoot = false;
+                location.diskGroupId = parentLocation.isDiskGroup ? parentLocation.diskGroupId : 0;
+                location.diskGroupName = parentLocation.isDiskGroup ? parentLocation.diskGroupName : L"";
+                location.sourceId = source.id;
+                location.sourceName = source.diskName;
+                location.sourceRoot = source.sourcePath;
+                location.path = source.sourcePath;
+                InsertNode(parentItem, root.id, source.diskName, location, false,
+                    database->HasChildFolders(location.sourceId, location.path), BrowserDriveImage);
+            }
+        };
+
+    populateContainer(root.item, {});
     TreeView_Expand(hwnd_, root.item, TVE_EXPAND);
 }
 
@@ -152,19 +146,23 @@ bool CatalogTreeView::MoveDiskToGroup(wit::core::CatalogId id, std::int64_t disk
     const auto* root = FindRoot(id);
     if (!root) return false;
     const auto sourceItem = FindSource(id, diskId);
-    const auto groupItem = FindDiskGroup(id, diskGroupId);
+    const auto groupItem = diskGroupId == 0 ? root->item : FindDiskGroup(id, diskGroupId);
     if (!sourceItem || !groupItem) return false;
 
     std::wstring groupName;
     std::int64_t groupDiskCount{};
-    for (const auto& group : database->GetDiskGroups()) {
-        if (group.id == diskGroupId) {
-            groupName = group.name;
-            groupDiskCount = group.totalDisks;
-            break;
+    if (diskGroupId != 0) {
+        for (const auto& group : database->GetDiskGroups()) {
+            if (group.id == diskGroupId) {
+                groupName = group.name;
+                groupDiskCount = database->GetBrowserRootItemCount({false, true, diskGroupId, group.name});
+                break;
+            }
         }
+        if (groupName.empty()) return false;
+    } else {
+        groupDiskCount = database->GetBrowserRootItemCount({});
     }
-    if (groupName.empty()) return false;
 
     const auto sourceTarget = TargetFor(sourceItem);
     if (!sourceTarget) return false;
@@ -261,25 +259,31 @@ void CatalogTreeView::Expand(HTREEITEM item) {
 HTREEITEM CatalogTreeView::FindSource(wit::core::CatalogId catalogId, std::int64_t sourceId) const {
     const auto* root = FindRoot(catalogId);
     if (!root) return nullptr;
-    for (auto item = TreeView_GetChild(hwnd_, root->item); item; item = TreeView_GetNextSibling(hwnd_, item)) {
-        const auto* target = TargetFor(item);
-        if (target && target->location.sourceId == sourceId) return item;
-        for (auto child = TreeView_GetChild(hwnd_, item); child; child = TreeView_GetNextSibling(hwnd_, child)) {
-            const auto* childTarget = TargetFor(child);
-            if (childTarget && childTarget->location.sourceId == sourceId) return child;
+    std::function<HTREEITEM(HTREEITEM)> findInChildren = [&](HTREEITEM parent) -> HTREEITEM {
+        for (auto item = TreeView_GetChild(hwnd_, parent); item; item = TreeView_GetNextSibling(hwnd_, item)) {
+            const auto* target = TargetFor(item);
+            if (target && target->location.sourceId == sourceId) return item;
+            if (const auto found = findInChildren(item)) return found;
         }
-    }
-    return nullptr;
+        return nullptr;
+    };
+    return findInChildren(root->item);
 }
 
 HTREEITEM CatalogTreeView::FindDiskGroup(wit::core::CatalogId catalogId, std::int64_t diskGroupId) const {
     const auto* root = FindRoot(catalogId);
     if (!root) return nullptr;
-    for (auto item = TreeView_GetChild(hwnd_, root->item); item; item = TreeView_GetNextSibling(hwnd_, item)) {
-        const auto* target = TargetFor(item);
-        if (target && target->location.isDiskGroup && target->location.diskGroupId == diskGroupId) return item;
-    }
-    return nullptr;
+    std::function<HTREEITEM(HTREEITEM)> findInChildren = [&](HTREEITEM parent) -> HTREEITEM {
+        for (auto item = TreeView_GetChild(hwnd_, parent); item; item = TreeView_GetNextSibling(hwnd_, item)) {
+            const auto* target = TargetFor(item);
+            if (target && target->location.isDiskGroup && target->location.diskGroupId == diskGroupId) {
+                return item;
+            }
+            if (const auto found = findInChildren(item)) return found;
+        }
+        return nullptr;
+    };
+    return findInChildren(root->item);
 }
 
 HTREEITEM CatalogTreeView::FindSortedInsertAfter(HTREEITEM parent, const std::wstring& text,
@@ -362,13 +366,21 @@ bool CatalogTreeView::SelectLocation(const wit::core::BrowserTarget& target) {
         return true;
     }
     if (location.isDiskGroup) {
-        for (auto item = TreeView_GetChild(hwnd_, root->item); item; item = TreeView_GetNextSibling(hwnd_, item)) {
-            const auto* itemTarget = TargetFor(item);
-            if (itemTarget && itemTarget->location.isDiskGroup &&
-                itemTarget->location.diskGroupId == location.diskGroupId) {
-                TreeView_SelectItem(hwnd_, item);
-                return true;
+        std::function<HTREEITEM(HTREEITEM)> findInChildren = [&](HTREEITEM parent) -> HTREEITEM {
+            for (auto item = TreeView_GetChild(hwnd_, parent); item; item = TreeView_GetNextSibling(hwnd_, item)) {
+                const auto* itemTarget = TargetFor(item);
+                if (itemTarget && itemTarget->location.isDiskGroup &&
+                    itemTarget->location.diskGroupId == location.diskGroupId) {
+                    return item;
+                }
+                if (const auto found = findInChildren(item)) return found;
             }
+            return nullptr;
+        };
+        if (const auto item = findInChildren(root->item)) {
+            TreeView_SelectItem(hwnd_, item);
+            TreeView_EnsureVisible(hwnd_, item);
+            return true;
         }
         return false;
     }

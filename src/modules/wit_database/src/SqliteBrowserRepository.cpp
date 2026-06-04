@@ -72,12 +72,15 @@ int SqliteBrowserRepository::GetBrowserItemCount(const wit::core::BrowserLocatio
 
 int SqliteBrowserRepository::GetBrowserRootItemCount(const wit::core::BrowserLocation& location) {
     if (location.isDiskGroup) {
-        SQLiteStatement statement(db_, "SELECT COUNT(*) FROM disks WHERE disk_group_id=?;");
+        SQLiteStatement statement(db_,
+            "SELECT (SELECT COUNT(*) FROM disk_groups WHERE parent_group_id=?) + "
+            "(SELECT COUNT(*) FROM disks WHERE disk_group_id=?);");
         statement.BindInt64(1, location.diskGroupId);
+        statement.BindInt64(2, location.diskGroupId);
         return sqlite3_step(statement.Raw()) == SQLITE_ROW ? sqlite3_column_int(statement.Raw(), 0) : 0;
     }
     SQLiteStatement statement(db_,
-        "SELECT (SELECT COUNT(*) FROM disk_groups) + "
+        "SELECT (SELECT COUNT(*) FROM disk_groups WHERE parent_group_id IS NULL) + "
         "(SELECT COUNT(*) FROM disks WHERE disk_group_id IS NULL);");
     return sqlite3_step(statement.Raw()) == SQLITE_ROW ? sqlite3_column_int(statement.Raw(), 0) : 0;
 }
@@ -87,31 +90,51 @@ std::vector<wit::core::BrowserItem> SqliteBrowserRepository::GetBrowserRootItems
     std::vector<wit::core::BrowserItem> items;
     if (location.isDiskGroup) {
         SQLiteStatement statement(db_,
-            "SELECT id,disk_group_id,disk_name,disk_number,source_path,total_capacity,free_space,updated_at,"
-            "description,category,location,disk_type FROM disks WHERE disk_group_id=? "
-            "ORDER BY disk_name COLLATE NOCASE,id LIMIT ? OFFSET ?;");
+            "SELECT kind,id,disk_group_id,name,disk_number,source_path,total_capacity,free_space,updated_at,"
+            "description,category,location,disk_type,total_disks,parent_group_id FROM ("
+            "SELECT 0 AS kind,g.id AS id,NULL AS disk_group_id,g.name AS name,0 AS disk_number,'' AS source_path,"
+            "0 AS total_capacity,0 AS free_space,g.updated_at AS updated_at,'' AS description,'' AS category,"
+            "'' AS location,'Other' AS disk_type,COUNT(d.id) AS total_disks,g.parent_group_id AS parent_group_id "
+            "FROM disk_groups g LEFT JOIN disks d ON d.disk_group_id=g.id WHERE g.parent_group_id=? "
+            "GROUP BY g.id,g.name,g.updated_at,g.parent_group_id "
+            "UNION ALL "
+            "SELECT 1 AS kind,d.id,d.disk_group_id,d.disk_name,d.disk_number,d.source_path,d.total_capacity,"
+            "d.free_space,d.updated_at,d.description,d.category,d.location,d.disk_type,0 AS total_disks,NULL AS parent_group_id "
+            "FROM disks d WHERE d.disk_group_id=?) "
+            "ORDER BY kind,name COLLATE NOCASE,id LIMIT ? OFFSET ?;");
         statement.BindInt64(1, location.diskGroupId);
-        statement.BindInt64(2, limit);
-        statement.BindInt64(3, offset);
+        statement.BindInt64(2, location.diskGroupId);
+        statement.BindInt64(3, limit);
+        statement.BindInt64(4, offset);
         while (sqlite3_step(statement.Raw()) == SQLITE_ROW) {
             wit::core::BrowserItem item;
-            item.type = wit::core::BrowserItemType::Disk;
-            PopulateBrowserDisk(item.disk, statement.Raw(), 0);
+            if (sqlite3_column_int(statement.Raw(), 0) == 0) {
+                item.type = wit::core::BrowserItemType::DiskGroup;
+                item.group.id = sqlite3_column_int64(statement.Raw(), 1);
+                item.group.parentGroupId = sqlite3_column_type(statement.Raw(), 14) == SQLITE_NULL
+                    ? 0 : sqlite3_column_int64(statement.Raw(), 14);
+                item.group.name = Text(statement.Raw(), 3);
+                item.group.updatedAt = sqlite3_column_int64(statement.Raw(), 8);
+                item.group.totalDisks = sqlite3_column_int64(statement.Raw(), 13);
+            } else {
+                item.type = wit::core::BrowserItemType::Disk;
+                PopulateBrowserDisk(item.disk, statement.Raw(), 1);
+            }
             items.push_back(item);
         }
         return items;
     }
     SQLiteStatement statement(db_,
         "SELECT kind,id,disk_group_id,name,disk_number,source_path,total_capacity,free_space,updated_at,"
-        "description,category,location,disk_type,total_disks FROM ("
+        "description,category,location,disk_type,total_disks,parent_group_id FROM ("
         "SELECT 0 AS kind,g.id AS id,NULL AS disk_group_id,g.name AS name,0 AS disk_number,'' AS source_path,"
         "0 AS total_capacity,0 AS free_space,g.updated_at AS updated_at,'' AS description,'' AS category,"
-        "'' AS location,'Other' AS disk_type,COUNT(d.id) AS total_disks "
-        "FROM disk_groups g LEFT JOIN disks d ON d.disk_group_id=g.id "
-        "GROUP BY g.id,g.name,g.updated_at "
+        "'' AS location,'Other' AS disk_type,COUNT(d.id) AS total_disks,g.parent_group_id AS parent_group_id "
+        "FROM disk_groups g LEFT JOIN disks d ON d.disk_group_id=g.id WHERE g.parent_group_id IS NULL "
+        "GROUP BY g.id,g.name,g.updated_at,g.parent_group_id "
         "UNION ALL "
         "SELECT 1 AS kind,d.id,d.disk_group_id,d.disk_name,d.disk_number,d.source_path,d.total_capacity,"
-        "d.free_space,d.updated_at,d.description,d.category,d.location,d.disk_type,0 AS total_disks "
+        "d.free_space,d.updated_at,d.description,d.category,d.location,d.disk_type,0 AS total_disks,NULL AS parent_group_id "
         "FROM disks d WHERE d.disk_group_id IS NULL) "
         "ORDER BY kind,name COLLATE NOCASE,id LIMIT ? OFFSET ?;");
     statement.BindInt64(1, limit);
@@ -121,6 +144,8 @@ std::vector<wit::core::BrowserItem> SqliteBrowserRepository::GetBrowserRootItems
         if (sqlite3_column_int(statement.Raw(), 0) == 0) {
             item.type = wit::core::BrowserItemType::DiskGroup;
             item.group.id = sqlite3_column_int64(statement.Raw(), 1);
+            item.group.parentGroupId = sqlite3_column_type(statement.Raw(), 14) == SQLITE_NULL
+                ? 0 : sqlite3_column_int64(statement.Raw(), 14);
             item.group.name = Text(statement.Raw(), 3);
             item.group.updatedAt = sqlite3_column_int64(statement.Raw(), 8);
             item.group.totalDisks = sqlite3_column_int64(statement.Raw(), 13);

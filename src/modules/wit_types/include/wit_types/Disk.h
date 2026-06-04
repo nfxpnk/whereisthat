@@ -52,6 +52,7 @@ struct Disk {
 
 struct DiskGroup {
     std::int64_t id{};
+    std::int64_t parentGroupId{};
     std::wstring name;
     std::int64_t createdAt{};
     std::int64_t updatedAt{};

@@ -470,6 +470,45 @@ ControllerResult CatalogWorkflowController::MoveDiskToGroup(wit::core::CatalogId
     return result;
 }
 
+ControllerResult CatalogWorkflowController::MoveDiskGroupToGroup(wit::core::CatalogId catalogId,
+    std::int64_t diskGroupId, std::int64_t parentGroupId) {
+    ControllerResult result;
+    auto* catalog = session_.Find(catalogId);
+    auto* database = catalog ? catalog->WorkingDatabase() : nullptr;
+    if (!database || !database->IsEditable()) {
+        result.messages.push_back(Message(L"Open an editable catalog before moving a disk group.",
+            L"Move to Group", MB_OK | MB_ICONINFORMATION));
+        PopulatePresentation(result);
+        return result;
+    }
+    if (scans_.Targets(catalogId)) {
+        result.messages.push_back(Message(L"A scan is still preparing changes for this catalog.",
+            L"Scan in progress", MB_OK | MB_ICONINFORMATION));
+        PopulatePresentation(result);
+        return result;
+    }
+    auto pending = std::make_unique<wit::storage::Database>();
+    if (!pending->CreateWorkingCopy(*database)) {
+        result.messages.push_back(Message(L"Unable to prepare pending catalog changes.",
+            L"Move to Group", MB_OK | MB_ICONERROR));
+        PopulatePresentation(result);
+        return result;
+    }
+    if (!pending->MoveDiskGroupToGroup(diskGroupId, parentGroupId)) {
+        result.messages.push_back(Message(L"Unable to move the disk group to the selected destination.",
+            L"Move to Group", MB_OK | MB_ICONWARNING));
+        PopulatePresentation(result);
+        return result;
+    }
+    session_.AcceptPending(catalogId, std::move(pending));
+    const bool active = ActiveCatalog() && ActiveCatalog()->id == catalogId;
+    result.browserEffects.push_back({BrowserEffectKind::RefreshCatalog, catalogId, catalog->label,
+        catalog->WorkingDatabase(), active});
+    result.presentation.refreshBrowserStatus = true;
+    PopulatePresentation(result);
+    return result;
+}
+
 ControllerResult CatalogWorkflowController::MediaSelectionCompleted(
     const std::optional<wit::core::ScanRequest>& request) {
     ControllerResult result;

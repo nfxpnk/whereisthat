@@ -108,13 +108,15 @@ void BrowserController::MoveDiskToGroup(wit::core::CatalogId id, std::int64_t di
     std::int64_t diskGroupId, wit::storage::Database* database) {
     if (!database || !database->IsOpen()) return;
     std::wstring diskGroupName;
-    for (const auto& group : database->GetDiskGroups()) {
-        if (group.id == diskGroupId) {
-            diskGroupName = group.name;
-            break;
+    if (diskGroupId != 0) {
+        for (const auto& group : database->GetDiskGroups()) {
+            if (group.id == diskGroupId) {
+                diskGroupName = group.name;
+                break;
+            }
         }
+        if (diskGroupName.empty()) return;
     }
-    if (diskGroupName.empty()) return;
     if (!tree_.MoveDiskToGroup(id, diskId, diskGroupId, database)) {
         OutputDebugStringW(L"WhereIsThat: MoveDiskToGroup skipped TreeView full refresh; affected node was not found.\n");
         return;

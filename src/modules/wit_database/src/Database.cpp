@@ -119,6 +119,37 @@ bool PragmaReturns(SqliteConnection& connection, const char* sql, const char* ex
     return ok;
 }
 
+bool TableHasColumn(sqlite3* db, const char* table, const char* expectedColumn) {
+    sqlite3_stmt* stmt{};
+    const std::string query = "PRAGMA table_info(" + std::string(table) + ");";
+    if (sqlite3_prepare_v2(db, query.c_str(), -1, &stmt, nullptr) != SQLITE_OK) return false;
+    bool found = false;
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        const auto* name = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
+        if (name && std::string(name) == expectedColumn) {
+            found = true;
+            break;
+        }
+    }
+    sqlite3_finalize(stmt);
+    return found;
+}
+
+bool UpgradeCatalogSchema(SqliteConnection& connection) {
+    if (TableHasColumn(connection.Raw(), "disk_groups", "parent_group_id")) return true;
+    if (!TableHasColumn(connection.Raw(), "disk_groups", "name") ||
+        !TableHasColumn(connection.Raw(), "disk_groups", "updated_at")) {
+        return true;
+    }
+    return connection.Exec("ALTER TABLE disk_groups ADD COLUMN parent_group_id INTEGER;");
+}
+
+bool DiskGroupExists(sqlite3* db, std::int64_t diskGroupId) {
+    SQLiteStatement statement(db, "SELECT 1 FROM disk_groups WHERE id=?;");
+    statement.BindInt64(1, diskGroupId);
+    return sqlite3_step(statement.Raw()) == SQLITE_ROW;
+}
+
 bool CatalogSidecarsAbsent(const std::wstring& path) {
     return GetFileAttributesW((path + L"-journal").c_str()) == INVALID_FILE_ATTRIBUTES &&
         GetFileAttributesW((path + L"-wal").c_str()) == INVALID_FILE_ATTRIBUTES &&
@@ -229,6 +260,10 @@ bool Database::OpenInternal(const std::wstring& path, bool requireExistingSchema
     if (!connection_.Open(path, flags)) return false;
     RebindRepositories();
     editable_ = !readOnly;
+    if (requireExistingSchema && !readOnly && !UpgradeCatalogSchema(connection_)) {
+        Close();
+        return false;
+    }
     if (requireExistingSchema && !HasCatalogSchema()) {
         Close();
         return false;
@@ -382,7 +417,7 @@ std::int64_t Database::CreateDiskGroup(const std::wstring& name) {
     if (!editable_) return 0;
     const auto now = wit::platform::NowUnixSeconds();
     SQLiteStatement statement(connection_.Raw(),
-        "INSERT INTO disk_groups(name,created_at,updated_at) VALUES(?,?,?);");
+        "INSERT INTO disk_groups(parent_group_id,name,created_at,updated_at) VALUES(NULL,?,?,?);");
     statement.BindText(1, wit::platform::ToUtf8(name));
     statement.BindInt64(2, now);
     statement.BindInt64(3, now);
@@ -392,16 +427,18 @@ std::int64_t Database::CreateDiskGroup(const std::wstring& name) {
 std::vector<wit::core::DiskGroup> Database::GetDiskGroups() {
     std::vector<wit::core::DiskGroup> groups;
     SQLiteStatement statement(connection_.Raw(),
-        "SELECT g.id,g.name,g.created_at,g.updated_at,COUNT(d.id) "
+        "SELECT g.id,g.parent_group_id,g.name,g.created_at,g.updated_at,COUNT(d.id) "
         "FROM disk_groups g LEFT JOIN disks d ON d.disk_group_id=g.id "
-        "GROUP BY g.id,g.name,g.created_at,g.updated_at ORDER BY g.name COLLATE NOCASE,g.id;");
+        "GROUP BY g.id,g.parent_group_id,g.name,g.created_at,g.updated_at ORDER BY g.name COLLATE NOCASE,g.id;");
     while (sqlite3_step(statement.Raw()) == SQLITE_ROW) {
         wit::core::DiskGroup group;
         group.id = sqlite3_column_int64(statement.Raw(), 0);
-        group.name = Text(statement.Raw(), 1);
-        group.createdAt = sqlite3_column_int64(statement.Raw(), 2);
-        group.updatedAt = sqlite3_column_int64(statement.Raw(), 3);
-        group.totalDisks = sqlite3_column_int64(statement.Raw(), 4);
+        group.parentGroupId = sqlite3_column_type(statement.Raw(), 1) == SQLITE_NULL
+            ? 0 : sqlite3_column_int64(statement.Raw(), 1);
+        group.name = Text(statement.Raw(), 2);
+        group.createdAt = sqlite3_column_int64(statement.Raw(), 3);
+        group.updatedAt = sqlite3_column_int64(statement.Raw(), 4);
+        group.totalDisks = sqlite3_column_int64(statement.Raw(), 5);
         groups.push_back(group);
     }
     return groups;
@@ -452,10 +489,35 @@ bool Database::DeleteContentForDisk(std::int64_t diskId) {
 }
 
 bool Database::MoveDiskToGroup(std::int64_t diskId, std::int64_t diskGroupId) {
-    if (!editable_ || diskId == 0 || diskGroupId == 0) return false;
+    if (!editable_ || diskId == 0) return false;
+    if (diskGroupId != 0 && !DiskGroupExists(connection_.Raw(), diskGroupId)) return false;
     SQLiteStatement statement(connection_.Raw(), "UPDATE disks SET disk_group_id=? WHERE id=?;");
-    statement.BindInt64(1, diskGroupId);
+    if (diskGroupId != 0) statement.BindInt64(1, diskGroupId); else statement.BindNull(1);
     statement.BindInt64(2, diskId);
+    return sqlite3_step(statement.Raw()) == SQLITE_DONE && sqlite3_changes(connection_.Raw()) == 1;
+}
+
+bool Database::MoveDiskGroupToGroup(std::int64_t diskGroupId, std::int64_t parentGroupId) {
+    if (!editable_ || diskGroupId == 0 || diskGroupId == parentGroupId) return false;
+    if (!DiskGroupExists(connection_.Raw(), diskGroupId)) return false;
+    if (parentGroupId != 0 && !DiskGroupExists(connection_.Raw(), parentGroupId)) return false;
+    if (parentGroupId != 0) {
+        SQLiteStatement cycleCheck(connection_.Raw(),
+            "WITH RECURSIVE descendants(id) AS ("
+            "SELECT id FROM disk_groups WHERE parent_group_id=? "
+            "UNION ALL SELECT g.id FROM disk_groups g JOIN descendants d ON g.parent_group_id=d.id) "
+            "SELECT EXISTS(SELECT 1 FROM descendants WHERE id=?);");
+        cycleCheck.BindInt64(1, diskGroupId);
+        cycleCheck.BindInt64(2, parentGroupId);
+        if (sqlite3_step(cycleCheck.Raw()) != SQLITE_ROW || sqlite3_column_int(cycleCheck.Raw(), 0) != 0) {
+            return false;
+        }
+    }
+    SQLiteStatement statement(connection_.Raw(),
+        "UPDATE disk_groups SET parent_group_id=?,updated_at=? WHERE id=?;");
+    if (parentGroupId != 0) statement.BindInt64(1, parentGroupId); else statement.BindNull(1);
+    statement.BindInt64(2, wit::platform::NowUnixSeconds());
+    statement.BindInt64(3, diskGroupId);
     return sqlite3_step(statement.Raw()) == SQLITE_DONE && sqlite3_changes(connection_.Raw()) == 1;
 }
 

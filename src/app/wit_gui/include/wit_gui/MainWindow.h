@@ -84,7 +84,7 @@ private:
     void HandleCommand(int id);
     void OnExit();
     void OnAbout();
-    void OnMoveSelectedDiskToGroup();
+    void OnMoveSelectedItemToGroup();
     LRESULT ShowTreeContextMenu();
     void ApplyControllerResult(wit::app::ControllerResult result);
     void PerformRequest(const wit::app::RequestEffect& request);

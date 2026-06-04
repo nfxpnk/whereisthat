@@ -1,17 +1,12 @@
 #include "wit_gui/BrowserController.h"
 #include <algorithm>
 #include <format>
+#include <wit_infra/PathHelpers.h>
 #include "wit_infra/StringUtils.h"
 #include <wit_infra/Win32Helpers.h>
 
 namespace wit::app {
 namespace {
-
-std::wstring JoinStoredPath(const std::wstring& parent, const std::wstring& name) {
-    if (parent.empty()) return name;
-    const auto last = parent.back();
-    return last == L'\\' || last == L'/' ? parent + name : parent + L"\\" + name;
-}
 
 std::wstring CompactSize(std::uint64_t bytes) {
     auto result = wit::core::FormatSize(bytes);
@@ -244,7 +239,7 @@ LRESULT BrowserController::OnFileActivate(LPNMHDR header) {
         const auto* entry = files_.EntryAt(activation->iItem);
         if (!entry || !entry->isDirectory) return 0;
         next.location = currentTarget_.location;
-        next.location.path = JoinStoredPath(currentTarget_.location.path, entry->name);
+        next.location.path = wit::platform::Join(currentTarget_.location.path, entry->name);
     }
     NavigateTo(next, true);
     return 0;

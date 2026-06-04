@@ -50,6 +50,16 @@ void PopulateBrowserDisk(wit::core::Disk& disk, sqlite3_stmt* stmt, int firstCol
     else if (type == L"VirtualDisk") disk.diskType = wit::core::DiskType::VirtualDisk;
     else disk.diskType = wit::core::DiskType::Other;
 }
+
+void PopulateBrowserGroup(wit::core::DiskGroup& group, sqlite3_stmt* stmt) {
+    group.id = sqlite3_column_int64(stmt, 1);
+    group.parentGroupId = sqlite3_column_type(stmt, 14) == SQLITE_NULL ? 0 : sqlite3_column_int64(stmt, 14);
+    group.name = Text(stmt, 3);
+    group.totalCapacity = static_cast<std::uint64_t>(sqlite3_column_int64(stmt, 6));
+    group.freeSpace = static_cast<std::uint64_t>(sqlite3_column_int64(stmt, 7));
+    group.updatedAt = sqlite3_column_int64(stmt, 8);
+    group.totalDisks = sqlite3_column_int64(stmt, 13);
+}
 }
 
 SqliteBrowserRepository::SqliteBrowserRepository(sqlite3* db) : db_(db) {}
@@ -90,12 +100,17 @@ std::vector<wit::core::BrowserItem> SqliteBrowserRepository::GetBrowserRootItems
     std::vector<wit::core::BrowserItem> items;
     if (location.isDiskGroup) {
         SQLiteStatement statement(db_,
+            "WITH RECURSIVE group_tree(root_id,id) AS ("
+            "SELECT id,id FROM disk_groups "
+            "UNION ALL SELECT t.root_id,g.id FROM disk_groups g JOIN group_tree t ON g.parent_group_id=t.id) "
             "SELECT kind,id,disk_group_id,name,disk_number,source_path,total_capacity,free_space,updated_at,"
             "description,category,location,disk_type,total_disks,parent_group_id FROM ("
             "SELECT 0 AS kind,g.id AS id,NULL AS disk_group_id,g.name AS name,0 AS disk_number,'' AS source_path,"
-            "0 AS total_capacity,0 AS free_space,g.updated_at AS updated_at,'' AS description,'' AS category,"
+            "COALESCE(SUM(d.total_capacity),0) AS total_capacity,COALESCE(SUM(d.free_space),0) AS free_space,"
+            "g.updated_at AS updated_at,'' AS description,'' AS category,"
             "'' AS location,'Other' AS disk_type,COUNT(d.id) AS total_disks,g.parent_group_id AS parent_group_id "
-            "FROM disk_groups g LEFT JOIN disks d ON d.disk_group_id=g.id WHERE g.parent_group_id=? "
+            "FROM disk_groups g LEFT JOIN group_tree t ON t.root_id=g.id "
+            "LEFT JOIN disks d ON d.disk_group_id=t.id WHERE g.parent_group_id=? "
             "GROUP BY g.id,g.name,g.updated_at,g.parent_group_id "
             "UNION ALL "
             "SELECT 1 AS kind,d.id,d.disk_group_id,d.disk_name,d.disk_number,d.source_path,d.total_capacity,"
@@ -110,12 +125,7 @@ std::vector<wit::core::BrowserItem> SqliteBrowserRepository::GetBrowserRootItems
             wit::core::BrowserItem item;
             if (sqlite3_column_int(statement.Raw(), 0) == 0) {
                 item.type = wit::core::BrowserItemType::DiskGroup;
-                item.group.id = sqlite3_column_int64(statement.Raw(), 1);
-                item.group.parentGroupId = sqlite3_column_type(statement.Raw(), 14) == SQLITE_NULL
-                    ? 0 : sqlite3_column_int64(statement.Raw(), 14);
-                item.group.name = Text(statement.Raw(), 3);
-                item.group.updatedAt = sqlite3_column_int64(statement.Raw(), 8);
-                item.group.totalDisks = sqlite3_column_int64(statement.Raw(), 13);
+                PopulateBrowserGroup(item.group, statement.Raw());
             } else {
                 item.type = wit::core::BrowserItemType::Disk;
                 PopulateBrowserDisk(item.disk, statement.Raw(), 1);
@@ -125,12 +135,17 @@ std::vector<wit::core::BrowserItem> SqliteBrowserRepository::GetBrowserRootItems
         return items;
     }
     SQLiteStatement statement(db_,
+        "WITH RECURSIVE group_tree(root_id,id) AS ("
+        "SELECT id,id FROM disk_groups "
+        "UNION ALL SELECT t.root_id,g.id FROM disk_groups g JOIN group_tree t ON g.parent_group_id=t.id) "
         "SELECT kind,id,disk_group_id,name,disk_number,source_path,total_capacity,free_space,updated_at,"
         "description,category,location,disk_type,total_disks,parent_group_id FROM ("
         "SELECT 0 AS kind,g.id AS id,NULL AS disk_group_id,g.name AS name,0 AS disk_number,'' AS source_path,"
-        "0 AS total_capacity,0 AS free_space,g.updated_at AS updated_at,'' AS description,'' AS category,"
+        "COALESCE(SUM(d.total_capacity),0) AS total_capacity,COALESCE(SUM(d.free_space),0) AS free_space,"
+        "g.updated_at AS updated_at,'' AS description,'' AS category,"
         "'' AS location,'Other' AS disk_type,COUNT(d.id) AS total_disks,g.parent_group_id AS parent_group_id "
-        "FROM disk_groups g LEFT JOIN disks d ON d.disk_group_id=g.id WHERE g.parent_group_id IS NULL "
+        "FROM disk_groups g LEFT JOIN group_tree t ON t.root_id=g.id "
+        "LEFT JOIN disks d ON d.disk_group_id=t.id WHERE g.parent_group_id IS NULL "
         "GROUP BY g.id,g.name,g.updated_at,g.parent_group_id "
         "UNION ALL "
         "SELECT 1 AS kind,d.id,d.disk_group_id,d.disk_name,d.disk_number,d.source_path,d.total_capacity,"
@@ -143,12 +158,7 @@ std::vector<wit::core::BrowserItem> SqliteBrowserRepository::GetBrowserRootItems
         wit::core::BrowserItem item;
         if (sqlite3_column_int(statement.Raw(), 0) == 0) {
             item.type = wit::core::BrowserItemType::DiskGroup;
-            item.group.id = sqlite3_column_int64(statement.Raw(), 1);
-            item.group.parentGroupId = sqlite3_column_type(statement.Raw(), 14) == SQLITE_NULL
-                ? 0 : sqlite3_column_int64(statement.Raw(), 14);
-            item.group.name = Text(statement.Raw(), 3);
-            item.group.updatedAt = sqlite3_column_int64(statement.Raw(), 8);
-            item.group.totalDisks = sqlite3_column_int64(statement.Raw(), 13);
+            PopulateBrowserGroup(item.group, statement.Raw());
         } else {
             item.type = wit::core::BrowserItemType::Disk;
             PopulateBrowserDisk(item.disk, statement.Raw(), 1);

@@ -57,6 +57,8 @@ struct DiskGroup {
     std::int64_t createdAt{};
     std::int64_t updatedAt{};
     std::int64_t totalDisks{};
+    std::uint64_t totalCapacity{};
+    std::uint64_t freeSpace{};
 };
 
 enum class BrowserItemType {

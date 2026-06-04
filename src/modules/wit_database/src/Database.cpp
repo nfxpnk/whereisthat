@@ -427,8 +427,13 @@ std::int64_t Database::CreateDiskGroup(const std::wstring& name) {
 std::vector<wit::core::DiskGroup> Database::GetDiskGroups() {
     std::vector<wit::core::DiskGroup> groups;
     SQLiteStatement statement(connection_.Raw(),
-        "SELECT g.id,g.parent_group_id,g.name,g.created_at,g.updated_at,COUNT(d.id) "
-        "FROM disk_groups g LEFT JOIN disks d ON d.disk_group_id=g.id "
+        "WITH RECURSIVE group_tree(root_id,id) AS ("
+        "SELECT id,id FROM disk_groups "
+        "UNION ALL SELECT t.root_id,g.id FROM disk_groups g JOIN group_tree t ON g.parent_group_id=t.id) "
+        "SELECT g.id,g.parent_group_id,g.name,g.created_at,g.updated_at,COUNT(d.id),"
+        "COALESCE(SUM(d.total_capacity),0),COALESCE(SUM(d.free_space),0) "
+        "FROM disk_groups g LEFT JOIN group_tree t ON t.root_id=g.id "
+        "LEFT JOIN disks d ON d.disk_group_id=t.id "
         "GROUP BY g.id,g.parent_group_id,g.name,g.created_at,g.updated_at ORDER BY g.name COLLATE NOCASE,g.id;");
     while (sqlite3_step(statement.Raw()) == SQLITE_ROW) {
         wit::core::DiskGroup group;
@@ -439,6 +444,8 @@ std::vector<wit::core::DiskGroup> Database::GetDiskGroups() {
         group.createdAt = sqlite3_column_int64(statement.Raw(), 3);
         group.updatedAt = sqlite3_column_int64(statement.Raw(), 4);
         group.totalDisks = sqlite3_column_int64(statement.Raw(), 5);
+        group.totalCapacity = static_cast<std::uint64_t>(sqlite3_column_int64(statement.Raw(), 6));
+        group.freeSpace = static_cast<std::uint64_t>(sqlite3_column_int64(statement.Raw(), 7));
         groups.push_back(group);
     }
     return groups;

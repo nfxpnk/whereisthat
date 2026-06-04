@@ -243,6 +243,14 @@ TEST(StorageSmoke, CatalogDatabaseScannerAndCoordinatorIntegration) {
     groupLocation.diskGroupId = smokeGroupId;
     EXPECT_TRUE(db.GetBrowserRootItemCount(groupLocation) == 1) << "disk group browser count";
     EXPECT_TRUE(db.GetBrowserRootItemsPage(groupLocation, 0, 10).size() == 1) << "disk group browser page";
+    bool foundSmokeGroupSize{};
+    for (const auto& item : db.GetBrowserRootItemsPage({}, 0, 10)) {
+        if (item.type == wit::core::BrowserItemType::DiskGroup && item.group.id == smokeGroupId) {
+            foundSmokeGroupSize = item.group.totalCapacity == 500 && item.group.freeSpace == 700 &&
+                item.group.totalDisks == 1;
+        }
+    }
+    EXPECT_TRUE(foundSmokeGroupSize) << "disk group browser row exposes aggregate storage size";
     wit::storage::Database hierarchy;
     EXPECT_TRUE(hierarchy.CreateWorkingCopy(db)) << "hierarchy working-copy creation";
     EXPECT_TRUE(hierarchy.MoveDiskToGroup(second.id, 0)) << "disk move to catalog root";
@@ -253,9 +261,18 @@ TEST(StorageSmoke, CatalogDatabaseScannerAndCoordinatorIntegration) {
     EXPECT_TRUE(hierarchy.MoveDiskGroupToGroup(childGroupId, smokeGroupId)) << "disk group move to another group";
     EXPECT_TRUE(hierarchy.GetBrowserRootItemCount({}) == 3) << "nested group leaves catalog root";
     EXPECT_TRUE(hierarchy.GetBrowserRootItemCount(groupLocation) == 1) << "parent group exposes child group";
+    EXPECT_TRUE(hierarchy.MoveDiskToGroup(second.id, childGroupId)) << "disk move to nested group";
+    bool foundRecursiveGroupSize{};
+    for (const auto& item : hierarchy.GetBrowserRootItemsPage({}, 0, 10)) {
+        if (item.type == wit::core::BrowserItemType::DiskGroup && item.group.id == smokeGroupId) {
+            foundRecursiveGroupSize = item.group.totalCapacity == 500 && item.group.freeSpace == 700 &&
+                item.group.totalDisks == 1;
+        }
+    }
+    EXPECT_TRUE(foundRecursiveGroupSize) << "parent group browser row includes nested group storage size";
     EXPECT_TRUE(!hierarchy.MoveDiskGroupToGroup(smokeGroupId, childGroupId)) << "group move rejects descendant-parent";
     EXPECT_TRUE(hierarchy.MoveDiskGroupToGroup(childGroupId, 0)) << "disk group move to catalog root";
-    EXPECT_TRUE(hierarchy.GetBrowserRootItemCount({}) == 4) << "group move to root updates browser root count";
+    EXPECT_TRUE(hierarchy.GetBrowserRootItemCount({}) == 3) << "group move to root updates browser root count";
     EXPECT_TRUE(!hierarchy.MoveDiskGroupToGroup(smokeGroupId, smokeGroupId)) << "group move rejects self-parent";
     std::filesystem::remove_all(mediaWithCrc);
     wit::core::BrowserLocation firstLocation{};

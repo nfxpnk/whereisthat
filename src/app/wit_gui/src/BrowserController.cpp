@@ -274,7 +274,8 @@ std::wstring BrowserController::FocusedItemStatus() {
     const int index = filesHandle_ ? ListView_GetNextItem(filesHandle_, -1, LVNI_FOCUSED) : -1;
     if (const auto* item = index >= 0 ? files_.BrowserItemAt(index) : nullptr) {
         if (item->type == wit::core::BrowserItemType::DiskGroup) {
-            return std::format(L"{} | Disks: {}", item->group.name, item->group.totalDisks);
+            return std::format(L"{} | Disks: {} | {}", item->group.name, item->group.totalDisks,
+                CompactSize(item->group.totalCapacity));
         }
         auto text = item->disk.diskName + L" | " + CompactSize(item->disk.totalCapacity);
         const auto updatedAt = wit::platform::FormatUnixTimestamp(item->disk.updatedAt);
@@ -298,7 +299,8 @@ std::wstring BrowserController::SelectionSummaryStatus() {
             index = ListView_GetNextItem(filesHandle_, index, LVNI_SELECTED)) {
             if (const auto* item = files_.BrowserItemAt(index)) {
                 ++selected;
-                if (item->type == wit::core::BrowserItemType::Disk) totalSize += item->disk.totalCapacity;
+                totalSize += item->type == wit::core::BrowserItemType::Disk
+                    ? item->disk.totalCapacity : item->group.totalCapacity;
             } else if (const auto* entry = files_.EntryAt(index)) {
                 ++selected;
                 totalSize += entry->size;

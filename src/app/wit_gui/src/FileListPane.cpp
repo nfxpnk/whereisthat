@@ -255,6 +255,8 @@ std::wstring FileListView::TextFor(int row, int column) {
             switch (column) {
             case 0: return item->group.name;
             case 1: return L"Disk Group";
+            case 2: return wit::core::FormatSize(item->group.totalCapacity);
+            case 3: return wit::core::FormatSize(item->group.freeSpace);
             case 4: return wit::platform::FormatUnixTimestamp(item->group.updatedAt);
             case 5: return std::format(L"{}", item->group.totalDisks);
             default: return L"";

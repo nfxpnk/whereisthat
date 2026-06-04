@@ -143,9 +143,22 @@ bool ReplaceCatalogFile(const std::wstring& catalogPath, const std::wstring& rep
         REPLACEFILE_WRITE_THROUGH, nullptr, nullptr)) {
         return true;
     }
-    if (GetFileAttributesW(catalogPath.c_str()) != INVALID_FILE_ATTRIBUTES) return false;
-    return MoveFileExW(replacementPath.c_str(), catalogPath.c_str(),
+    if (GetFileAttributesW(catalogPath.c_str()) == INVALID_FILE_ATTRIBUTES) {
+        return MoveFileExW(replacementPath.c_str(), catalogPath.c_str(),
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != FALSE;
+    }
+    if (!MoveFileExW(catalogPath.c_str(), backupPath.c_str(),
+        MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+        return false;
+    }
+    if (MoveFileExW(replacementPath.c_str(), catalogPath.c_str(),
+        MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+        return true;
+    }
+    const bool restored = MoveFileExW(backupPath.c_str(), catalogPath.c_str(),
         MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != FALSE;
+    (void)restored;
+    return false;
 }
 
 bool RestoreCatalogFile(const std::wstring& catalogPath, const std::wstring& backupPath) {

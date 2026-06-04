@@ -194,7 +194,8 @@ ControllerResult CatalogWorkflowController::SaveCatalog(wit::core::CatalogId id)
         return result;
     }
     if (hadPendingChanges) {
-        OutputDebugStringW(L"WhereIsThat: SaveCatalog persisted pending changes without refreshing the TreeView.\n");
+        result.browserEffects.push_back({BrowserEffectKind::RefreshCatalog, id, catalog->label,
+            catalog->WorkingDatabase(), true});
         result.presentation.refreshBrowserStatus = true;
     }
     PopulatePresentation(result);

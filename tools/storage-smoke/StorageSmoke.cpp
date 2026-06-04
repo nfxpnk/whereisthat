@@ -242,7 +242,7 @@ int wmain() {
 
     Check(db.GetCatalogSummary().totalDisks == 0 && db.GetCatalogMetadata().description.empty(),
         "staged edits do not mutate active catalog before save");
-    Check(db.ReplaceCatalogDataFrom(staged), "staged save persistence");
+    Check(db.SaveCatalogDataFrom(staged), "staged save persistence");
     const auto summary = db.GetCatalogSummary();
     Check(summary.totalDisks == 2 && summary.totalFiles == 4 && summary.totalFolders == 5,
         "derived disk/file/folder totals");

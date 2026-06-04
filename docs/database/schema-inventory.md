@@ -65,7 +65,7 @@ No CRC index is defined because no CRC lookup query is implemented.
 | Area | Code entry points | Stored objects |
 |---|---|---|
 | Initialization / validation | `CatalogSchema::Initialize`, `CatalogSchema::Validate`, `Database::InitializeSchema`, `Database::HasCatalogSchema` | All tables, indexes, metadata singleton. |
-| Staged save | `Database::CreateWorkingCopy`, `Database::ReplaceCatalogDataFrom` | Whole replacement-format database through SQLite backup. |
+| Staged save | `Database::CreateWorkingCopy`, `Database::SaveCatalogDataFrom` | Whole replacement-format database through SQLite backup. |
 | Disk add/rescan | `ScanCoordinator::Start`, `Database::AddDisk`, `FindDiskBySourcePath`, `DeleteContentForDisk`, `UpdateDisk` | `disks`, folder/file replacement. |
 | Latest statistics | `FileScanner::ScanFolder`, `Database::UpdateDiskScanStatistics` | `disk_scan_statistics`. |
 | File/folder capture | `FileScanner::ScanFolder`, `Database::InsertFolder`, `UpdateFolderContentSize`, `InsertFile` | `folders`, `files`, including scan-time folder totals and readable archive-backed subtrees. |

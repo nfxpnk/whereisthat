@@ -354,6 +354,8 @@ void MainFrame::HandleCommand(int id) {
         ApplyControllerResult(controller_.ToggleToolbar());
     } else if (id == ID_WIT_VIEW_STATUS_BAR) {
         ApplyControllerResult(controller_.ToggleStatusBar());
+        } else if (id == ID_FILE_RECENT_CLEAR) {
+        // Placeholder - does nothing
     } else if (id == ID_FILE_EXIT) OnExit();
     else if (id == ID_HELP_ABOUT) OnAbout();
 }
@@ -549,6 +551,8 @@ void MainFrame::RenderRecentMenu(const std::vector<std::wstring>& paths) {
             AppendMenuW(recentMenu, MF_STRING, ID_FILE_RECENT_FIRST + static_cast<UINT>(index), label.c_str());
         }
     }
+    AppendMenuW(recentMenu, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(recentMenu, MF_STRING, ID_FILE_RECENT_CLEAR, L"&Clear Recent");
     ::DrawMenuBar(m_hWnd);
 }
 

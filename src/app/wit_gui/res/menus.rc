@@ -7,6 +7,8 @@ BEGIN
         POPUP "Open &Recent"
         BEGIN
             MENUITEM "(No recent catalogs)", ID_FILE_RECENT_FIRST, GRAYED
+            MENUITEM SEPARATOR
+            MENUITEM "&Clear Recent", ID_FILE_RECENT_CLEAR
         END
         MENUITEM "&Save\tCtrl+S", ID_WIT_FILE_SAVE
         MENUITEM "Save &As...", ID_FILE_SAVEAS

@@ -25,20 +25,27 @@ public:
     }
 
     BEGIN_MSG_MAP(MainFrame)
-        MESSAGE_HANDLER(WM_CREATE, OnFrameMessage)
-        MESSAGE_HANDLER(WM_SIZE, OnFrameMessage)
-        MESSAGE_HANDLER(WM_CLOSE, OnFrameMessage)
-        MESSAGE_HANDLER(WM_LBUTTONDOWN, OnFrameMessage)
-        MESSAGE_HANDLER(WM_MOUSEMOVE, OnFrameMessage)
-        MESSAGE_HANDLER(WM_LBUTTONUP, OnFrameMessage)
-        MESSAGE_HANDLER(WM_CAPTURECHANGED, OnFrameMessage)
-        MESSAGE_HANDLER(WM_SETCURSOR, OnFrameMessage)
-        MESSAGE_HANDLER(WM_COMMAND, OnFrameMessage)
-        MESSAGE_HANDLER(WM_DRAWITEM, OnFrameMessage)
-        MESSAGE_HANDLER(WM_NOTIFY, OnFrameMessage)
-        MESSAGE_HANDLER(wit::app::WM_SCAN_PROGRESS, OnFrameMessage)
-        MESSAGE_HANDLER(wit::app::WM_SCAN_COMPLETE, OnFrameMessage)
-        MESSAGE_HANDLER(WM_DESTROY, OnFrameMessage)
+        MESSAGE_HANDLER(WM_CREATE, OnCreate)
+        MESSAGE_HANDLER(WM_SIZE, OnSize)
+        MESSAGE_HANDLER(WM_CLOSE, OnClose)
+        MESSAGE_HANDLER(WM_LBUTTONDOWN, OnLeftButtonDown)
+        MESSAGE_HANDLER(WM_MOUSEMOVE, OnMouseMove)
+        MESSAGE_HANDLER(WM_LBUTTONUP, OnLeftButtonUp)
+        MESSAGE_HANDLER(WM_CAPTURECHANGED, OnCaptureChanged)
+        MESSAGE_HANDLER(WM_SETCURSOR, OnSetCursor)
+        MESSAGE_HANDLER(WM_COMMAND, OnCommandMessage)
+        MESSAGE_HANDLER(WM_DRAWITEM, OnDrawItem)
+        NOTIFY_HANDLER(IDC_BROWSER_TREE, TVN_SELCHANGEDW, OnTreeSelectionChanged)
+        NOTIFY_HANDLER(IDC_BROWSER_TREE, TVN_ITEMEXPANDINGW, OnTreeExpanding)
+        NOTIFY_HANDLER(IDC_BROWSER_TREE, NM_RCLICK, OnTreeRightClick)
+        NOTIFY_HANDLER(IDC_FILES, LVN_GETDISPINFOW, OnFileGetDispInfo)
+        NOTIFY_HANDLER(IDC_FILES, LVN_ITEMACTIVATE, OnFileActivate)
+        NOTIFY_HANDLER(IDC_FILES, LVN_ITEMCHANGED, OnFileItemChanged)
+        NOTIFY_HANDLER(IDC_TOOLBAR, TBN_DROPDOWN, OnToolbarDropDown)
+        NOTIFY_HANDLER(IDC_TOOLBAR, TBN_GETINFOTIPW, OnToolbarGetInfoTip)
+        MESSAGE_HANDLER(wit::app::WM_SCAN_PROGRESS, OnScanProgress)
+        MESSAGE_HANDLER(wit::app::WM_SCAN_COMPLETE, OnScanComplete)
+        MESSAGE_HANDLER(WM_DESTROY, OnDestroy)
         CHAIN_MSG_MAP(WTL::CFrameWindowImpl<MainFrame>)
     END_MSG_MAP()
 
@@ -50,16 +57,35 @@ private:
     wit::ui::SearchDialog searchDialog_;
     bool protectedCatalog_{};
 
-    LRESULT OnFrameMessage(UINT message, WPARAM wparam, LPARAM lparam, BOOL& handled);
-    LRESULT HandleMessage(UINT message, WPARAM wparam, LPARAM lparam, BOOL& handled);
-    bool OnCreate();
-    void OnClose();
-    void OnDestroy();
-    void OnCommand(int id);
+    LRESULT OnCreate(UINT message, WPARAM wparam, LPARAM lparam, BOOL& handled);
+    LRESULT OnSize(UINT message, WPARAM wparam, LPARAM lparam, BOOL& handled);
+    LRESULT OnClose(UINT message, WPARAM wparam, LPARAM lparam, BOOL& handled);
+    LRESULT OnLeftButtonDown(UINT message, WPARAM wparam, LPARAM lparam, BOOL& handled);
+    LRESULT OnMouseMove(UINT message, WPARAM wparam, LPARAM lparam, BOOL& handled);
+    LRESULT OnLeftButtonUp(UINT message, WPARAM wparam, LPARAM lparam, BOOL& handled);
+    LRESULT OnCaptureChanged(UINT message, WPARAM wparam, LPARAM lparam, BOOL& handled);
+    LRESULT OnSetCursor(UINT message, WPARAM wparam, LPARAM lparam, BOOL& handled);
+    LRESULT OnCommandMessage(UINT message, WPARAM wparam, LPARAM lparam, BOOL& handled);
+    LRESULT OnDrawItem(UINT message, WPARAM wparam, LPARAM lparam, BOOL& handled);
+    LRESULT OnScanProgress(UINT message, WPARAM wparam, LPARAM lparam, BOOL& handled);
+    LRESULT OnScanComplete(UINT message, WPARAM wparam, LPARAM lparam, BOOL& handled);
+    LRESULT OnDestroy(UINT message, WPARAM wparam, LPARAM lparam, BOOL& handled);
+    LRESULT OnTreeSelectionChanged(int id, LPNMHDR header, BOOL& handled);
+    LRESULT OnTreeExpanding(int id, LPNMHDR header, BOOL& handled);
+    LRESULT OnTreeRightClick(int id, LPNMHDR header, BOOL& handled);
+    LRESULT OnFileGetDispInfo(int id, LPNMHDR header, BOOL& handled);
+    LRESULT OnFileActivate(int id, LPNMHDR header, BOOL& handled);
+    LRESULT OnFileItemChanged(int id, LPNMHDR header, BOOL& handled);
+    LRESULT OnToolbarDropDown(int id, LPNMHDR header, BOOL& handled);
+    LRESULT OnToolbarGetInfoTip(int id, LPNMHDR header, BOOL& handled);
+    bool InitializeFrame();
+    void RequestClose();
+    void CleanupFrame();
+    void HandleCommand(int id);
     void OnExit();
     void OnAbout();
     void OnMoveSelectedDiskToGroup();
-    LRESULT OnTreeRightClick();
+    LRESULT ShowTreeContextMenu();
     void ApplyControllerResult(wit::app::ControllerResult result);
     void PerformRequest(const wit::app::RequestEffect& request);
     void RenderRecentMenu(const std::vector<std::wstring>& paths);

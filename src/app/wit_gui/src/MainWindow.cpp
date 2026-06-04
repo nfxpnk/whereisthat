@@ -171,93 +171,119 @@ void MainFrame::Show(int command) {
     UpdateWindow();
 }
 
-LRESULT MainFrame::OnFrameMessage(UINT message, WPARAM wparam, LPARAM lparam, BOOL& handled) {
-    return HandleMessage(message, wparam, lparam, handled);
+LRESULT MainFrame::OnCreate(UINT, WPARAM, LPARAM, BOOL&) {
+    return InitializeFrame() ? 0 : -1;
 }
 
-LRESULT MainFrame::HandleMessage(UINT message, WPARAM wparam, LPARAM lparam, BOOL& handled) {
-    handled = TRUE;
-    switch (message) {
-    case WM_CREATE:
-        return OnCreate() ? 0 : -1;
-    case WM_SIZE:
-        if (wparam != SIZE_MINIMIZED) chrome_.OnSize(LOWORD(lparam), HIWORD(lparam));
-        return 0;
-    case WM_CLOSE:
-        OnClose();
-        return 0;
-    case WM_LBUTTONDOWN:
-        if (chrome_.OnLeftButtonDown(static_cast<short>(LOWORD(lparam)), static_cast<short>(HIWORD(lparam)))) {
-            return 0;
-        }
-        break;
-    case WM_MOUSEMOVE:
-        if (chrome_.OnMouseMove(static_cast<short>(LOWORD(lparam)))) return 0;
-        break;
-    case WM_LBUTTONUP:
-        if (chrome_.OnLeftButtonUp()) {
-            controller_.SaveMainSplitterPosition(chrome_.SplitterPosition());
-            return 0;
-        }
-        break;
-    case WM_CAPTURECHANGED:
-        chrome_.OnCaptureChanged();
-        break;
-    case WM_SETCURSOR:
-        if (chrome_.OnSetCursor(lparam)) return TRUE;
-        break;
-    case WM_COMMAND:
-        OnCommand(LOWORD(wparam));
-        return 0;
-    case WM_DRAWITEM:
-        if (chrome_.DrawStatusPart(reinterpret_cast<LPDRAWITEMSTRUCT>(lparam), protectedCatalog_)) return TRUE;
-        break;
-    case WM_NOTIFY: {
-        auto* header = reinterpret_cast<LPNMHDR>(lparam);
-        if (header->idFrom == IDC_BROWSER_TREE && header->code == TVN_SELCHANGEDW) {
-            ApplyControllerResult(controller_.SelectCatalog(browser_.OnTreeSelectionChanged(header)));
-            return 0;
-        }
-        if (header->idFrom == IDC_BROWSER_TREE && header->code == TVN_ITEMEXPANDINGW) {
-            return browser_.OnTreeExpanding(header);
-        }
-        if (header->idFrom == IDC_BROWSER_TREE && header->code == NM_RCLICK) return OnTreeRightClick();
-        if (header->idFrom == IDC_FILES && header->code == LVN_GETDISPINFOW) {
-            return browser_.OnFileGetDispInfo(header);
-        }
-        if (header->idFrom == IDC_FILES && header->code == LVN_ITEMACTIVATE) {
-            const auto result = browser_.OnFileActivate(header);
-            UpdateBrowserStatus();
-            return result;
-        }
-        if (header->idFrom == IDC_FILES && header->code == LVN_ITEMCHANGED) {
-            if (browser_.FileItemStateChanged(header)) UpdateBrowserStatus();
-            return 0;
-        }
-        if (header->idFrom == IDC_TOOLBAR && header->code == TBN_DROPDOWN) {
-            return chrome_.OnToolbarDropDown(reinterpret_cast<LPNMTOOLBAR>(header));
-        }
-        if (header->idFrom == IDC_TOOLBAR && header->code == TBN_GETINFOTIPW) {
-            chrome_.SetToolbarTooltip(reinterpret_cast<LPNMTBGETINFOTIPW>(header));
-            return 0;
-        }
-        break;
-    }
-    case wit::app::WM_SCAN_PROGRESS:
-        ApplyControllerResult(controller_.OnScanProgress(static_cast<wit::app::ScanId>(wparam)));
-        return 0;
-    case wit::app::WM_SCAN_COMPLETE:
-        ApplyControllerResult(controller_.OnScanComplete(static_cast<wit::app::ScanId>(wparam)));
-        return 0;
-    case WM_DESTROY:
-        OnDestroy();
+LRESULT MainFrame::OnSize(UINT, WPARAM wparam, LPARAM lparam, BOOL&) {
+    if (wparam != SIZE_MINIMIZED) chrome_.OnSize(LOWORD(lparam), HIWORD(lparam));
+    return 0;
+}
+
+LRESULT MainFrame::OnClose(UINT, WPARAM, LPARAM, BOOL&) {
+    RequestClose();
+    return 0;
+}
+
+LRESULT MainFrame::OnLeftButtonDown(UINT, WPARAM, LPARAM lparam, BOOL& handled) {
+    if (chrome_.OnLeftButtonDown(static_cast<short>(LOWORD(lparam)), static_cast<short>(HIWORD(lparam)))) {
         return 0;
     }
     handled = FALSE;
     return 0;
 }
 
-bool MainFrame::OnCreate() {
+LRESULT MainFrame::OnMouseMove(UINT, WPARAM, LPARAM lparam, BOOL& handled) {
+    if (chrome_.OnMouseMove(static_cast<short>(LOWORD(lparam)))) return 0;
+    handled = FALSE;
+    return 0;
+}
+
+LRESULT MainFrame::OnLeftButtonUp(UINT, WPARAM, LPARAM, BOOL& handled) {
+    if (chrome_.OnLeftButtonUp()) {
+        controller_.SaveMainSplitterPosition(chrome_.SplitterPosition());
+        return 0;
+    }
+    handled = FALSE;
+    return 0;
+}
+
+LRESULT MainFrame::OnCaptureChanged(UINT, WPARAM, LPARAM, BOOL& handled) {
+    chrome_.OnCaptureChanged();
+    handled = FALSE;
+    return 0;
+}
+
+LRESULT MainFrame::OnSetCursor(UINT, WPARAM, LPARAM lparam, BOOL& handled) {
+    if (chrome_.OnSetCursor(lparam)) return TRUE;
+    handled = FALSE;
+    return 0;
+}
+
+LRESULT MainFrame::OnCommandMessage(UINT, WPARAM wparam, LPARAM, BOOL&) {
+    HandleCommand(LOWORD(wparam));
+    return 0;
+}
+
+LRESULT MainFrame::OnDrawItem(UINT, WPARAM, LPARAM lparam, BOOL& handled) {
+    if (chrome_.DrawStatusPart(reinterpret_cast<LPDRAWITEMSTRUCT>(lparam), protectedCatalog_)) return TRUE;
+    handled = FALSE;
+    return 0;
+}
+
+LRESULT MainFrame::OnScanProgress(UINT, WPARAM wparam, LPARAM, BOOL&) {
+    ApplyControllerResult(controller_.OnScanProgress(static_cast<wit::app::ScanId>(wparam)));
+    return 0;
+}
+
+LRESULT MainFrame::OnScanComplete(UINT, WPARAM wparam, LPARAM, BOOL&) {
+    ApplyControllerResult(controller_.OnScanComplete(static_cast<wit::app::ScanId>(wparam)));
+    return 0;
+}
+
+LRESULT MainFrame::OnDestroy(UINT, WPARAM, LPARAM, BOOL&) {
+    CleanupFrame();
+    return 0;
+}
+
+LRESULT MainFrame::OnTreeSelectionChanged(int, LPNMHDR header, BOOL&) {
+    ApplyControllerResult(controller_.SelectCatalog(browser_.OnTreeSelectionChanged(header)));
+    return 0;
+}
+
+LRESULT MainFrame::OnTreeExpanding(int, LPNMHDR header, BOOL&) {
+    return browser_.OnTreeExpanding(header);
+}
+
+LRESULT MainFrame::OnTreeRightClick(int, LPNMHDR, BOOL&) {
+    return ShowTreeContextMenu();
+}
+
+LRESULT MainFrame::OnFileGetDispInfo(int, LPNMHDR header, BOOL&) {
+    return browser_.OnFileGetDispInfo(header);
+}
+
+LRESULT MainFrame::OnFileActivate(int, LPNMHDR header, BOOL&) {
+    const auto result = browser_.OnFileActivate(header);
+    UpdateBrowserStatus();
+    return result;
+}
+
+LRESULT MainFrame::OnFileItemChanged(int, LPNMHDR header, BOOL&) {
+    if (browser_.FileItemStateChanged(header)) UpdateBrowserStatus();
+    return 0;
+}
+
+LRESULT MainFrame::OnToolbarDropDown(int, LPNMHDR header, BOOL&) {
+    return chrome_.OnToolbarDropDown(reinterpret_cast<LPNMTOOLBAR>(header));
+}
+
+LRESULT MainFrame::OnToolbarGetInfoTip(int, LPNMHDR header, BOOL&) {
+    chrome_.SetToolbarTooltip(reinterpret_cast<LPNMTBGETINFOTIPW>(header));
+    return 0;
+}
+
+bool MainFrame::InitializeFrame() {
     if (!controller_.AttachTarget(m_hWnd)) return false;
     auto initial = controller_.Initialize();
     if (!chrome_.Create(m_hWnd, initial.presentation.statusVisible, initial.presentation.toolbarVisible,
@@ -275,12 +301,12 @@ bool MainFrame::OnCreate() {
     return true;
 }
 
-void MainFrame::OnClose() {
+void MainFrame::RequestClose() {
     controller_.SaveMainSplitterPosition(chrome_.SplitterPosition());
     ApplyControllerResult(controller_.RequestWindowClose());
 }
 
-void MainFrame::OnDestroy() {
+void MainFrame::CleanupFrame() {
     controller_.SaveMainSplitterPosition(chrome_.SplitterPosition());
     searchDialog_.Close();
     scanProgressDialog_.Close();
@@ -298,7 +324,7 @@ void MainFrame::OnAbout() {
     dialog.Show(m_hWnd);
 }
 
-void MainFrame::OnCommand(int id) {
+void MainFrame::HandleCommand(int id) {
     if (id == ID_FILE_NEWCATALOG) ApplyControllerResult(controller_.RequestNewCatalog());
     else if (id == ID_WIT_FILE_OPEN) ApplyControllerResult(controller_.RequestOpenCatalog());
     else if (id >= ID_FILE_RECENT_FIRST && id <= ID_FILE_RECENT_LAST) {
@@ -351,7 +377,7 @@ void MainFrame::OnMoveSelectedDiskToGroup() {
         target->location.sourceId, selectedGroupId));
 }
 
-LRESULT MainFrame::OnTreeRightClick() {
+LRESULT MainFrame::ShowTreeContextMenu() {
     POINT screenPoint{};
     GetCursorPos(&screenPoint);
     auto treePoint = screenPoint;
@@ -388,7 +414,7 @@ LRESULT MainFrame::OnTreeRightClick() {
     const auto command = TrackPopupMenuEx(menu, TPM_RETURNCMD | TPM_LEFTALIGN | TPM_TOPALIGN,
         screenPoint.x, screenPoint.y, m_hWnd, nullptr);
     DestroyMenu(menu);
-    if (command) OnCommand(command);
+    if (command) HandleCommand(command);
     return 0;
 }
 

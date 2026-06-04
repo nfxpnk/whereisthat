@@ -15,7 +15,7 @@ Contains the single catalog-owned metadata record. `CatalogSchema::Initialize()`
 | Source | Functions / classes |
 |---|---|
 | `sql/tables/catalog_metadata.sql`; `src/modules/wit_database/src/Database.cpp` | `CatalogSchema::Initialize`, `SetCatalogDescription`, `GetCatalogMetadata` |
-| `src/core/Disk.h` | `CatalogMetadata`, `CatalogSummary` |
+| `src/modules/wit_types/include/wit_types/Disk.h` | `CatalogMetadata`, `CatalogSummary` |
 
 ## Field Reference
 

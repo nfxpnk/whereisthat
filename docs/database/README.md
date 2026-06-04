@@ -31,7 +31,7 @@ The root [`sql`](../../sql) directory is the schema authority for new catalog fi
 
 ## Data Encodings
 
-- All stored date/time fields are `INTEGER` Unix timestamps in seconds. `src/platform/Win32Helpers.cpp` converts filesystem times and formats display strings.
+- All stored date/time fields are `INTEGER` Unix timestamps in seconds. `src/modules/wit_infra/src/Win32Helpers.cpp` converts filesystem times and formats display strings.
 - Boolean `calculated_file_crcs` is stored as `INTEGER` `0` or `1`.
 - File and folder attributes are stored as native Win32 bitmasks; relevant requested values are hidden, system, read-only, compressed, and archive flags.
 - File extensions are stored without a dot, for example `txt`; files without an extension store `''`.
@@ -47,7 +47,7 @@ Stored disk scan results include `disks.total_files` and `disks.total_folders`, 
 
 | Catalog value | Source |
 |---|---|
-| Current catalog file size | Filesystem size of the active database path via `src/platform/VolumeInfo.cpp`; not stored in SQLite. |
+| Current catalog file size | Filesystem size of the active database path via `src/modules/wit_infra/src/VolumeInfo.cpp`; not stored in SQLite. |
 | Total disks | `COUNT(disks)` |
 | Total files | `COUNT(files)` |
 | Total folders | `COUNT(folders)` |

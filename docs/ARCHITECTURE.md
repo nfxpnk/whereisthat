@@ -7,11 +7,18 @@ Where Is That? uses C++20 + the Win32 API + WTL/ATL + SQLite + MSVC. The UI uses
 WTL gives native message maps and lightweight wrapper classes without replacing Windows controls or adding a separately deployed UI runtime. Existing direct Win32 UI can be migrated incrementally.
 
 ## Structure
-- `src/app`: WinMain, WTL application module lifetime, frame window, menus, status, command routing.
-- `src/core`: domain models, scanner, size formatting.
-- `src/storage`: SQLite access and statement RAII wrapper.
-- `src/ui`: list-view adapters and native dialogs, with WTL wrappers where migrated.
-- `src/platform`: UTF-16/UTF-8 conversion, path/time helpers.
+- `src/app/wit_gui`: WinMain, WTL application module lifetime, frame window, menus, status, command routing, native dialogs, browser/search panes, workflow controllers, scan coordination, and resources.
+- `src/app/wit_win32`: reusable Win32/WTL base-window, base-dialog, DPI, virtual-list, and handle helpers.
+- `src/modules/wit_types`: shared catalog, disk, folder, file, browser, search, and scan data types in the `wit::core` namespace.
+- `src/modules/wit_catalog`: catalog/session abstractions and open-catalog state.
+- `src/modules/wit_database`: SQLite connection, statement RAII, schema creation/validation, catalog writes, and catalog browsing repositories.
+- `src/modules/wit_scanner`: filesystem scanning requests, interfaces, and implementation.
+- `src/modules/wit_extractors`: optional metadata/archive extractor implementations.
+- `src/modules/wit_search`: search abstractions and current SQLite-backed search execution.
+- `src/modules/wit_infra`: settings, path, string, Win32 conversion, volume information, file-entry, result, and scope helpers.
+- `sql`: table, index, and PRAGMA SQL used by the native initializer and tooling.
+
+Database/search modules must not own window behavior. UI code must not encode SQLite schema DDL or durable read/write SQL; those belong in `wit_database`, `wit_search`, and root `sql` files.
 
 ## Scanning model
 `FileScanner` runs on a worker thread, recursively enumerates with `FindFirstFileW/FindNextFileW`, skips inaccessible entries, and skips reparse-point directories in v1 to avoid loops. When requested by scan options, it uses the packaged libarchive runtime to validate and store readable archive contents as virtual folder subtrees while falling back to ordinary files for unreadable archives.

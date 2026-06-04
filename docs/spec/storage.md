@@ -4,7 +4,7 @@
 
 Where Is That? treats each user-selected SQLite database file as one catalog. The current catalog format is new-format only: database files created with the former `catalogs` and mixed folder/file `files` tables, or normalized catalogs lacking required stored folder content sizes or archive-aware fields, are not supported and are not migrated or modified when opening fails validation.
 
-SQLite is accessed in native C++ through the SQLite C API. Storage behavior belongs in `src/storage`; domain objects consumed by storage belong in `src/core`; Win32 filesystem and volume metadata discovery belongs in `src/platform` or scan orchestration.
+SQLite is accessed in native C++ through the SQLite C API. Catalog storage behavior belongs in `src/modules/wit_database`; search-specific SQLite reads currently belong in `src/modules/wit_search`; domain objects consumed by those modules belong in `src/modules/wit_types`; Win32 filesystem and volume metadata discovery belongs in `src/modules/wit_infra` or scan orchestration.
 
 ## Application Preferences
 
@@ -12,7 +12,7 @@ Application preferences are separate from catalog data and must not be added to 
 
 - General Settings persists implemented preferences in `settings.ini` beside `WhereIsThat.exe`, including `General/ShowToolbar` defaulting to enabled and `General/MainSplitterPosition` with a default of `360` when the key is missing.
 - `[General] LastCatalogPath` and `[RecentCatalogs] Path1` through `Path10` record activated catalog file paths, not catalog content.
-- UI preference reads and writes use `src/platform`; `src/storage` remains responsible only for SQLite catalog persistence.
+- UI preference reads and writes use `src/modules/wit_infra`; `src/modules/wit_database` remains responsible only for SQLite catalog persistence and must not own window behavior.
 
 ## SQLite Packaging Decision
 
@@ -61,7 +61,7 @@ Catalog-wide summary values are not cached in SQLite:
 
 - Use prepared statements for values supplied by application state or filesystem data.
 - Manage SQLite handles and prepared statements with deterministic lifetime management.
-- Keep schema creation and supported-format validation centralized in the storage layer, with table/index DDL sourced from the root `sql` directory.
+- Keep schema creation and supported-format validation centralized in `src/modules/wit_database`, with table/index DDL sourced from the root `sql` directory.
 - Reject former-format catalog files and normalized catalog files without required stored folder content sizes or archive-aware fields without attempting upgrade, conversion, or backfill.
 - Do not execute SQLite reads or writes by embedding SQL in window/view classes.
 - Keep hierarchy/list/search reads paged and available offline from persisted data.

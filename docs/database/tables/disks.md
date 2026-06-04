@@ -30,7 +30,7 @@ Stores one disk/media source added to a catalog. `MainFrame::OnAddOrUpdateDiskIm
 | `disk_name` | `TEXT` | No | none | none | User-visible disk/media name. | `src/app/wit_gui/src/AddDiskDialog.cpp`; `src/app/wit_gui/src/ScanCoordinator.cpp`; `Database::GetCatalogs`, `GetDisksPage` | Explicit |
 | `disk_number` | `INTEGER` | No | `0` | none | Numeric identifier accepted for the disk. | `src/app/wit_gui/src/ScanCoordinator.cpp`; `Database::AddDisk`, `UpdateDisk` | Explicit |
 | `source_path` | `TEXT` | No | none | `UNIQUE`; `idx_disks_source_path` | Current normalized scan/browse root; normally identifies rescans, and is refreshed if a matched ISO mount root changes. | `ScanCoordinator::Start`; `Database::FindDiskBySourcePath`, `UpdateDisk`; browser projection | Explicit |
-| `volume_label` | `TEXT` | No | `''` | none | Native volume label when available. | `src/platform/VolumeInfo.cpp`; `Database` disk writes | Explicit |
+| `volume_label` | `TEXT` | No | `''` | none | Native volume label when available. | `src/modules/wit_infra/src/VolumeInfo.cpp`; `Database` disk writes | Explicit |
 | `total_capacity` | `INTEGER` | No | `0` | none | Total capacity in bytes. | `VolumeInfo.cpp`; `Database::GetCatalogSummary`, `GetDisksPage` | Explicit |
 | `free_space` | `INTEGER` | No | `0` | none | Free capacity in bytes. | `VolumeInfo.cpp`; `Database::GetCatalogSummary`, `GetDisksPage` | Explicit |
 | `cluster_size` | `INTEGER` | No | `0` | none | Allocation cluster size in bytes. | `VolumeInfo.cpp`; disk writes | Explicit |

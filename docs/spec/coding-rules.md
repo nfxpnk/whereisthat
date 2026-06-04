@@ -22,12 +22,15 @@ A proposal that would require any forbidden technology must first revise the can
 
 ## Module Ownership
 
-- Put Windows application startup, main frame composition/routing, main-window collaborators, resources, and top-level lifetime in `src/app`.
-- Put native view adapters and dialog UI behavior in `src/ui`.
-- Put reusable application models and scanning/domain operations in `src/core`.
-- Put SQLite table/index DDL in the root `sql` directory. Keep SQLite connection, statements, queries, and schema validation in the storage module.
-- Put focused Windows platform conversion or filesystem helpers in `src/platform`.
-- Do not bypass these ownership boundaries by placing SQL in UI code or control presentation inside storage code.
+- Put Windows application startup, main frame composition/routing, main-window collaborators, native dialogs, resources, and top-level lifetime in `src/app/wit_gui`.
+- Put reusable Win32/WTL base-window, base-dialog, DPI, virtual-list, and handle helpers in `src/app/wit_win32`.
+- Put reusable catalog, disk, folder, file, browser, search, and scan data types in `src/modules/wit_types`.
+- Put open-catalog/session behavior in `src/modules/wit_catalog`.
+- Put filesystem scanning behavior in `src/modules/wit_scanner` and extractor implementations in `src/modules/wit_extractors`.
+- Put SQLite table/index DDL in the root `sql` directory. Keep SQLite connection, statements, catalog schema validation, and catalog browse/write queries in `src/modules/wit_database`.
+- Put search abstractions and current SQLite-backed search execution in `src/modules/wit_search`.
+- Put focused settings, path, string, Win32 conversion, filesystem, and volume helpers in `src/modules/wit_infra`.
+- Do not bypass these ownership boundaries by placing durable SQL in UI code or control presentation inside database/search modules.
 
 ## Main Frame Rule
 

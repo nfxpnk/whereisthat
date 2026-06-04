@@ -6,20 +6,29 @@ Where Is That? is a C++20, x64-only native Windows desktop application. The UI u
 
 The following alternatives are forbidden: .NET, WPF, C#, Qt, Electron, Python, CMake, and vcpkg.
 
-## Layers
+## Modules
 
-The source tree establishes these responsibilities:
+The current source tree is module-oriented. The Visual Studio/MSBuild project is the
+source of truth for compiled application code and currently builds these areas:
 
 | Directory | Responsibility |
 | --- | --- |
-| `src/app` | Entry point, WTL module/app lifetime, main frame composition/routing, window collaborators, Windows resources. |
-| `src/ui` | Win32/Common Controls view adapters and dialog presentation, using WTL wrappers where migrated. |
-| `src/core` | Catalog, disk, folder, file and scan-statistics models, scanning behavior, domain formatting. |
+| `src/app/wit_gui` | Entry point, WTL module/app lifetime, main frame composition/routing, native dialogs, browser/search panes, workflow controllers, scan coordination, and Windows resources. |
+| `src/app/wit_win32` | Reusable Win32/WTL window helpers, DPI support, handle guards, and base dialog/window wrappers. |
+| `src/modules/wit_types` | Shared catalog, disk, folder, file, browser-location, search-query, and scan-progress data types in the `wit::core` namespace. |
+| `src/modules/wit_catalog` | Catalog/session abstractions and open-catalog session state. |
+| `src/modules/wit_database` | SQLite connection, catalog schema creation/validation, catalog browse/write queries, statement/resource management, and database-backed repository implementations. |
+| `src/modules/wit_scanner` | Filesystem scan requests, scanner interfaces, and scanner implementation. |
+| `src/modules/wit_extractors` | Optional metadata/archive extractor implementations used by scanning. |
+| `src/modules/wit_search` | Search abstractions and current SQLite-backed search execution. Search SQL lives here today. |
+| `src/modules/wit_infra` | Shared infrastructure helpers for settings, paths, strings, Win32 conversion, volume information, file-entry helpers, and result/scope utilities. |
 | `sql` | SQLite table/index/PRAGMA files used by the importer and native storage initializer. |
-| `src/storage` | SQLite connection, schema validation, queries, statement/resource management. |
-| `src/platform` | Win32-specific conversion, filesystem, path, and time helpers. |
 
-Dependencies should flow from application/UI orchestration into core, storage, and platform helpers. Storage must not own window behavior, and UI code must not encode the SQLite schema or SQL queries.
+Dependencies should flow from `wit_gui` orchestration into shared types, catalog
+session behavior, scanner/extractor code, database/search repositories, and infra
+helpers. Database/search modules must not own window behavior. UI code must not
+encode SQLite schema DDL or durable read/write SQL; those belong in
+`wit_database`, `wit_search`, and root `sql` files.
 
 ## Main Window Responsibilities
 
@@ -39,7 +48,10 @@ The established main-window collaborators are:
 
 New main-window behavior SHALL extend the component that owns that responsibility, or introduce a separately justified focused component. Business workflow ordering belongs to `CatalogWorkflowController`; top-level native dispatch and mechanical effect rendering remain appropriate `MainFrame` responsibilities.
 
-Modal dialog presentation for General Settings belongs to a dedicated WTL/ATL-hosted component in `src/ui`; `MainFrame` displays it when requested and returns accepted input to `CatalogWorkflowController` for persistence and resulting presentation effects.
+Modal dialog presentation for General Settings belongs to the dedicated
+WTL/ATL-hosted component in `src/app/wit_gui`; `MainFrame` displays it when
+requested and returns accepted input to `CatalogWorkflowController` for
+persistence and resulting presentation effects.
 
 ## Runtime Shape
 

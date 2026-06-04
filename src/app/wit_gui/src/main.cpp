@@ -1,6 +1,8 @@
 #include "wit_gui/App.h"
 #include "wit_win32/BaseWindow.h"
+#include <wit_infra/Logging.h>
 #include <Windows.h>
+#include <format>
 
 WTL::CAppModule _Module;
 
@@ -30,13 +32,21 @@ void EnableDpiAwareness() {
 }
 
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
+    wit::infra::InitializeLogging();
+    WIT_LOG_INFO(L"WhereIsThat starting");
     EnableDpiAwareness();
 
     const HRESULT comResult = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
-    if (FAILED(comResult)) return 1;
+    if (FAILED(comResult)) {
+        WIT_LOG_ERROR(std::format(L"CoInitializeEx failed: 0x{:08X}", static_cast<unsigned int>(comResult)));
+        wit::infra::ShutdownLogging();
+        return 1;
+    }
 
     if (FAILED(_Module.Init(nullptr, instance))) {
+        WIT_LOG_ERROR(L"WTL module initialization failed");
         CoUninitialize();
+        wit::infra::ShutdownLogging();
         return 1;
     }
 
@@ -45,6 +55,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
 
     _Module.Term();
     CoUninitialize();
+    WIT_LOG_INFO(std::format(L"WhereIsThat exiting with code {}", rc));
+    wit::infra::ShutdownLogging();
     return rc;
 }
 

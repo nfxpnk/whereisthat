@@ -1,6 +1,8 @@
 #include <wit_gui/CatalogWorkflowController.h>
+#include <wit_infra/Logging.h>
 #include <iterator>
 #include <memory>
+#include <format>
 #include <utility>
 
 namespace wit::app {
@@ -128,14 +130,19 @@ ControllerResult CatalogWorkflowController::OpenCatalogPathSelected(const std::o
 ControllerResult CatalogWorkflowController::ActivateCatalog(const std::wstring& path, bool createNew,
     bool persistPath, const std::wstring& failureTitle, const std::wstring& failureMessage, UINT failureType) {
     ControllerResult result;
+    WIT_LOG_INFO(std::format(L"activate catalog path='{}' createNew={} persistPath={}",
+        path, createNew, persistPath));
     bool settingsSaved{};
     bool alreadyOpen{};
     auto* catalog = session_.Open(path, createNew, persistPath, settingsSaved, alreadyOpen);
     if (!catalog) {
+        WIT_LOG_ERROR(std::format(L"activate catalog failed path='{}'", path));
         result.messages.push_back(Message(failureMessage, failureTitle, failureType));
         PopulatePresentation(result);
         return result;
     }
+    WIT_LOG_INFO(std::format(L"catalog active id={} label='{}' alreadyOpen={} editable={}",
+        catalog->id, catalog->label, alreadyOpen, catalog->IsEditable()));
     if (alreadyOpen) {
         result.browserEffects.push_back({BrowserEffectKind::SelectCatalog, catalog->id});
     } else {
@@ -164,22 +171,27 @@ ControllerResult CatalogWorkflowController::RequestSave() {
 
 ControllerResult CatalogWorkflowController::SaveCatalog(wit::core::CatalogId id) {
     ControllerResult result;
+    WIT_LOG_INFO(std::format(L"save catalog requested id={}", id));
     auto* catalog = session_.Find(id);
     if (!catalog || !catalog->IsOpen() || catalog->path.empty()) {
+        WIT_LOG_WARN(std::format(L"save catalog ignored: catalog unavailable id={}", id));
         PopulatePresentation(result);
         return result;
     }
     if (!catalog->HasPendingChanges()) {
+        WIT_LOG_INFO(std::format(L"save catalog skipped: no pending changes id={}", id));
         PopulatePresentation(result);
         return result;
     }
     if (scans_.Targets(id)) {
+        WIT_LOG_WARN(std::format(L"save catalog blocked by active scan id={}", id));
         result.messages.push_back(Message(L"A scan is still preparing changes for this catalog.",
             L"Scan in progress", MB_OK | MB_ICONINFORMATION));
         PopulatePresentation(result);
         return result;
     }
     if (!catalog->IsEditable()) {
+        WIT_LOG_WARN(std::format(L"save catalog blocked by read-only catalog id={} path='{}'", id, catalog->path));
         result.messages.push_back(Message(L"This catalog is protected or read-only and cannot be saved.",
             L"Protected Catalog", MB_OK | MB_ICONINFORMATION));
         PopulatePresentation(result);
@@ -187,6 +199,7 @@ ControllerResult CatalogWorkflowController::SaveCatalog(wit::core::CatalogId id)
     }
     const bool hadPendingChanges = catalog->HasPendingChanges();
     if (!session_.SavePending(id)) {
+        WIT_LOG_ERROR(std::format(L"save catalog failed id={} path='{}'", id, catalog->path));
         result.messages.push_back(Message(
             L"Unable to save the pending catalog changes. They remain available to retry.",
             L"Save Catalog", MB_OK | MB_ICONERROR));
@@ -194,6 +207,7 @@ ControllerResult CatalogWorkflowController::SaveCatalog(wit::core::CatalogId id)
         return result;
     }
     if (hadPendingChanges) {
+        WIT_LOG_INFO(std::format(L"save catalog completed id={} path='{}'", id, catalog->path));
         result.browserEffects.push_back({BrowserEffectKind::RefreshCatalog, id, catalog->label,
             catalog->WorkingDatabase(), true});
         result.presentation.refreshBrowserStatus = true;
@@ -403,6 +417,8 @@ ControllerResult CatalogWorkflowController::CreateDiskGroup(const std::wstring& 
     ControllerResult result;
     auto* catalog = ActiveCatalog();
     auto* database = catalog ? catalog->WorkingDatabase() : nullptr;
+    WIT_LOG_INFO(std::format(L"create disk group requested catalogId={} name='{}'",
+        catalog ? catalog->id : 0, name));
     if (!database || !database->IsEditable()) {
         result.messages.push_back(Message(L"Open an editable catalog before adding a disk group.",
             L"Add New Disk Group", MB_OK | MB_ICONINFORMATION));
@@ -418,12 +434,15 @@ ControllerResult CatalogWorkflowController::CreateDiskGroup(const std::wstring& 
     }
     const auto id = pending->CreateDiskGroup(name);
     if (id == 0) {
+        WIT_LOG_WARN(std::format(L"create disk group failed catalogId={} name='{}'", catalog->id, name));
         result.messages.push_back(Message(L"Unable to create the disk group. Check that the name is unique.",
             L"Add New Disk Group", MB_OK | MB_ICONWARNING));
         PopulatePresentation(result);
         return result;
     }
     session_.AcceptPending(catalog->id, std::move(pending));
+    WIT_LOG_INFO(std::format(L"create disk group staged catalogId={} groupId={} name='{}'",
+        catalog->id, id, name));
     result.browserEffects.push_back({BrowserEffectKind::RefreshCatalog, catalog->id, catalog->label,
         catalog->WorkingDatabase(), true});
     result.presentation.refreshBrowserStatus = true;
@@ -434,6 +453,8 @@ ControllerResult CatalogWorkflowController::CreateDiskGroup(const std::wstring& 
 ControllerResult CatalogWorkflowController::MoveDiskToGroup(wit::core::CatalogId catalogId,
     std::int64_t diskId, std::int64_t diskGroupId) {
     ControllerResult result;
+    WIT_LOG_INFO(std::format(L"move disk requested catalogId={} diskId={} targetGroupId={}",
+        catalogId, diskId, diskGroupId));
     auto* catalog = session_.Find(catalogId);
     auto* database = catalog ? catalog->WorkingDatabase() : nullptr;
     if (!database || !database->IsEditable()) {
@@ -456,12 +477,16 @@ ControllerResult CatalogWorkflowController::MoveDiskToGroup(wit::core::CatalogId
         return result;
     }
     if (!pending->MoveDiskToGroup(diskId, diskGroupId)) {
+        WIT_LOG_WARN(std::format(L"move disk failed catalogId={} diskId={} targetGroupId={}",
+            catalogId, diskId, diskGroupId));
         result.messages.push_back(Message(L"Unable to move the disk image to the selected group.",
             L"Move to Group", MB_OK | MB_ICONWARNING));
         PopulatePresentation(result);
         return result;
     }
     session_.AcceptPending(catalogId, std::move(pending));
+    WIT_LOG_INFO(std::format(L"move disk staged catalogId={} diskId={} targetGroupId={}",
+        catalogId, diskId, diskGroupId));
     const bool active = ActiveCatalog() && ActiveCatalog()->id == catalogId;
     result.browserEffects.push_back({BrowserEffectKind::MoveDiskToGroup, catalogId, catalog->label,
         catalog->WorkingDatabase(), active, diskId, diskGroupId});
@@ -473,6 +498,8 @@ ControllerResult CatalogWorkflowController::MoveDiskToGroup(wit::core::CatalogId
 ControllerResult CatalogWorkflowController::MoveDiskGroupToGroup(wit::core::CatalogId catalogId,
     std::int64_t diskGroupId, std::int64_t parentGroupId) {
     ControllerResult result;
+    WIT_LOG_INFO(std::format(L"move disk group requested catalogId={} groupId={} targetParentGroupId={}",
+        catalogId, diskGroupId, parentGroupId));
     auto* catalog = session_.Find(catalogId);
     auto* database = catalog ? catalog->WorkingDatabase() : nullptr;
     if (!database || !database->IsEditable()) {
@@ -495,12 +522,16 @@ ControllerResult CatalogWorkflowController::MoveDiskGroupToGroup(wit::core::Cata
         return result;
     }
     if (!pending->MoveDiskGroupToGroup(diskGroupId, parentGroupId)) {
+        WIT_LOG_WARN(std::format(L"move disk group failed catalogId={} groupId={} targetParentGroupId={}",
+            catalogId, diskGroupId, parentGroupId));
         result.messages.push_back(Message(L"Unable to move the disk group to the selected destination.",
             L"Move to Group", MB_OK | MB_ICONWARNING));
         PopulatePresentation(result);
         return result;
     }
     session_.AcceptPending(catalogId, std::move(pending));
+    WIT_LOG_INFO(std::format(L"move disk group staged catalogId={} groupId={} targetParentGroupId={}",
+        catalogId, diskGroupId, parentGroupId));
     const bool active = ActiveCatalog() && ActiveCatalog()->id == catalogId;
     result.browserEffects.push_back({BrowserEffectKind::RefreshCatalog, catalogId, catalog->label,
         catalog->WorkingDatabase(), active});

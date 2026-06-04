@@ -8,6 +8,7 @@
 #include "wit_gui/AboutDialog.h"
 #include "wit_gui/CatalogFileDialog.h"
 #include "wit_gui/GeneralSettingsDialog.h"
+#include <wit_infra/Logging.h>
 #include "wit_scanner/ScanRequest.h"
 #include "resource.h"
 
@@ -312,6 +313,7 @@ LRESULT MainFrame::OnToolbarGetInfoTip(int, LPNMHDR header, BOOL&) {
 }
 
 bool MainFrame::InitializeFrame() {
+    WIT_LOG_INFO(L"main frame initialization started");
     if (!controller_.AttachTarget(m_hWnd)) return false;
     auto initial = controller_.Initialize();
     if (!chrome_.Create(m_hWnd, initial.presentation.statusVisible, initial.presentation.toolbarVisible,
@@ -326,22 +328,26 @@ bool MainFrame::InitializeFrame() {
     browser_.Clear();
     ApplyControllerResult(std::move(initial));
     chrome_.UpdateProgramStatusLights();
+    WIT_LOG_INFO(L"main frame initialization completed");
     return true;
 }
 
 void MainFrame::RequestClose() {
+    WIT_LOG_INFO(L"window close requested");
     // Best-effort preference save before close handling continues.
     (void)controller_.SaveMainSplitterPosition(chrome_.SplitterPosition());
     ApplyControllerResult(controller_.RequestWindowClose());
 }
 
 void MainFrame::CleanupFrame() {
+    WIT_LOG_INFO(L"main frame cleanup started");
     // Best-effort final preference save during teardown.
     (void)controller_.SaveMainSplitterPosition(chrome_.SplitterPosition());
     searchDialog_.Close();
     scanProgressDialog_.Close();
     controller_.DetachTarget();
     chrome_.Destroy();
+    WIT_LOG_INFO(L"main frame cleanup completed");
     PostQuitMessage(0);
 }
 
@@ -390,6 +396,9 @@ void MainFrame::HandleCommand(int id) {
 void MainFrame::OnMoveSelectedItemToGroup() {
     const auto target = browser_.SelectedTreeTarget();
     if (!target || (!IsDiskMediaTarget(*target) && !IsDiskGroupTarget(*target))) return;
+    WIT_LOG_INFO(std::format(L"move selected item command catalogId={} sourceId={} diskGroupId={} isGroup={}",
+        target->catalogId, target->location.sourceId, target->location.diskGroupId,
+        target->location.isDiskGroup));
     auto* database = controller_.WorkingDatabase(target->catalogId);
     if (!database || !database->IsEditable()) {
         ::MessageBoxW(m_hWnd, L"Open an editable catalog before moving this item.",

@@ -39,7 +39,7 @@
         <Link>
             <SubSystem>Windows</SubSystem>
             <AdditionalLibraryDirectories>third_party\sqlite;third_party\libarchive\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-            <AdditionalDependencies>sqlite3.lib;archive.lib;comctl32.lib;ole32.lib;uuid.lib;windowscodecs.lib;%(AdditionalDependencies)</AdditionalDependencies>
+            <AdditionalDependencies>sqlite3.lib;archive.lib;comctl32.lib;ole32.lib;uuid.lib;windowscodecs.lib;Dbghelp.lib;%(AdditionalDependencies)</AdditionalDependencies>
         </Link>
         <PostBuildEvent>
             <Command>copy /Y "$(ProjectDir)third_party\sqlite\sqlite3.dll" "$(OutDir)sqlite3.dll"
@@ -65,6 +65,7 @@ copy /Y "$(ProjectDir)third_party\libarchive\bin\*.dll" "$(OutDir)"</Command>
         <ClCompile Include="src\app\wit_win32\src\BaseWindow.cpp"/>
         <ClCompile Include="src\app\wit_win32\src\DpiHelper.cpp"/>
         <ClCompile Include="src\modules\wit_infra\src\FileEntry.cpp"/>
+        <ClCompile Include="src\modules\wit_infra\src\Logging.cpp"/>
         <ClCompile Include="src\app\wit_gui\src\BrowserController.cpp"/>
         <ClCompile Include="src\modules\wit_catalog\src\Catalog.cpp"/>
         <ClCompile Include="src\modules\wit_catalog\src\CatalogSession.cpp"/>
@@ -123,6 +124,7 @@ copy /Y "$(ProjectDir)third_party\libarchive\bin\*.dll" "$(OutDir)"</Command>
         <ClInclude Include="src\modules\wit_database\include\wit_database\SqlParam.h"/>
         <ClInclude Include="src\modules\wit_extractors\include\wit_extractors\ExtractorRegistry.h"/>
         <ClInclude Include="src\modules\wit_infra\include\wit_infra\Result.h"/>
+        <ClInclude Include="src\modules\wit_infra\include\wit_infra\Logging.h"/>
         <ClInclude Include="src\modules\wit_infra\include\wit_infra\ScopeGuard.h"/>
         <ClInclude Include="src\modules\wit_infra\include\wit_infra\StringUtils.h"/>
         <ClInclude Include="src\modules\wit_scanner\include\wit_scanner\FileScanner.h"/>

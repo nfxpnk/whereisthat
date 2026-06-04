@@ -43,7 +43,7 @@
         <Link>
             <SubSystem>Console</SubSystem>
             <AdditionalLibraryDirectories>third_party\sqlite;third_party\libarchive\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-            <AdditionalDependencies>sqlite3.lib;archive.lib;user32.lib;ole32.lib;uuid.lib;windowscodecs.lib;advapi32.lib;shell32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+            <AdditionalDependencies>sqlite3.lib;archive.lib;user32.lib;ole32.lib;uuid.lib;windowscodecs.lib;advapi32.lib;shell32.lib;Dbghelp.lib;%(AdditionalDependencies)</AdditionalDependencies>
         </Link>
         <PostBuildEvent>
             <Command>copy /Y "$(ProjectDir)third_party\sqlite\sqlite3.dll" "$(OutDir)sqlite3.dll"
@@ -56,6 +56,8 @@ copy /Y "$(ProjectDir)third_party\libarchive\bin\*.dll" "$(OutDir)"</Command>
         <ClCompile Include="tests\unit\PathHelpersTests.cpp" />
         <ClCompile Include="tests\unit\SmokeTests.cpp" />
         <ClCompile Include="tests\unit\storage\StorageSmokeTests.cpp" />
+        <ClCompile Include="src\app\wit_gui\src\CatalogWorkflowController.cpp" />
+        <ClCompile Include="src\modules\wit_catalog\src\CatalogSession.cpp" />
         <ClCompile Include="src\app\wit_gui\src\ScanCoordinator.cpp" />
         <ClCompile Include="src\modules\wit_scanner\src\FileScanner.cpp" />
         <ClCompile Include="src\modules\wit_database\src\CatalogSchema.cpp" />
@@ -67,6 +69,8 @@ copy /Y "$(ProjectDir)third_party\libarchive\bin\*.dll" "$(OutDir)"</Command>
         <ClCompile Include="src\modules\wit_extractors\src\AudioExtractor.cpp" />
         <ClCompile Include="src\modules\wit_extractors\src\ImageExtractor.cpp" />
         <ClCompile Include="src\modules\wit_infra\src\FileEntry.cpp" />
+        <ClCompile Include="src\modules\wit_infra\src\AppSettings.cpp" />
+        <ClCompile Include="src\modules\wit_infra\src\Logging.cpp" />
         <ClCompile Include="src\modules\wit_infra\src\PathHelpers.cpp" />
         <ClCompile Include="src\modules\wit_infra\src\StringUtils.cpp" />
         <ClCompile Include="src\modules\wit_infra\src\VolumeInfo.cpp" />

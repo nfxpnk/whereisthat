@@ -1,6 +1,7 @@
 #include "wit_database/CatalogSchema.h"
 #include "wit_database/Database.h"
 #include "wit_database/SQLiteStatement.h"
+#include <wit_infra/Logging.h>
 #include <wit_infra/VolumeInfo.h>
 #include <wit_infra/Win32Helpers.h>
 #include "third_party/sqlite/sqlite3.h"
@@ -9,6 +10,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <format>
 #include <string>
 #include <thread>
 #include <utility>
@@ -241,6 +243,7 @@ void Database::RebindRepositories() {
 }
 
 bool Database::CreateNew(const std::wstring& path, bool overwriteExisting) {
+    WIT_LOG_INFO(std::format(L"database create new path='{}' overwrite={}", path, overwriteExisting));
     const DWORD disposition = overwriteExisting ? CREATE_ALWAYS : CREATE_NEW;
     HANDLE file = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, disposition, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (file == INVALID_HANDLE_VALUE) return false;
@@ -251,38 +254,55 @@ bool Database::CreateNew(const std::wstring& path, bool overwriteExisting) {
 }
 
 bool Database::OpenExisting(const std::wstring& path) {
+    WIT_LOG_INFO(std::format(L"database open existing path='{}'", path));
     return OpenInternal(path, true) || OpenInternal(path, true, true);
 }
 
 bool Database::OpenInternal(const std::wstring& path, bool requireExistingSchema, bool readOnly) {
     Close();
+    WIT_LOG_DEBUG(std::format(L"database open internal path='{}' requireSchema={} readOnly={}",
+        path, requireExistingSchema, readOnly));
     const int flags = readOnly ? SQLITE_OPEN_READONLY : SQLITE_OPEN_READWRITE;
-    if (!connection_.Open(path, flags)) return false;
+    if (!connection_.Open(path, flags)) {
+        WIT_LOG_WARN(std::format(L"sqlite open failed path='{}' flags={} code={} message='{}'",
+            path, flags, connection_.LastErrorCode(), wit::platform::ToUtf16(connection_.LastErrorMessage())));
+        return false;
+    }
     RebindRepositories();
     editable_ = !readOnly;
     if (requireExistingSchema && !readOnly && !UpgradeCatalogSchema(connection_)) {
+        WIT_LOG_ERROR(std::format(L"catalog schema upgrade failed path='{}'", path));
         Close();
         return false;
     }
     if (requireExistingSchema && !HasCatalogSchema()) {
+        WIT_LOG_WARN(std::format(L"catalog schema validation failed path='{}'", path));
         Close();
         return false;
     }
     if (readOnly) return Exec("PRAGMA foreign_keys=ON;");
     if (!requireExistingSchema && InitializeSchema()) return true;
     if (requireExistingSchema && ApplyEditableCatalogPragmas(connection_)) return true;
+    WIT_LOG_ERROR(std::format(L"database pragmas/schema initialization failed path='{}' code={} message='{}'",
+        path, connection_.LastErrorCode(), wit::platform::ToUtf16(connection_.LastErrorMessage())));
     Close();
     return false;
 }
 
 bool Database::CreateWorkingCopy(const Database& source) {
+    WIT_LOG_DEBUG(L"database working copy requested");
     if (!source.connection_.IsOpen()) return false;
     Close();
     if (!connection_.OpenMemory()) return false;
     RebindRepositories();
     editable_ = true;
     const bool success = BackupDatabase(connection_.Raw(), source.connection_.Raw()) && Exec("PRAGMA foreign_keys=ON;");
-    if (!success) Close();
+    if (!success) {
+        WIT_LOG_ERROR(L"database working copy failed");
+        Close();
+    } else {
+        WIT_LOG_DEBUG(L"database working copy completed");
+    }
     return success;
 }
 
@@ -291,9 +311,17 @@ bool Database::CreateWorkingCopy(const Database& source) {
 // 2. Make the catalog read-only or locked by another process; save must fail and leave pending edits.
 // 3. Break temp verification or replacement under a debugger; the original catalog must still open.
 bool Database::SaveCatalogDataFrom(const Database& source) {
-    if (!connection_.IsOpen() || !editable_ || !source.connection_.IsOpen()) return false;
+    WIT_LOG_INFO(L"database save from staged catalog started");
+    if (!connection_.IsOpen() || !editable_ || !source.connection_.IsOpen()) {
+        WIT_LOG_ERROR(L"database save rejected: source or destination is not open/editable");
+        return false;
+    }
     const std::wstring catalogPath = connection_.Path();
-    if (catalogPath.empty()) return false;
+    if (catalogPath.empty()) {
+        WIT_LOG_ERROR(L"database save rejected: catalog path is empty");
+        return false;
+    }
+    WIT_LOG_INFO(std::format(L"database save target path='{}'", catalogPath));
 
     std::wstring tempPath;
     bool tempCreated = false;
@@ -302,42 +330,57 @@ bool Database::SaveCatalogDataFrom(const Database& source) {
         if (GetFileAttributesW(tempPath.c_str()) != INVALID_FILE_ATTRIBUTES) continue;
         SqliteConnection tempConnection;
         if (!tempConnection.Open(tempPath, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_EXCLUSIVE)) {
+            WIT_LOG_WARN(std::format(L"database save temp open failed attempt={} path='{}' code={} message='{}'",
+                attempt, tempPath, tempConnection.LastErrorCode(), wit::platform::ToUtf16(tempConnection.LastErrorMessage())));
             DeleteCatalogFileSet(tempPath);
             continue;
         }
         tempCreated = true;
+        WIT_LOG_DEBUG(std::format(L"database save temp created path='{}'", tempPath));
         if (!BackupDatabase(tempConnection.Raw(), source.connection_.Raw()) || !VerifyCatalog(tempConnection)) {
+            WIT_LOG_ERROR(std::format(L"database save temp backup or verification failed path='{}'", tempPath));
             tempConnection.Close();
             DeleteCatalogFileSet(tempPath);
             return false;
         }
         if (!PrepareSingleFileCatalog(tempConnection)) {
+            WIT_LOG_ERROR(std::format(L"database save temp single-file preparation failed path='{}'", tempPath));
             tempConnection.Close();
             DeleteCatalogFileSet(tempPath);
             return false;
         }
         tempConnection.Close();
         if (!CatalogSidecarsAbsent(tempPath)) {
+            WIT_LOG_ERROR(std::format(L"database save temp sidecars remain path='{}'", tempPath));
             DeleteCatalogFileSet(tempPath);
             return false;
         }
         break;
     }
-    if (!tempCreated) return false;
+    if (!tempCreated) {
+        WIT_LOG_ERROR(std::format(L"database save could not create temp replacement for path='{}'", catalogPath));
+        return false;
+    }
 
     if (!PrepareSingleFileCatalog(connection_)) {
+        WIT_LOG_ERROR(std::format(L"database save active catalog single-file preparation failed path='{}'", catalogPath));
         DeleteCatalogFileSet(tempPath);
         return false;
     }
     const std::wstring backupPath = MakeTempCatalogPath(catalogPath + L".backup");
+    WIT_LOG_DEBUG(std::format(L"database save closing active catalog before replace path='{}' backup='{}'",
+        catalogPath, backupPath));
     Close();
     if (!CatalogSidecarsAbsent(catalogPath)) {
+        WIT_LOG_ERROR(std::format(L"database save active sidecars remain path='{}'", catalogPath));
         DeleteCatalogFileSet(tempPath);
         const bool reopened = OpenInternal(catalogPath, true) || OpenInternal(catalogPath, true, true);
         (void)reopened;
         return false;
     }
     if (!ReplaceCatalogFile(catalogPath, tempPath, backupPath)) {
+        WIT_LOG_ERROR(std::format(L"database save replacement failed path='{}' temp='{}' backup='{}'",
+            catalogPath, tempPath, backupPath));
         DeleteCatalogFileSet(tempPath);
         DeleteCatalogFileSet(backupPath);
         const bool reopened = OpenInternal(catalogPath, true) || OpenInternal(catalogPath, true, true);
@@ -347,9 +390,12 @@ bool Database::SaveCatalogDataFrom(const Database& source) {
 
     if (OpenInternal(catalogPath, true)) {
         DeleteCatalogFileSet(backupPath);
+        WIT_LOG_INFO(std::format(L"database save completed path='{}'", catalogPath));
         return true;
     }
     Close();
+    WIT_LOG_ERROR(std::format(L"database save replacement did not reopen; restoring backup path='{}' backup='{}'",
+        catalogPath, backupPath));
     const bool restored = RestoreCatalogFile(catalogPath, backupPath);
     const bool reopenedOriginal = restored && (OpenInternal(catalogPath, true) || OpenInternal(catalogPath, true, true));
     (void)reopenedOriginal;

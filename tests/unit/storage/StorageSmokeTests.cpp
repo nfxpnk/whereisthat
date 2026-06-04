@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include <wit_database/Database.h>
+#include <wit_gui/CatalogWorkflowController.h>
 #include <wit_gui/ScanCoordinator.h>
 #include <wit_infra/PathHelpers.h>
 #include <wit_infra/VolumeInfo.h>
@@ -10,6 +11,7 @@
 #include <Windows.h>
 #include <archive.h>
 #include <archive_entry.h>
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -515,3 +517,98 @@ TEST(StorageSmoke, CatalogDatabaseScannerAndCoordinatorIntegration) {
     std::filesystem::remove_all(testRoot);
 }
 
+TEST(StorageSmoke, ImportedCatalogGroupAndDiskMovesSaveThroughAppWorkflow) {
+    const auto sourceCatalogPath = std::filesystem::current_path() / L"tests" / L"d-import-test.db";
+    if (!std::filesystem::exists(sourceCatalogPath)) {
+        GTEST_SKIP() << "tests\\d-import-test.db fixture is not available";
+    }
+
+    const auto testRoot = std::filesystem::temp_directory_path() /
+        (L"whereisthat-imported-catalog-save-" + std::to_wstring(GetCurrentProcessId()));
+    std::filesystem::remove_all(testRoot);
+    std::filesystem::create_directories(testRoot);
+    const auto catalogPath = testRoot / L"d-import-test-copy.db";
+    std::filesystem::copy_file(sourceCatalogPath, catalogPath, std::filesystem::copy_options::overwrite_existing);
+
+    {
+        wit::app::CatalogWorkflowController controller;
+        auto openResult = controller.OpenCatalogPathSelected(catalogPath.wstring());
+        ASSERT_TRUE(openResult.messages.empty()) << "catalog opens through app controller";
+        ASSERT_FALSE(openResult.browserEffects.empty()) << "open publishes browser effect";
+        const auto catalogId = openResult.browserEffects.front().catalogId;
+        ASSERT_NE(catalogId, 0);
+
+        auto* database = controller.WorkingDatabase(catalogId);
+        ASSERT_NE(database, nullptr);
+        ASSERT_TRUE(database->IsEditable());
+
+        const auto groups = database->GetDiskGroups();
+        const auto disks = database->GetDisksPage(0, 20);
+        ASSERT_GE(groups.size(), 20u);
+        ASSERT_GE(disks.size(), 10u);
+
+        std::int64_t firstRootGroupId{};
+        std::int64_t secondRootGroupId{};
+        for (const auto& group : groups) {
+            if (group.parentGroupId != 0) continue;
+            int childCount{};
+            for (const auto& candidate : groups) {
+                if (candidate.parentGroupId == group.id) ++childCount;
+            }
+            if (childCount >= 10 && firstRootGroupId == 0) {
+                firstRootGroupId = group.id;
+                continue;
+            }
+            if (secondRootGroupId == 0) {
+                secondRootGroupId = group.id;
+            }
+        }
+        ASSERT_NE(firstRootGroupId, 0);
+        ASSERT_NE(secondRootGroupId, 0);
+
+        std::vector<std::int64_t> movedGroupIds;
+        for (const auto& group : groups) {
+            if (group.parentGroupId == firstRootGroupId) {
+                movedGroupIds.push_back(group.id);
+                auto moveResult = controller.MoveDiskGroupToGroup(catalogId, group.id, secondRootGroupId);
+                ASSERT_TRUE(moveResult.messages.empty()) << "group move is staged";
+                if (movedGroupIds.size() == 10) break;
+            }
+        }
+        ASSERT_EQ(movedGroupIds.size(), 10u);
+
+        std::vector<std::int64_t> movedDiskIds;
+        for (std::size_t index = 0; index < 10; ++index) {
+            const auto targetGroupId = movedGroupIds[index % movedGroupIds.size()];
+            auto moveResult = controller.MoveDiskToGroup(catalogId, disks[index].id, targetGroupId);
+            ASSERT_TRUE(moveResult.messages.empty()) << "disk move is staged";
+            movedDiskIds.push_back(disks[index].id);
+        }
+
+        auto saveResult = controller.RequestSave();
+        ASSERT_TRUE(saveResult.messages.empty()) << "pending moves save through app workflow";
+        ASSERT_TRUE(saveResult.presentation.catalogStatus == L"Loaded") << "catalog is clean after save";
+
+        wit::storage::Database reopened;
+        ASSERT_TRUE(reopened.OpenExisting(catalogPath.wstring())) << "saved imported catalog reopens";
+        const auto reopenedGroups = reopened.GetDiskGroups();
+        for (const auto movedGroupId : movedGroupIds) {
+            const auto found = std::find_if(reopenedGroups.begin(), reopenedGroups.end(),
+                [movedGroupId](const wit::core::DiskGroup& group) { return group.id == movedGroupId; });
+            ASSERT_NE(found, reopenedGroups.end());
+            EXPECT_EQ(found->parentGroupId, secondRootGroupId) << "moved group parent persisted";
+        }
+
+        const auto reopenedDisks = reopened.GetDisksPage(0, 20);
+        for (std::size_t index = 0; index < movedDiskIds.size(); ++index) {
+            const auto movedDiskId = movedDiskIds[index];
+            const auto expectedGroupId = movedGroupIds[index % movedGroupIds.size()];
+            const auto found = std::find_if(reopenedDisks.begin(), reopenedDisks.end(),
+                [movedDiskId](const wit::core::Disk& disk) { return disk.id == movedDiskId; });
+            ASSERT_NE(found, reopenedDisks.end());
+            EXPECT_EQ(found->diskGroupId, expectedGroupId) << "moved disk group persisted";
+        }
+        reopened.Close();
+    }
+    std::filesystem::remove_all(testRoot);
+}

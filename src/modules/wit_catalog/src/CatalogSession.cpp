@@ -3,7 +3,9 @@
 #include <algorithm>
 #include <cassert>
 #include <filesystem>
+#include <format>
 #include <vector>
+#include <wit_infra/Logging.h>
 #include <wit_infra/PathHelpers.h>
 
 namespace wit::app {
@@ -35,6 +37,8 @@ OpenCatalog* CatalogSession::Open(const std::wstring& path, bool createNew, bool
     bool& settingsSaved, bool& alreadyOpen) {
     AssertOwnerThread();
     const auto normalizedPath = std::filesystem::absolute(path).wstring();
+    WIT_LOG_DEBUG(std::format(L"session open path='{}' normalized='{}' createNew={}",
+        path, normalizedPath, createNew));
     alreadyOpen = false;
     settingsSaved = true;
     if (!createNew) {
@@ -47,12 +51,18 @@ OpenCatalog* CatalogSession::Open(const std::wstring& path, bool createNew, bool
                 wit::platform::RememberRecentCatalog(settings_, catalog->path);
                 settingsSaved = wit::platform::SaveAppSettings(settings_);
             }
+            WIT_LOG_INFO(std::format(L"session reused open catalog id={} path='{}'",
+                catalog->id, catalog->path));
             return catalog.get();
         }
     }
     wit::storage::Database candidate;
     const bool opened = createNew ? candidate.CreateNew(normalizedPath, true) : candidate.OpenExisting(normalizedPath);
-    if (!opened) return nullptr;
+    if (!opened) {
+        WIT_LOG_ERROR(std::format(L"session failed to open catalog path='{}' createNew={}",
+            normalizedPath, createNew));
+        return nullptr;
+    }
 
     auto catalog = std::make_unique<OpenCatalog>();
     catalog->id = nextCatalogId_++;
@@ -63,6 +73,8 @@ OpenCatalog* CatalogSession::Open(const std::wstring& path, bool createNew, bool
     auto* result = catalog.get();
     catalogs_.push_back(std::move(catalog));
     activeCatalogId_ = result->id;
+    WIT_LOG_INFO(std::format(L"session opened catalog id={} path='{}' editable={}",
+        result->id, result->path, result->IsEditable()));
     if (persistPath) {
         settings_.lastCatalogPath = normalizedPath;
         wit::platform::RememberRecentCatalog(settings_, normalizedPath);
@@ -125,17 +137,33 @@ void CatalogSession::AcceptPending(wit::core::CatalogId id, std::unique_ptr<wit:
     if (!catalog) return;
     catalog->pendingDatabase = std::move(pending);
     catalog->dirty = catalog->pendingDatabase != nullptr;
+    WIT_LOG_DEBUG(std::format(L"session accepted pending catalog id={} dirty={}", id, catalog->dirty));
 }
 
 bool CatalogSession::SavePending(wit::core::CatalogId id) {
     AssertOwnerThread();
     auto* catalog = Find(id);
-    if (!catalog || !catalog->database.IsOpen() || catalog->path.empty()) return true;
-    if (!catalog->database.IsEditable()) return false;
-    if (!catalog->dirty || !catalog->pendingDatabase) return true;
-    if (!catalog->database.SaveCatalogDataFrom(*catalog->pendingDatabase)) return false;
+    if (!catalog || !catalog->database.IsOpen() || catalog->path.empty()) {
+        WIT_LOG_WARN(std::format(L"session save pending ignored: catalog unavailable id={}", id));
+        return true;
+    }
+    if (!catalog->database.IsEditable()) {
+        WIT_LOG_WARN(std::format(L"session save pending rejected: catalog read-only id={} path='{}'",
+            id, catalog->path));
+        return false;
+    }
+    if (!catalog->dirty || !catalog->pendingDatabase) {
+        WIT_LOG_DEBUG(std::format(L"session save pending skipped: clean id={}", id));
+        return true;
+    }
+    WIT_LOG_INFO(std::format(L"session save pending started id={} path='{}'", id, catalog->path));
+    if (!catalog->database.SaveCatalogDataFrom(*catalog->pendingDatabase)) {
+        WIT_LOG_ERROR(std::format(L"session save pending failed id={} path='{}'", id, catalog->path));
+        return false;
+    }
     catalog->pendingDatabase.reset();
     catalog->dirty = false;
+    WIT_LOG_INFO(std::format(L"session save pending completed id={} path='{}'", id, catalog->path));
     return true;
 }
 
@@ -145,6 +173,7 @@ void CatalogSession::DiscardPending(wit::core::CatalogId id) {
     if (!catalog) return;
     catalog->pendingDatabase.reset();
     catalog->dirty = false;
+    WIT_LOG_INFO(std::format(L"session discarded pending catalog id={}", id));
 }
 
 bool CatalogSession::Remove(wit::core::CatalogId id) {

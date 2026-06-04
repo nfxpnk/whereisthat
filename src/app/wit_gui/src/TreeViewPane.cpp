@@ -1,7 +1,9 @@
 #include "wit_gui/TreeViewPane.h"
 #include "wit_gui/BrowserItemIcons.h"
+#include <wit_infra/Logging.h>
 #include <wit_infra/PathHelpers.h>
 #include <algorithm>
+#include <format>
 #include <functional>
 
 namespace wit::ui {
@@ -142,6 +144,8 @@ void CatalogTreeView::RefreshCatalog(wit::core::CatalogId id, const std::wstring
 
 bool CatalogTreeView::MoveDiskToGroup(wit::core::CatalogId id, std::int64_t diskId,
     std::int64_t diskGroupId, wit::storage::Database* database) {
+    WIT_LOG_DEBUG(std::format(L"tree move disk node requested catalogId={} diskId={} targetGroupId={}",
+        id, diskId, diskGroupId));
     if (!hwnd_ || !database) return false;
     const auto* root = FindRoot(id);
     if (!root) return false;
@@ -190,7 +194,8 @@ bool CatalogTreeView::MoveDiskToGroup(wit::core::CatalogId id, std::int64_t disk
     }
     SendMessageW(hwnd_, WM_SETREDRAW, TRUE, 0);
     InvalidateRect(hwnd_, nullptr, FALSE);
-    OutputDebugStringW(L"WhereIsThat: MoveDiskToGroup updated one TreeView disk node without RefreshCatalog.\n");
+    WIT_LOG_DEBUG(std::format(L"tree move disk node completed catalogId={} diskId={} targetGroupId={}",
+        id, diskId, diskGroupId));
     return movedItem != nullptr;
 }
 

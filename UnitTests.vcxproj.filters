@@ -32,6 +32,12 @@
         <ClCompile Include="src\app\wit_gui\src\ScanCoordinator.cpp">
             <Filter>Production Sources</Filter>
         </ClCompile>
+        <ClCompile Include="src\app\wit_gui\src\CatalogWorkflowController.cpp">
+            <Filter>Production Sources</Filter>
+        </ClCompile>
+        <ClCompile Include="src\modules\wit_catalog\src\CatalogSession.cpp">
+            <Filter>Production Sources</Filter>
+        </ClCompile>
         <ClCompile Include="src\modules\wit_scanner\src\FileScanner.cpp">
             <Filter>Production Sources</Filter>
         </ClCompile>
@@ -60,6 +66,12 @@
             <Filter>Production Sources</Filter>
         </ClCompile>
         <ClCompile Include="src\modules\wit_infra\src\FileEntry.cpp">
+            <Filter>Production Sources</Filter>
+        </ClCompile>
+        <ClCompile Include="src\modules\wit_infra\src\AppSettings.cpp">
+            <Filter>Production Sources</Filter>
+        </ClCompile>
+        <ClCompile Include="src\modules\wit_infra\src\Logging.cpp">
             <Filter>Production Sources</Filter>
         </ClCompile>
         <ClCompile Include="src\modules\wit_infra\src\PathHelpers.cpp">

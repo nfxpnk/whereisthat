@@ -7,6 +7,7 @@
 #include <array>
 #include <cwctype>
 #include <format>
+#include <string_view>
 
 namespace wit::ui {
 namespace {
@@ -36,17 +37,20 @@ void InsertColumn(HWND hwnd, int index, const wchar_t* name, int width, int form
     ListView_InsertColumn(hwnd, index, &column);
 }
 
-bool IsArchiveFileExtension(std::wstring extension) {
-    std::transform(extension.begin(), extension.end(), extension.begin(),
-        [](wchar_t value) { return static_cast<wchar_t>(std::towlower(value)); });
-    constexpr std::array<const wchar_t*, 12> extensions{
-        L"zip", L"7z", L"rar", L"tar", L"tgz", L"gz", L"bz2", L"xz", L"cab", L"arj", L"lha", L"iso"
-    };
-    return std::any_of(extensions.begin(), extensions.end(),
-        [&extension](const wchar_t* candidate) { return extension == candidate; });
+bool FileExtensionEquals(std::wstring_view extension, std::wstring_view candidate) {
+    return std::ranges::equal(extension, candidate,
+        [](wchar_t left, wchar_t right) { return std::towlower(left) == std::towlower(right); });
 }
 
-int ImageForFileExtension(const std::wstring& extension) {
+bool IsArchiveFileExtension(std::wstring_view extension) {
+    constexpr std::array<std::wstring_view, 12> extensions{
+        L"zip", L"7z", L"rar", L"tar", L"tgz", L"gz", L"bz2", L"xz", L"cab", L"arj", L"lha", L"iso"
+    };
+    return std::ranges::any_of(extensions,
+        [extension](std::wstring_view candidate) { return FileExtensionEquals(extension, candidate); });
+}
+
+int ImageForFileExtension(std::wstring_view extension) {
     constexpr std::array<FileExtensionImage, 100> kFileExtensionImages{{
         { L"txt", BrowserFileTxtImage },
         { L"doc", BrowserFileDocImage },
@@ -150,8 +154,8 @@ int ImageForFileExtension(const std::wstring& extension) {
         { L"sh", BrowserFileShImage },
     }};
 
-    const auto match = std::find_if(kFileExtensionImages.begin(), kFileExtensionImages.end(),
-        [&extension](const FileExtensionImage& item) { return extension == item.extension; });
+    const auto match = std::ranges::find_if(kFileExtensionImages,
+        [extension](const FileExtensionImage& item) { return FileExtensionEquals(extension, item.extension); });
     return match != kFileExtensionImages.end() ? match->image : I_IMAGENONE;
 }
 }
@@ -236,9 +240,7 @@ int FileListView::ImageFor(int row) {
     const auto* entry = EntryAt(row);
     if (!entry) return I_IMAGENONE;
     if (entry->isDirectory) return entry->isArchive ? BrowserArchiveImage : BrowserFolderImage;
-    auto extension = entry->extension;
-    std::transform(extension.begin(), extension.end(), extension.begin(),
-        [](wchar_t c) { return static_cast<wchar_t>(std::towlower(c)); });
+    const std::wstring_view extension = entry->extension;
     const int fileImage = ImageForFileExtension(extension);
     if (fileImage != I_IMAGENONE) return fileImage;
     if (IsArchiveFileExtension(extension)) return BrowserArchiveImage;

@@ -1,5 +1,6 @@
 #include <wit_gui/ScanCoordinator.h>
 #include <cassert>
+#include <exception>
 #include <filesystem>
 #include <string>
 #include <utility>
@@ -97,7 +98,27 @@ bool ScanCoordinator::Start(wit::storage::Database* source, const wit::core::Sca
     cancellationRequested_ = false;
     worker_ = std::jthread([this, scanId, root, diskName, diskNumber, request,
         staged = std::move(candidate)](std::stop_token stopToken) mutable {
-        RunScan(stopToken, scanId, root, diskName, diskNumber, request, std::move(staged));
+        try {
+            RunScan(stopToken, scanId, root, diskName, diskNumber, request, std::move(staged));
+        } catch (const std::exception& error) {
+            ScanResult result;
+            result.id = scanId;
+            result.destinationCatalogId = request.destinationCatalogId;
+            result.outcome = ScanOutcome::Failed;
+            result.error = L"The scan failed unexpectedly. The saved catalog was not changed.";
+            if (error.what() && error.what()[0] != '\0') {
+                result.error += L" ";
+                result.error += wit::platform::ToUtf16(error.what());
+            }
+            PublishResult(std::move(result));
+        } catch (...) {
+            ScanResult result;
+            result.id = scanId;
+            result.destinationCatalogId = request.destinationCatalogId;
+            result.outcome = ScanOutcome::Failed;
+            result.error = L"The scan failed unexpectedly. The saved catalog was not changed.";
+            PublishResult(std::move(result));
+        }
     });
     return true;
 }

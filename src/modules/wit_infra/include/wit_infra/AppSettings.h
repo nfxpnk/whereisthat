@@ -9,6 +9,7 @@ struct AppSettings {
     bool showStatusBar{true};
     bool showToolbar{true};
     int mainSplitterPosition{360};
+    std::wstring dateTimeFormat;
     std::wstring lastCatalogPath;
     std::vector<std::wstring> recentCatalogPaths;
 };

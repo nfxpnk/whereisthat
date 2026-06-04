@@ -21,6 +21,13 @@ void SearchDialog::Close() {
     if (m_hWnd) DestroyWindow();
 }
 
+void SearchDialog::RefreshDisplay() {
+    if (!m_hWnd || !results_) return;
+    pageStart_ = -1;
+    page_.clear();
+    ::RedrawWindow(results_, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
+}
+
 BOOL SearchDialog::PreTranslateMessage(MSG* message) {
     return m_hWnd != nullptr && IsDialogMessage(message);
 }

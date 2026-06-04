@@ -4,6 +4,7 @@
 #include <format>
 #include <vector>
 #include <wit_infra/PathHelpers.h>
+#include <wit_infra/Win32Helpers.h>
 
 namespace wit::platform {
 namespace {
@@ -49,6 +50,10 @@ AppSettings LoadAppSettings() {
         GetPrivateProfileIntW(L"General", L"ShowToolbar", 1, path.c_str()) != 0;
     settings.mainSplitterPosition = GetPrivateProfileIntW(
         L"General", L"MainSplitterPosition", kDefaultMainSplitterPosition, path.c_str());
+    settings.dateTimeFormat = ReadProfileString(L"General", L"DateTimeFormat", path);
+    if (!wit::platform::IsValidDateTimeFormat(settings.dateTimeFormat)) {
+        settings.dateTimeFormat.clear();
+    }
     settings.lastCatalogPath = ReadProfileString(L"General", L"LastCatalogPath", path);
     for (std::size_t index = kMaximumRecentCatalogs; index > 0; --index) {
         const auto key = std::format(L"Path{}", index);
@@ -56,6 +61,7 @@ AppSettings LoadAppSettings() {
         if (!recentPath.empty()) RememberRecentCatalog(settings, recentPath);
     }
     if (!settings.lastCatalogPath.empty()) RememberRecentCatalog(settings, settings.lastCatalogPath);
+    wit::platform::SetDateTimeFormatOverride(settings.dateTimeFormat);
     return settings;
 }
 
@@ -68,6 +74,8 @@ bool SaveAppSettings(const AppSettings& settings) {
             settings.showToolbar ? L"1" : L"0", path.c_str()) != FALSE &&
         WritePrivateProfileStringW(L"General", L"MainSplitterPosition",
             splitterPosition.c_str(), path.c_str()) != FALSE &&
+        WritePrivateProfileStringW(L"General", L"DateTimeFormat",
+            settings.dateTimeFormat.c_str(), path.c_str()) != FALSE &&
         WritePrivateProfileStringW(L"General", L"LastCatalogPath",
             settings.lastCatalogPath.c_str(), path.c_str()) != FALSE;
     for (std::size_t index = 0; index < kMaximumRecentCatalogs; ++index) {
@@ -77,6 +85,7 @@ bool SaveAppSettings(const AppSettings& settings) {
         success = WritePrivateProfileStringW(L"RecentCatalogs", key.c_str(), value, path.c_str()) != FALSE &&
             success;
     }
+    if (success) wit::platform::SetDateTimeFormatOverride(settings.dateTimeFormat);
     return success;
 }
 

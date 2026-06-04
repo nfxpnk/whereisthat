@@ -15,6 +15,7 @@ public:
 
     bool Show(HWND owner, wit::search::ISearchRepository* search, std::function<void()> onClose);
     void Close();
+    void RefreshDisplay();
     BOOL PreTranslateMessage(MSG* message);
 
     BEGIN_MSG_MAP(SearchDialog)

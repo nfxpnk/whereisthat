@@ -16,6 +16,8 @@ public:
         MESSAGE_HANDLER(WM_INITDIALOG, OnInitDialog)
         COMMAND_ID_HANDLER(IDOK, OnConfirm)
         COMMAND_ID_HANDLER(IDCANCEL, OnCancel)
+        COMMAND_HANDLER(IDC_DATE_TIME_FORMAT, CBN_SELCHANGE, OnDateTimeFormatChanged)
+        COMMAND_HANDLER(IDC_DATE_TIME_FORMAT, CBN_EDITCHANGE, OnDateTimeFormatChanged)
     END_MSG_MAP()
 
 private:
@@ -24,6 +26,9 @@ private:
     LRESULT OnInitDialog(UINT message, WPARAM wparam, LPARAM lparam, BOOL& handled);
     LRESULT OnConfirm(WORD notifyCode, WORD id, HWND control, BOOL& handled);
     LRESULT OnCancel(WORD notifyCode, WORD id, HWND control, BOOL& handled);
+    LRESULT OnDateTimeFormatChanged(WORD notifyCode, WORD id, HWND control, BOOL& handled);
+    std::wstring SelectedDateTimeFormat() const;
+    void UpdateDateTimeFormatSample();
 };
 
 }

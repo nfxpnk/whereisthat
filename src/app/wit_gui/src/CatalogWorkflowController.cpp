@@ -532,6 +532,7 @@ ControllerResult CatalogWorkflowController::GeneralSettingsCompleted(
             result.presentation.statusVisible = session_.Settings().showStatusBar;
             result.presentation.updateToolbarVisibility = true;
             result.presentation.toolbarVisible = session_.Settings().showToolbar;
+            result.presentation.refreshBrowserStatus = true;
         }
     }
     PopulatePresentation(result);

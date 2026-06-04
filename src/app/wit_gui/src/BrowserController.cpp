@@ -187,6 +187,15 @@ void BrowserController::NavigateForward() {
     NavigateTo(history_[historyIndex_], false);
 }
 
+void BrowserController::RefreshDisplay() {
+    if (filesHandle_) {
+        files_.pageStart = -1;
+        files_.page.clear();
+        files_.browserPage.clear();
+        RedrawWindow(filesHandle_, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
+    }
+}
+
 wit::core::CatalogId BrowserController::OnTreeSelectionChanged(LPNMHDR header) {
     const auto* notification = reinterpret_cast<NMTREEVIEWW*>(header);
     const auto* target = tree_.TargetFor(notification->itemNew.hItem);

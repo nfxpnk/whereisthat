@@ -572,7 +572,11 @@ void MainFrame::RenderPresentation(const wit::app::PresentationEffect& presentat
             MF_BYCOMMAND | (presentation.statusVisible ? MF_CHECKED : MF_UNCHECKED));
         ::DrawMenuBar(m_hWnd);
     }
-    if (presentation.refreshBrowserStatus) UpdateBrowserStatus();
+    if (presentation.refreshBrowserStatus) {
+        browser_.RefreshDisplay();
+        searchDialog_.RefreshDisplay();
+        UpdateBrowserStatus();
+    }
     if (presentation.refreshRecentMenu) RenderRecentMenu(presentation.recentCatalogPaths);
     if (presentation.updateStatusVisibility) chrome_.SetStatusVisible(presentation.statusVisible);
     if (presentation.updateToolbarVisibility) chrome_.SetToolbarVisible(presentation.toolbarVisible);

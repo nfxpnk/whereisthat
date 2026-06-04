@@ -36,6 +36,7 @@ public:
     wit::core::CatalogId SelectedCatalogId() const;
     void NavigateBack();
     void NavigateForward();
+    void RefreshDisplay();
 
     wit::core::CatalogId OnTreeSelectionChanged(LPNMHDR header);
     LRESULT OnTreeExpanding(LPNMHDR header);

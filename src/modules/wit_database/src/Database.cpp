@@ -1,10 +1,8 @@
 #include "wit_database/CatalogSchema.h"
 #include "wit_database/Database.h"
 #include "wit_database/SQLiteStatement.h"
-#include "wit_database/SqliteBrowserRepository.h"
 #include <wit_infra/VolumeInfo.h>
 #include <wit_infra/Win32Helpers.h>
-#include <wit_search/SqliteSearchExecutor.h>
 #include "third_party/sqlite/sqlite3.h"
 #include <Windows.h>
 #include <algorithm>
@@ -51,13 +49,18 @@ Database::~Database() {
 }
 
 Database::Database(Database&& other) noexcept
-    : connection_(std::move(other.connection_)), editable_(std::exchange(other.editable_, false)) {}
+    : connection_(std::move(other.connection_)), editable_(std::exchange(other.editable_, false)) {
+    RebindRepositories();
+    other.RebindRepositories();
+}
 
 Database& Database::operator=(Database&& other) noexcept {
     if (this != &other) {
         Close();
         connection_ = std::move(other.connection_);
         editable_ = std::exchange(other.editable_, false);
+        RebindRepositories();
+        other.RebindRepositories();
     }
     return *this;
 }
@@ -65,6 +68,12 @@ Database& Database::operator=(Database&& other) noexcept {
 void Database::Close() {
     connection_.Close();
     editable_ = false;
+    RebindRepositories();
+}
+
+void Database::RebindRepositories() {
+    browserRepository_.SetDatabase(connection_.Raw());
+    searchRepository_.SetDatabase(connection_.Raw());
 }
 
 bool Database::CreateNew(const std::wstring& path, bool overwriteExisting) {
@@ -85,6 +94,7 @@ bool Database::OpenInternal(const std::wstring& path, bool requireExistingSchema
     Close();
     const int flags = readOnly ? SQLITE_OPEN_READONLY : SQLITE_OPEN_READWRITE;
     if (!connection_.Open(path, flags)) return false;
+    RebindRepositories();
     editable_ = !readOnly;
     if (requireExistingSchema && !HasCatalogSchema()) {
         Close();
@@ -101,6 +111,7 @@ bool Database::CreateWorkingCopy(const Database& source) {
     if (!source.connection_.IsOpen()) return false;
     Close();
     if (!connection_.OpenMemory()) return false;
+    RebindRepositories();
     editable_ = true;
     auto* backup = sqlite3_backup_init(connection_.Raw(), "main", source.connection_.Raw(), "main");
     if (!backup) {
@@ -390,45 +401,37 @@ std::vector<wit::core::Catalog> Database::GetCatalogs() {
 }
 
 int Database::GetBrowserRootItemCount(const wit::core::BrowserLocation& location) {
-    SqliteBrowserRepository browser(connection_.Raw());
-    return browser.GetBrowserRootItemCount(location);
+    return browserRepository_.GetBrowserRootItemCount(location);
 }
 
 std::vector<wit::core::BrowserItem> Database::GetBrowserRootItemsPage(
     const wit::core::BrowserLocation& location, int offset, int limit) {
-    SqliteBrowserRepository browser(connection_.Raw());
-    return browser.GetBrowserRootItemsPage(location, offset, limit);
+    return browserRepository_.GetBrowserRootItemsPage(location, offset, limit);
 }
 
 int Database::GetBrowserItemCount(const wit::core::BrowserLocation& location) {
-    SqliteBrowserRepository browser(connection_.Raw());
-    return browser.GetBrowserItemCount(location);
+    return browserRepository_.GetBrowserItemCount(location);
 }
 
 std::vector<wit::core::FileEntry> Database::GetBrowserItemsPage(
     const wit::core::BrowserLocation& location, int offset, int limit) {
-    SqliteBrowserRepository browser(connection_.Raw());
-    return browser.GetBrowserItemsPage(location, offset, limit);
+    return browserRepository_.GetBrowserItemsPage(location, offset, limit);
 }
 
 bool Database::HasChildFolders(std::int64_t sourceId, const std::wstring& parentPath) {
-    SqliteBrowserRepository browser(connection_.Raw());
-    return browser.HasChildFolders(sourceId, parentPath);
+    return browserRepository_.HasChildFolders(sourceId, parentPath);
 }
 
 std::vector<wit::core::FileEntry> Database::GetChildFolders(
     std::int64_t sourceId, const std::wstring& parentPath) {
-    SqliteBrowserRepository browser(connection_.Raw());
-    return browser.GetChildFolders(sourceId, parentPath);
+    return browserRepository_.GetChildFolders(sourceId, parentPath);
 }
 
 int Database::GetItemSearchCount(const std::wstring& nameTerm) {
-    wit::search::SqliteSearchExecutor search(connection_.Raw());
-    return search.CountByName(nameTerm);
+    return searchRepository_.CountByName(nameTerm);
 }
 
 std::vector<wit::core::FileEntry> Database::GetItemSearchPage(const std::wstring& nameTerm, int offset, int limit) {
-    wit::search::SqliteSearchExecutor search(connection_.Raw());
-    return search.PageByName(nameTerm, offset, limit);
+    return searchRepository_.PageByName(nameTerm, offset, limit);
 }
 }

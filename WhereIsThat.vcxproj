@@ -115,6 +115,7 @@ copy /Y "$(ProjectDir)third_party\libarchive\bin\*.dll" "$(OutDir)"</Command>
         <ClInclude Include="src\modules\wit_catalog\include\wit_catalog\ICatalogRepository.h"/>
         <ClInclude Include="src\modules\wit_database\include\wit_database\CatalogSchema.h"/>
         <ClInclude Include="src\modules\wit_database\include\wit_database\Database.h"/>
+        <ClInclude Include="src\modules\wit_database\include\wit_database\IBrowserRepository.h"/>
         <ClInclude Include="src\modules\wit_database\include\wit_database\IDatabase.h"/>
         <ClInclude Include="src\modules\wit_database\include\wit_database\SqliteBrowserRepository.h"/>
         <ClInclude Include="src\modules\wit_database\include\wit_database\SqliteConnection.h"/>
@@ -129,6 +130,7 @@ copy /Y "$(ProjectDir)third_party\libarchive\bin\*.dll" "$(OutDir)"</Command>
         <ClInclude Include="src\modules\wit_scanner\include\wit_scanner\IMetadataExtractor.h"/>
         <ClInclude Include="src\modules\wit_scanner\include\wit_scanner\ScanRequest.h"/>
         <ClInclude Include="src\modules\wit_search\include\wit_search\ISearchExecutor.h"/>
+        <ClInclude Include="src\modules\wit_search\include\wit_search\ISearchRepository.h"/>
         <ClInclude Include="src\modules\wit_search\include\wit_search\SearchResult.h"/>
         <ClInclude Include="src\modules\wit_search\include\wit_search\SqliteSearchExecutor.h"/>
         <ClInclude Include="src\modules\wit_types\include\wit_types\BrowserLocation.h"/>

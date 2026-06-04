@@ -5,23 +5,23 @@
 #include "wit_types/BrowserLocation.h"
 #include <wit_types/Disk.h>
 #include <wit_types/FileEntry.h>
-#include "wit_database/Database.h"
+#include "wit_database/IBrowserRepository.h"
 
 namespace wit::ui {
 class FileListView {
 public:
     HWND hwnd{};
     wit::core::BrowserLocation location;
-    wit::storage::Database* db{};
+    wit::storage::IBrowserRepository* browser{};
     int total{};
     int pageStart{-1};
     std::vector<wit::core::FileEntry> page;
     std::vector<wit::core::BrowserItem> browserPage;
 
     void Attach(HWND handle) { hwnd = handle; }
-    void SetLocation(const wit::core::BrowserLocation& newLocation, wit::storage::Database* database);
+    void SetLocation(const wit::core::BrowserLocation& newLocation, wit::storage::IBrowserRepository* repository);
     void EnsurePage(int index);
-    bool ShowsBrowserItems() const { return db && (location.isRoot || location.isDiskGroup); }
+    bool ShowsBrowserItems() const { return browser && (location.isRoot || location.isDiskGroup); }
     bool ShowsDisks() const { return ShowsBrowserItems(); }
     const wit::core::FileEntry* EntryAt(int row);
     const wit::core::BrowserItem* BrowserItemAt(int row);

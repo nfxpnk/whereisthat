@@ -2,9 +2,11 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+#include "wit_database/SqliteBrowserRepository.h"
 #include "wit_database/SqliteConnection.h"
 #include "wit_types/BrowserLocation.h"
 #include "wit_catalog/Catalog.h"
+#include <wit_search/SqliteSearchExecutor.h>
 #include <wit_types/Disk.h>
 #include <wit_types/FileEntry.h>
 #include "wit_types/FolderEntry.h"
@@ -57,11 +59,16 @@ public:
     std::vector<wit::core::FileEntry> GetChildFolders(std::int64_t sourceId, const std::wstring& parentPath);
     int GetItemSearchCount(const std::wstring& nameTerm);
     std::vector<wit::core::FileEntry> GetItemSearchPage(const std::wstring& nameTerm, int offset, int limit);
+    IBrowserRepository& BrowserRepository() { return browserRepository_; }
+    wit::search::ISearchRepository& SearchRepository() { return searchRepository_; }
 private:
     bool OpenInternal(const std::wstring& path, bool requireExistingSchema, bool readOnly = false);
     bool HasCatalogSchema();
     bool Exec(const char* sql);
+    void RebindRepositories();
     SqliteConnection connection_;
+    SqliteBrowserRepository browserRepository_{nullptr};
+    wit::search::SqliteSearchExecutor searchRepository_{nullptr};
     bool editable_{};
 };
 }

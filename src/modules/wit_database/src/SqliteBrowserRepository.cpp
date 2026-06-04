@@ -55,6 +55,10 @@ void PopulateBrowserDisk(wit::core::Disk& disk, sqlite3_stmt* stmt, int firstCol
 
 SqliteBrowserRepository::SqliteBrowserRepository(sqlite3* db) : db_(db) {}
 
+void SqliteBrowserRepository::SetDatabase(sqlite3* db) {
+    db_ = db;
+}
+
 int SqliteBrowserRepository::GetBrowserItemCount(const wit::core::BrowserLocation& location) {
     if (location.isRoot || location.isDiskGroup) return GetBrowserRootItemCount(location);
     SQLiteStatement statement(db_,

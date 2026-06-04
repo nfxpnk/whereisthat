@@ -2,7 +2,7 @@
 #include "wit_win32/BaseWindow.h"
 #include "resource.h"
 #include <wit_types/FileEntry.h>
-#include "wit_database/Database.h"
+#include "wit_search/ISearchRepository.h"
 #include <CommCtrl.h>
 #include <functional>
 #include <string>
@@ -13,7 +13,7 @@ class SearchDialog : public ATL::CDialogImpl<SearchDialog>, public WTL::CDialogR
 public:
     enum { IDD = IDD_SEARCH_ITEMS };
 
-    bool Show(HWND owner, wit::storage::Database* database, std::function<void()> onClose);
+    bool Show(HWND owner, wit::search::ISearchRepository* search, std::function<void()> onClose);
     void Close();
     BOOL PreTranslateMessage(MSG* message);
 
@@ -38,7 +38,7 @@ public:
 private:
     HWND results_{};
     HWND launchOwner_{};
-    wit::storage::Database* db_{};
+    wit::search::ISearchRepository* search_{};
     std::function<void()> onClose_;
     std::wstring nameTerm_;
     int total_{};

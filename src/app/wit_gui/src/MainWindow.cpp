@@ -470,7 +470,8 @@ void MainFrame::PerformRequest(const wit::app::RequestEffect& request) {
             L"Save changes?", L"Unsaved Catalog Changes", MB_YESNOCANCEL | MB_ICONWARNING)));
         break;
     case wit::app::RequestKind::ShowSearch: {
-        if (!searchDialog_.Show(m_hWnd, request.database, [this]() {
+        auto* search = request.database ? &request.database->SearchRepository() : nullptr;
+        if (!searchDialog_.Show(m_hWnd, search, [this]() {
             ApplyControllerResult(controller_.SearchClosed());
         })) {
             ApplyControllerResult(controller_.SearchClosed());

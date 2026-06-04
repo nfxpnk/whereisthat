@@ -84,7 +84,7 @@ void BrowserController::NavigateTo(const wit::core::BrowserTarget& target, bool 
     }
     currentTarget_ = target;
     hasTarget_ = true;
-    files_.SetLocation(target.location, database);
+    files_.SetLocation(target.location, &database->BrowserRepository());
     const auto address = AddressFor(target);
     SetWindowTextW(addressHandle_, address.c_str());
     if (syncTreeSelection) {
@@ -126,7 +126,7 @@ void BrowserController::MoveDiskToGroup(wit::core::CatalogId id, std::int64_t di
     }
     UpdateMovedDiskTargets(id, diskId, diskGroupId, diskGroupName);
     if (hasTarget_ && currentTarget_.catalogId == id) {
-        files_.SetLocation(currentTarget_.location, database);
+        files_.SetLocation(currentTarget_.location, &database->BrowserRepository());
         const auto address = AddressFor(currentTarget_);
         SetWindowTextW(addressHandle_, address.c_str());
     }

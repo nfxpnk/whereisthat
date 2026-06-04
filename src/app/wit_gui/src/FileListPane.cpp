@@ -177,31 +177,32 @@ void FileListView::ConfigureColumns() {
     InsertColumn(hwnd, 4, L"Modified", 180);
 }
 
-void FileListView::SetLocation(const wit::core::BrowserLocation& newLocation, wit::storage::Database* database) {
+void FileListView::SetLocation(
+    const wit::core::BrowserLocation& newLocation, wit::storage::IBrowserRepository* repository) {
     location = newLocation;
-    db = database;
+    browser = repository;
     total = 0;
     pageStart = -1;
     page.clear();
     browserPage.clear();
     ListView_SetItemCountEx(hwnd, 0, LVSICF_NOINVALIDATEALL);
     ConfigureColumns();
-    total = db ? (ShowsBrowserItems() ? db->GetBrowserRootItemCount(location)
-        : db->GetBrowserItemCount(location)) : 0;
+    total = browser ? (ShowsBrowserItems() ? browser->GetBrowserRootItemCount(location)
+        : browser->GetBrowserItemCount(location)) : 0;
     ListView_SetItemCountEx(hwnd, total, LVSICF_NOINVALIDATEALL);
     InvalidateRect(hwnd, nullptr, TRUE);
 }
 
 void FileListView::EnsurePage(int index) {
-    if (!db) return;
+    if (!browser) return;
     const int pageSize = 256;
     int desired = (index / pageSize) * pageSize;
     if (desired == pageStart) return;
     if (ShowsBrowserItems()) {
-        browserPage = db->GetBrowserRootItemsPage(location, desired, pageSize);
+        browserPage = browser->GetBrowserRootItemsPage(location, desired, pageSize);
         page.clear();
     } else {
-        page = db->GetBrowserItemsPage(location, desired, pageSize);
+        page = browser->GetBrowserItemsPage(location, desired, pageSize);
         browserPage.clear();
     }
     pageStart = desired;

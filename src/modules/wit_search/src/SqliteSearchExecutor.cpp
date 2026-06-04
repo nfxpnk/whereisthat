@@ -42,6 +42,10 @@ void PopulateDisplayEntry(wit::core::FileEntry& entry, sqlite3_stmt* stmt) {
 
 SqliteSearchExecutor::SqliteSearchExecutor(sqlite3* db) : db_(db) {}
 
+void SqliteSearchExecutor::SetDatabase(sqlite3* db) {
+    db_ = db;
+}
+
 int SqliteSearchExecutor::CountByName(const std::wstring& nameTerm) {
     wit::storage::SQLiteStatement statement(db_,
         "SELECT (SELECT COUNT(*) FROM files WHERE name LIKE ? ESCAPE '\\') + "

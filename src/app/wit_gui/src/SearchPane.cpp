@@ -5,9 +5,10 @@
 #include <utility>
 
 namespace wit::ui {
-bool SearchDialog::Show(HWND owner, wit::storage::Database* database, std::function<void()> onClose) {
+bool SearchDialog::Show(HWND owner, wit::search::ISearchRepository* search, std::function<void()> onClose) {
+    if (!search) return false;
     launchOwner_ = owner;
-    db_ = database;
+    search_ = search;
     onClose_ = std::move(onClose);
     if (!m_hWnd && Create(nullptr) == nullptr) return false;
     ShowWindow(IsIconic() ? SW_RESTORE : SW_SHOW);
@@ -43,7 +44,7 @@ LRESULT SearchDialog::OnWindowClose(UINT, WPARAM, LPARAM, BOOL&) {
 LRESULT SearchDialog::OnDestroy(UINT, WPARAM, LPARAM, BOOL&) {
     results_ = nullptr;
     launchOwner_ = nullptr;
-    db_ = nullptr;
+    search_ = nullptr;
     nameTerm_.clear();
     total_ = 0;
     pageStart_ = -1;
@@ -111,7 +112,8 @@ void SearchDialog::Search() {
     }
 
     nameTerm_ = term;
-    total_ = db_->GetItemSearchCount(nameTerm_);
+    if (!search_) return;
+    total_ = search_->CountByName(nameTerm_);
     pageStart_ = -1;
     page_.clear();
     ListView_SetItemCountEx(results_, total_, LVSICF_NOINVALIDATEALL);
@@ -122,11 +124,11 @@ void SearchDialog::Search() {
 }
 
 void SearchDialog::EnsurePage(int row) {
-    if (!db_ || nameTerm_.empty()) return;
+    if (!search_ || nameTerm_.empty()) return;
     constexpr int pageSize = 256;
     const int desiredPageStart = (row / pageSize) * pageSize;
     if (desiredPageStart == pageStart_) return;
-    page_ = db_->GetItemSearchPage(nameTerm_, desiredPageStart, pageSize);
+    page_ = search_->PageByName(nameTerm_, desiredPageStart, pageSize);
     pageStart_ = desiredPageStart;
 }
 

@@ -4,6 +4,8 @@ VisualStudioVersion = 17.0.31903.59
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{BC8A1FFA-BEE3-4634-8014-F334798102B3}") = "WhereIsThat", "WhereIsThat.vcxproj", "{6D570A83-8E8A-4F3A-95CF-BF311821DD3A}"
 EndProject
+Project("{BC8A1FFA-BEE3-4634-8014-F334798102B3}") = "UnitTests", "UnitTests.vcxproj", "{E2D60D12-7C7B-42B7-9418-2224C520730D}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -14,5 +16,9 @@ Global
 		{6D570A83-8E8A-4F3A-95CF-BF311821DD3A}.Debug|x64.Build.0 = Debug|x64
 		{6D570A83-8E8A-4F3A-95CF-BF311821DD3A}.Release|x64.ActiveCfg = Release|x64
 		{6D570A83-8E8A-4F3A-95CF-BF311821DD3A}.Release|x64.Build.0 = Release|x64
+		{E2D60D12-7C7B-42B7-9418-2224C520730D}.Debug|x64.ActiveCfg = Debug|x64
+		{E2D60D12-7C7B-42B7-9418-2224C520730D}.Debug|x64.Build.0 = Debug|x64
+		{E2D60D12-7C7B-42B7-9418-2224C520730D}.Release|x64.ActiveCfg = Release|x64
+		{E2D60D12-7C7B-42B7-9418-2224C520730D}.Release|x64.Build.0 = Release|x64
 	EndGlobalSection
 EndGlobal

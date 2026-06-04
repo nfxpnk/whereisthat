@@ -1,0 +1,81 @@
+<Project DefaultTargets="Build"
+    xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+    <ItemGroup Label="ProjectConfigurations">
+        <ProjectConfiguration Include="Debug|x64">
+            <Configuration>Debug</Configuration>
+            <Platform>x64</Platform>
+        </ProjectConfiguration>
+        <ProjectConfiguration Include="Release|x64">
+            <Configuration>Release</Configuration>
+            <Platform>x64</Platform>
+        </ProjectConfiguration>
+    </ItemGroup>
+    <PropertyGroup Label="Globals">
+        <ProjectGuid>{E2D60D12-7C7B-42B7-9418-2224C520730D}</ProjectGuid>
+        <Keyword>Win32Proj</Keyword>
+        <ProjectName>UnitTests</ProjectName>
+        <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+    </PropertyGroup>
+    <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+    <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
+        <ConfigurationType>Application</ConfigurationType>
+        <UseDebugLibraries>true</UseDebugLibraries>
+        <PlatformToolset>v143</PlatformToolset>
+        <CharacterSet>Unicode</CharacterSet>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
+        <ConfigurationType>Application</ConfigurationType>
+        <UseDebugLibraries>false</UseDebugLibraries>
+        <PlatformToolset>v143</PlatformToolset>
+        <WholeProgramOptimization>true</WholeProgramOptimization>
+        <CharacterSet>Unicode</CharacterSet>
+    </PropertyGroup>
+    <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+    <PropertyGroup>
+        <OutDir>$(SolutionDir)$(Platform)\$(Configuration)\</OutDir>
+        <IntDir>$(Platform)\$(Configuration)\$(ProjectName)\</IntDir>
+    </PropertyGroup>
+    <ItemDefinitionGroup>
+        <ClCompile>
+            <LanguageStandard>stdcpp20</LanguageStandard>
+            <AdditionalIncludeDirectories>.;src;src\modules\wit_types\include;src\modules\wit_infra\include;src\modules\wit_database\include;src\modules\wit_catalog\include;src\modules\wit_scanner\include;src\modules\wit_extractors\include;src\modules\wit_search\include;src\app\wit_win32\include;src\app\wit_gui\include;src\app\wit_gui\res;third_party\sqlite;third_party\libarchive\include;third_party\wtl\Include;third_party\googletest\googletest;third_party\googletest\googletest\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+        </ClCompile>
+        <Link>
+            <SubSystem>Console</SubSystem>
+            <AdditionalLibraryDirectories>third_party\sqlite;third_party\libarchive\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+            <AdditionalDependencies>sqlite3.lib;archive.lib;user32.lib;ole32.lib;uuid.lib;windowscodecs.lib;advapi32.lib;shell32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+        </Link>
+        <PostBuildEvent>
+            <Command>copy /Y "$(ProjectDir)third_party\sqlite\sqlite3.dll" "$(OutDir)sqlite3.dll"
+copy /Y "$(ProjectDir)third_party\libarchive\bin\*.dll" "$(OutDir)"</Command>
+        </PostBuildEvent>
+    </ItemDefinitionGroup>
+    <ItemGroup>
+        <ClCompile Include="third_party\googletest\googletest\src\gtest-all.cc" />
+        <ClCompile Include="third_party\googletest\googletest\src\gtest_main.cc" />
+        <ClCompile Include="tests\unit\SmokeTests.cpp" />
+        <ClCompile Include="tests\unit\storage\StorageSmokeTests.cpp" />
+        <ClCompile Include="src\app\wit_gui\src\ScanCoordinator.cpp" />
+        <ClCompile Include="src\modules\wit_scanner\src\FileScanner.cpp" />
+        <ClCompile Include="src\modules\wit_database\src\CatalogSchema.cpp" />
+        <ClCompile Include="src\modules\wit_database\src\Database.cpp" />
+        <ClCompile Include="src\modules\wit_database\src\SqliteBrowserRepository.cpp" />
+        <ClCompile Include="src\modules\wit_database\src\SqliteConnection.cpp" />
+        <ClCompile Include="src\modules\wit_database\src\SQLiteStatement.cpp" />
+        <ClCompile Include="src\modules\wit_extractors\src\ArchiveExtractor.cpp" />
+        <ClCompile Include="src\modules\wit_extractors\src\AudioExtractor.cpp" />
+        <ClCompile Include="src\modules\wit_extractors\src\ImageExtractor.cpp" />
+        <ClCompile Include="src\modules\wit_infra\src\FileEntry.cpp" />
+        <ClCompile Include="src\modules\wit_infra\src\PathHelpers.cpp" />
+        <ClCompile Include="src\modules\wit_infra\src\StringUtils.cpp" />
+        <ClCompile Include="src\modules\wit_infra\src\VolumeInfo.cpp" />
+        <ClCompile Include="src\modules\wit_infra\src\Win32Helpers.cpp" />
+        <ClCompile Include="src\modules\wit_search\src\QueryBuilder.cpp" />
+        <ClCompile Include="src\modules\wit_search\src\SearchExecutor.cpp" />
+        <ClCompile Include="src\modules\wit_search\src\SqliteSearchExecutor.cpp" />
+    </ItemGroup>
+    <ItemGroup>
+        <ResourceCompile Include="src\app\wit_gui\res\app.rc" />
+    </ItemGroup>
+    <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+</Project>

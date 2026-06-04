@@ -1,0 +1,89 @@
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+    <ItemGroup>
+        <Filter Include="Tests">
+            <UniqueIdentifier>{5A56F9B4-0C49-41AE-8BAF-AB39A9605C19}</UniqueIdentifier>
+        </Filter>
+        <Filter Include="Production Sources">
+            <UniqueIdentifier>{A538A7A7-EC56-48E7-9C8B-E2B743CF1828}</UniqueIdentifier>
+        </Filter>
+        <Filter Include="GoogleTest">
+            <UniqueIdentifier>{F97121F4-B641-42D5-9B52-C05C6135A49D}</UniqueIdentifier>
+        </Filter>
+        <Filter Include="Resources">
+            <UniqueIdentifier>{71FC98CB-0906-4D2C-9A95-F5725234F209}</UniqueIdentifier>
+        </Filter>
+    </ItemGroup>
+    <ItemGroup>
+        <ClCompile Include="tests\unit\SmokeTests.cpp">
+            <Filter>Tests</Filter>
+        </ClCompile>
+        <ClCompile Include="tests\unit\storage\StorageSmokeTests.cpp">
+            <Filter>Tests</Filter>
+        </ClCompile>
+        <ClCompile Include="third_party\googletest\googletest\src\gtest-all.cc">
+            <Filter>GoogleTest</Filter>
+        </ClCompile>
+        <ClCompile Include="third_party\googletest\googletest\src\gtest_main.cc">
+            <Filter>GoogleTest</Filter>
+        </ClCompile>
+        <ClCompile Include="src\app\wit_gui\src\ScanCoordinator.cpp">
+            <Filter>Production Sources</Filter>
+        </ClCompile>
+        <ClCompile Include="src\modules\wit_scanner\src\FileScanner.cpp">
+            <Filter>Production Sources</Filter>
+        </ClCompile>
+        <ClCompile Include="src\modules\wit_database\src\CatalogSchema.cpp">
+            <Filter>Production Sources</Filter>
+        </ClCompile>
+        <ClCompile Include="src\modules\wit_database\src\Database.cpp">
+            <Filter>Production Sources</Filter>
+        </ClCompile>
+        <ClCompile Include="src\modules\wit_database\src\SqliteBrowserRepository.cpp">
+            <Filter>Production Sources</Filter>
+        </ClCompile>
+        <ClCompile Include="src\modules\wit_database\src\SqliteConnection.cpp">
+            <Filter>Production Sources</Filter>
+        </ClCompile>
+        <ClCompile Include="src\modules\wit_database\src\SQLiteStatement.cpp">
+            <Filter>Production Sources</Filter>
+        </ClCompile>
+        <ClCompile Include="src\modules\wit_extractors\src\ArchiveExtractor.cpp">
+            <Filter>Production Sources</Filter>
+        </ClCompile>
+        <ClCompile Include="src\modules\wit_extractors\src\AudioExtractor.cpp">
+            <Filter>Production Sources</Filter>
+        </ClCompile>
+        <ClCompile Include="src\modules\wit_extractors\src\ImageExtractor.cpp">
+            <Filter>Production Sources</Filter>
+        </ClCompile>
+        <ClCompile Include="src\modules\wit_infra\src\FileEntry.cpp">
+            <Filter>Production Sources</Filter>
+        </ClCompile>
+        <ClCompile Include="src\modules\wit_infra\src\PathHelpers.cpp">
+            <Filter>Production Sources</Filter>
+        </ClCompile>
+        <ClCompile Include="src\modules\wit_infra\src\StringUtils.cpp">
+            <Filter>Production Sources</Filter>
+        </ClCompile>
+        <ClCompile Include="src\modules\wit_infra\src\VolumeInfo.cpp">
+            <Filter>Production Sources</Filter>
+        </ClCompile>
+        <ClCompile Include="src\modules\wit_infra\src\Win32Helpers.cpp">
+            <Filter>Production Sources</Filter>
+        </ClCompile>
+        <ClCompile Include="src\modules\wit_search\src\QueryBuilder.cpp">
+            <Filter>Production Sources</Filter>
+        </ClCompile>
+        <ClCompile Include="src\modules\wit_search\src\SearchExecutor.cpp">
+            <Filter>Production Sources</Filter>
+        </ClCompile>
+        <ClCompile Include="src\modules\wit_search\src\SqliteSearchExecutor.cpp">
+            <Filter>Production Sources</Filter>
+        </ClCompile>
+    </ItemGroup>
+    <ItemGroup>
+        <ResourceCompile Include="src\app\wit_gui\res\app.rc">
+            <Filter>Resources</Filter>
+        </ResourceCompile>
+    </ItemGroup>
+</Project>

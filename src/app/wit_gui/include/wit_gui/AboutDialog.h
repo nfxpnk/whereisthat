@@ -17,6 +17,8 @@ public:
         NOTIFY_HANDLER(IDC_ABOUT_TABS, TCN_SELCHANGE, OnTabChanged)
         NOTIFY_HANDLER(IDC_ABOUT_LINK, NM_CLICK, OnLinkActivated)
         NOTIFY_HANDLER(IDC_ABOUT_LINK, NM_RETURN, OnLinkActivated)
+        NOTIFY_HANDLER(IDC_ABOUT_REPOSITORY_LINK, NM_CLICK, OnRepositoryLinkActivated)
+        NOTIFY_HANDLER(IDC_ABOUT_REPOSITORY_LINK, NM_RETURN, OnRepositoryLinkActivated)
         COMMAND_ID_HANDLER(IDOK, OnClose)
         COMMAND_ID_HANDLER(IDCANCEL, OnClose)
     END_MSG_MAP()
@@ -32,6 +34,7 @@ private:
     LRESULT OnDestroy(UINT message, WPARAM wparam, LPARAM lparam, BOOL& handled);
     LRESULT OnTabChanged(int idCtrl, LPNMHDR notifyHeader, BOOL& handled);
     LRESULT OnLinkActivated(int idCtrl, LPNMHDR notifyHeader, BOOL& handled);
+    LRESULT OnRepositoryLinkActivated(int idCtrl, LPNMHDR notifyHeader, BOOL& handled);
     LRESULT OnClose(WORD notifyCode, WORD id, HWND control, BOOL& handled);
 };
 

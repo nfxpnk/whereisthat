@@ -4,7 +4,8 @@
 
 namespace {
 
-constexpr wchar_t kProjectUrl[] = L"https://nfxpnk.github.io/whereisthat/";
+constexpr wchar_t kProjectUrl[] = L"https://nfxpnk.github.io/whereisthat";
+constexpr wchar_t kRepositoryUrl[] = L"https://github.com/nfxpnk/whereisthat";
 
 HFONT CreateBoldDialogFont(HWND dialog, int pointSizeDelta) {
     NONCLIENTMETRICSW metrics{};
@@ -85,6 +86,11 @@ LRESULT AboutDialog::OnLinkActivated(int, LPNMHDR, BOOL&) {
     return 0;
 }
 
+LRESULT AboutDialog::OnRepositoryLinkActivated(int, LPNMHDR, BOOL&) {
+    ShellExecuteW(m_hWnd, L"open", kRepositoryUrl, nullptr, nullptr, SW_SHOWNORMAL);
+    return 0;
+}
+
 LRESULT AboutDialog::OnClose(WORD, WORD id, HWND, BOOL&) {
     EndDialog(id);
     return 0;
@@ -101,6 +107,7 @@ void AboutDialog::ShowActivePage() {
     GetDlgItem(IDC_ABOUT_VERSION).ShowWindow(showInfo ? SW_SHOW : SW_HIDE);
     GetDlgItem(IDC_ABOUT_LINK_LABEL).ShowWindow(showInfo ? SW_SHOW : SW_HIDE);
     GetDlgItem(IDC_ABOUT_LINK).ShowWindow(showInfo ? SW_SHOW : SW_HIDE);
+    GetDlgItem(IDC_ABOUT_REPOSITORY_LINK).ShowWindow(showInfo ? SW_SHOW : SW_HIDE);
     GetDlgItem(IDC_ABOUT_PAGE_LICENSE).ShowWindow(showInfo ? SW_HIDE : SW_SHOW);
 }
 

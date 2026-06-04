@@ -118,7 +118,8 @@ BEGIN
     LTEXT "\xA9 2026 Andrii Shevchenko <nfxpnk@gmail.com>", IDC_ABOUT_COPYRIGHT, 76, 50, 166, 10
     LTEXT "Version: 0.1 (64-bit)", IDC_ABOUT_VERSION, 76, 66, 120, 10
     LTEXT "Links:", IDC_ABOUT_LINK_LABEL, 76, 84, 30, 10
-    CONTROL "<a>https://nfxpnk.github.io/whereisthat/</a>", IDC_ABOUT_LINK, "SysLink", WS_TABSTOP, 76, 95, 160, 12
+    CONTROL "<a>https://nfxpnk.github.io/whereisthat</a>", IDC_ABOUT_LINK, "SysLink", WS_TABSTOP, 76, 95, 160, 12
+    CONTROL "<a>https://github.com/nfxpnk/whereisthat</a>", IDC_ABOUT_REPOSITORY_LINK, "SysLink", WS_TABSTOP, 76, 107, 160, 12
     LTEXT "", IDC_ABOUT_PAGE_LICENSE, 14, 27, 236, 84
     DEFPUSHBUTTON "Close", IDOK, 207, 136, 50, 14
 END

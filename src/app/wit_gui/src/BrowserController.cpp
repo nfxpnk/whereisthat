@@ -1,6 +1,7 @@
 #include "wit_gui/BrowserController.h"
 #include <algorithm>
 #include <format>
+#include <wit_infra/Logging.h>
 #include <wit_infra/PathHelpers.h>
 #include "wit_infra/StringUtils.h"
 #include <wit_infra/Win32Helpers.h>
@@ -100,6 +101,9 @@ void BrowserController::AddCatalog(wit::core::CatalogId id, const std::wstring& 
 void BrowserController::RefreshCatalog(wit::core::CatalogId id, const std::wstring& label,
     wit::storage::Database* database, bool select) {
     if (!database || !database->IsOpen()) return;
+    if (hasTarget_ && currentTarget_.catalogId == id) {
+        files_.SetLocation({}, nullptr);
+    }
     tree_.RefreshCatalog(id, label, database, select);
     if (select || (hasTarget_ && currentTarget_.catalogId == id)) NavigateTo({id, {}}, true);
 }
@@ -107,6 +111,9 @@ void BrowserController::RefreshCatalog(wit::core::CatalogId id, const std::wstri
 void BrowserController::MoveDiskToGroup(wit::core::CatalogId id, std::int64_t diskId,
     std::int64_t diskGroupId, wit::storage::Database* database) {
     if (!database || !database->IsOpen()) return;
+    if (hasTarget_ && currentTarget_.catalogId == id) {
+        files_.SetLocation({}, nullptr);
+    }
     std::wstring diskGroupName;
     if (diskGroupId != 0) {
         for (const auto& group : database->GetDiskGroups()) {
@@ -118,7 +125,11 @@ void BrowserController::MoveDiskToGroup(wit::core::CatalogId id, std::int64_t di
         if (diskGroupName.empty()) return;
     }
     if (!tree_.MoveDiskToGroup(id, diskId, diskGroupId, database)) {
-        OutputDebugStringW(L"WhereIsThat: MoveDiskToGroup skipped TreeView full refresh; affected node was not found.\n");
+        WIT_LOG_DEBUG(std::format(L"move disk tree update skipped catalogId={} diskId={} targetGroupId={}",
+            id, diskId, diskGroupId));
+        if (hasTarget_ && currentTarget_.catalogId == id) {
+            files_.SetLocation(currentTarget_.location, &database->BrowserRepository());
+        }
         return;
     }
     UpdateMovedDiskTargets(id, diskId, diskGroupId, diskGroupName);

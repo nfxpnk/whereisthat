@@ -23,12 +23,6 @@ constexpr bool kEnableScanFileDelay = false;
 constexpr std::int64_t kScanFileDelayMicroseconds = 50000;
 constexpr std::uint64_t kProgressReportItemInterval = 250;
 
-std::wstring JoinPath(const std::wstring& parent, const std::wstring& child) {
-    if (parent.empty()) return child;
-    const auto last = parent.back();
-    return (last == L'\\' || last == L'/') ? parent + child : parent + L"\\" + child;
-}
-
 std::wstring WildcardFor(const std::wstring& path) {
     const auto last = path.empty() ? L'\0' : path.back();
     return (last == L'\\' || last == L'/') ? path + L"*" : path + L"\\*";
@@ -260,7 +254,7 @@ bool StoreArchive(const ParsedArchive& parsed, const std::wstring& physicalPath,
         std::wstring relative;
         std::int64_t currentId = archiveId;
         for (std::size_t index = 0; index < count; ++index) {
-            relative = JoinPath(relative, parts[index]);
+            relative = wit::platform::Join(relative, parts[index]);
             const auto found = folderIds.find(relative);
             if (found != folderIds.end()) {
                 currentId = found->second;
@@ -268,7 +262,7 @@ bool StoreArchive(const ParsedArchive& parsed, const std::wstring& physicalPath,
             }
             FolderEntry folder = archiveFolder;
             folder.parentFolderId = currentId;
-            folder.path = JoinPath(physicalPath, relative);
+            folder.path = wit::platform::Join(physicalPath, relative);
             folder.name = parts[index];
             folder.entryType = FolderEntryType::Directory;
             folder.contentSize = 0;
@@ -303,7 +297,7 @@ bool StoreArchive(const ParsedArchive& parsed, const std::wstring& physicalPath,
         folderSizes[L""] += member.size;
         std::wstring relative;
         for (std::size_t index = 0; index < parentCount; ++index) {
-            relative = JoinPath(relative, member.parts[index]);
+            relative = wit::platform::Join(relative, member.parts[index]);
             folderSizes[relative] += member.size;
         }
     }
@@ -349,7 +343,7 @@ bool FileScanner::CountFiles(const std::wstring& rootPath, std::uint64_t& totalF
             if (wcscmp(findData.cFileName, L".") == 0 || wcscmp(findData.cFileName, L"..") == 0) continue;
             if ((findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0) {
                 if (!(findData.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)) {
-                    folders.push_back(JoinPath(path, findData.cFileName));
+                    folders.push_back(wit::platform::Join(path, findData.cFileName));
                 }
             } else {
                 ++totalFiles;
@@ -421,7 +415,7 @@ bool FileScanner::ScanFolder(const std::wstring& rootPath, std::int64_t diskId, 
                     if (wcscmp(findData.cFileName, L".") == 0 || wcscmp(findData.cFileName, L"..") == 0) {
                         continue;
                     }
-                    const std::wstring fullPath = JoinPath(frame.path, findData.cFileName);
+                    const std::wstring fullPath = wit::platform::Join(frame.path, findData.cFileName);
                     const bool isDirectory = (findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
                     if (isDirectory) {
                         auto folder = FolderFromData(diskId, frame.id, true, fullPath, findData.cFileName, findData);

@@ -324,7 +324,7 @@ int wmain() {
 
         wit::app::ScanId failedId{};
         media.calculateCrc = false;
-        media.scanRoot = (testRoot / L"missing-media").wstring();
+        media.scanRoot = wit::platform::Join(testRoot.wstring(), L"missing-media");
         Check(coordinator.Start(&db, media, failedId), "coordinator failed scan start");
         Check(WaitForCompletion(failedId), "coordinator failed result notification");
         auto failed = coordinator.TakeResult(failedId);
@@ -463,7 +463,7 @@ int wmain() {
         if (item.name == L"readable.zip") foundReadableArchive = item.isDirectory && item.isArchive;
     }
     Check(foundReadableArchive, "browser projection distinguishes navigable archive folders");
-    archiveLocation.path = (mediaArchives / L"readable.zip").wstring();
+    archiveLocation.path = wit::platform::Join(mediaArchives.wstring(), L"readable.zip");
     const auto readableArchiveItems = archiveDb.GetBrowserItemsPage(archiveLocation, 0, 20);
     Check(readableArchiveItems.size() == 2, "archive folder uses ordinary immediate-content navigation");
 
@@ -471,7 +471,7 @@ int wmain() {
     disabledArchiveDisk.diskName = L"Archives disabled";
     disabledArchiveDisk.sourcePath = mediaArchives.wstring() + L"-disabled";
     std::filesystem::create_directories(disabledArchiveDisk.sourcePath);
-    Check(WriteZip(std::filesystem::path(disabledArchiveDisk.sourcePath) / L"readable.zip",
+    Check(WriteZip(wit::platform::Join(disabledArchiveDisk.sourcePath, L"readable.zip"),
         {{L"nested/inner.txt", "abcde"}}), "disabled archive fixture creation");
     disabledArchiveDisk.addedAt = 302;
     disabledArchiveDisk.updatedAt = 302;

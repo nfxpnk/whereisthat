@@ -1,15 +1,10 @@
 #include "wit_gui/TreeViewPane.h"
 #include "wit_gui/BrowserItemIcons.h"
+#include <wit_infra/PathHelpers.h>
 #include <algorithm>
 
 namespace wit::ui {
 namespace {
-std::wstring JoinPath(const std::wstring& parent, const std::wstring& name) {
-    if (parent.empty()) return name;
-    const auto last = parent.back();
-    return last == L'\\' || last == L'/' ? parent + name : parent + L"\\" + name;
-}
-
 bool SameText(const std::wstring& left, const std::wstring& right) {
     return CompareStringOrdinal(left.c_str(), -1, right.c_str(), -1, TRUE) == CSTR_EQUAL;
 }
@@ -252,7 +247,7 @@ void CatalogTreeView::Expand(HTREEITEM item) {
     const auto folders = database->GetChildFolders(location.sourceId, location.path);
     for (const auto& folder : folders) {
         auto child = location;
-        child.path = JoinPath(location.path, folder.name);
+        child.path = wit::platform::Join(location.path, folder.name);
         InsertNode(item, node->target.catalogId, folder.name, child, false,
             database->HasChildFolders(child.sourceId, child.path),
             folder.isArchive ? BrowserArchiveImage : BrowserFolderImage);

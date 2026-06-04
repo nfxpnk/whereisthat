@@ -6,6 +6,11 @@ std::wstring EnsureLongPathPrefix(const std::wstring& path) {
     if (path.rfind(L"\\\\", 0) == 0) return L"\\\\?\\UNC\\" + path.substr(2);
     return L"\\\\?\\" + path;
 }
+std::wstring Join(const std::wstring& parent, const std::wstring& child) {
+    if (parent.empty()) return child;
+    const auto last = parent.back();
+    return (last == L'\\' || last == L'/') ? parent + child : parent + L"\\" + child;
+}
 std::wstring ParentDirectory(const std::wstring& fullPath) {
     auto pos = fullPath.find_last_of(L"\\/");
     return pos == std::wstring::npos ? L"" : fullPath.substr(0, pos);

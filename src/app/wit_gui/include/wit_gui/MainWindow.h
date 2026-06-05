@@ -16,6 +16,7 @@ class MainFrame : public WTL::CFrameWindowImpl<MainFrame>, public WTL::CMessageF
 public:
     DECLARE_FRAME_WND_CLASS(L"WhereIsThatMainFrame", IDI_APPICON)
 
+    explicit MainFrame(std::wstring startupCatalogPath = {});
     bool Create();
     void Show(int command);
     HWND WindowHandle() const { return m_hWnd; }
@@ -56,6 +57,7 @@ private:
     wit::app::CatalogWorkflowController controller_;
     wit::ui::ProgressDialog scanProgressDialog_;
     wit::ui::SearchDialog searchDialog_;
+    std::wstring startupCatalogPath_;
     bool protectedCatalog_{};
 
     LRESULT OnCreate(UINT message, WPARAM wparam, LPARAM lparam, BOOL& handled);

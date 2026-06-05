@@ -5,8 +5,11 @@
 #include <Windows.h>
 #include <CommCtrl.h>
 #include <format>
+#include <utility>
 
 #pragma comment(linker, "\"/manifestdependency:type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'\"")
+
+App::App(std::wstring startupCatalogPath) : startupCatalogPath_(std::move(startupCatalogPath)) {}
 
 int App::Run() {
     WIT_LOG_INFO(L"app message loop initialization");
@@ -21,7 +24,7 @@ int App::Run() {
         return 1;
     }
 
-    MainFrame wnd;
+    MainFrame wnd(std::move(startupCatalogPath_));
     if (!wnd.Create()) {
         WIT_LOG_ERROR(L"main window creation failed");
         _Module.RemoveMessageLoop();

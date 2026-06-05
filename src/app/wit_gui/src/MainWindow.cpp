@@ -302,6 +302,8 @@ LRESULT MainFrame::OnFileActivate(int, LPNMHDR header, BOOL&) {
     return result;
 }
 
+MainFrame::MainFrame(std::wstring startupCatalogPath) : startupCatalogPath_(std::move(startupCatalogPath)) {}
+
 LRESULT MainFrame::OnFileItemChanged(int, LPNMHDR header, BOOL&) {
     if (browser_.FileItemStateChanged(header)) UpdateBrowserStatus();
     return 0;
@@ -331,6 +333,9 @@ bool MainFrame::InitializeFrame() {
         [this](wit::core::CatalogId id) { return controller_.CatalogLabel(id); });
     browser_.Clear();
     ApplyControllerResult(std::move(initial));
+    if (!startupCatalogPath_.empty()) {
+        ApplyControllerResult(controller_.OpenCatalogPathSelected(startupCatalogPath_));
+    }
     chrome_.UpdateProgramStatusLights();
     WIT_LOG_INFO(L"main frame initialization completed");
     return true;

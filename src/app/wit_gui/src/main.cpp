@@ -2,11 +2,22 @@
 #include "wit_win32/BaseWindow.h"
 #include <wit_infra/Logging.h>
 #include <Windows.h>
+#include <Shellapi.h>
 #include <format>
+#include <string>
 
 WTL::CAppModule _Module;
 
 namespace {
+
+std::wstring FirstCommandLineArgument() {
+    int argc{};
+    const auto argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+    if (!argv) return {};
+    std::wstring argument = argc > 1 ? argv[1] : L"";
+    LocalFree(argv);
+    return argument;
+}
 
 void EnableDpiAwareness() {
     HMODULE user32 = GetModuleHandleW(L"user32.dll");
@@ -32,6 +43,7 @@ void EnableDpiAwareness() {
 }
 
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
+    const auto startupCatalogPath = FirstCommandLineArgument();
     wit::infra::InitializeLogging();
     WIT_LOG_INFO(L"WhereIsThat starting");
     EnableDpiAwareness();
@@ -50,7 +62,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         return 1;
     }
 
-    App app;
+    App app(startupCatalogPath);
     int rc = app.Run();
 
     _Module.Term();

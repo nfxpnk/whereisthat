@@ -60,7 +60,7 @@ TEST(SearchExecutor, PageByNameCachesFolderCountPerSearchTermAndDatabase) {
 
     executor.SetDatabase(first.Raw());
     EXPECT_EQ(executor.PageByName(L"beta", 0, 10).size(), 1u);
-    EXPECT_EQ(firstFolderCountQueries, 2);
+    EXPECT_EQ(firstFolderCountQueries, 3);
 
     MemoryDatabase second;
     int secondFolderCountQueries{};

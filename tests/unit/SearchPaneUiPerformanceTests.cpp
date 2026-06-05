@@ -48,6 +48,7 @@ TEST(DISABLED_SearchPaneUiPerformance, SearchAndScrollFakeCatalog) {
     const auto catalogPath = std::filesystem::current_path() / L"tools" / L"catalog-test" /
         L"fake-search-catalog.sqlite";
     if (!std::filesystem::exists(catalogPath)) {
+        // See tools/catalog-test/README.md for fixture generation instructions.
         GTEST_SKIP() << "tools\\catalog-test\\fake-search-catalog.sqlite is not available";
     }
 

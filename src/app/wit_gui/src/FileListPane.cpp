@@ -221,8 +221,8 @@ void FileListView::ResetCachedItems() {
     browserPage.clear();
     ClearCache();
     if (!hwnd) return;
-    ListView_SetItemCountEx(hwnd, 0, LVSICF_NOINVALIDATEALL);
-    ListView_SetItemCountEx(hwnd, total, LVSICF_NOINVALIDATEALL);
+    ListView_SetItemCountEx(hwnd, total, LVSICF_NOSCROLL);
+    InvalidateRect(hwnd, nullptr, TRUE);
 }
 
 void FileListView::PreloadRange(int firstRow, int lastRow) {
@@ -309,12 +309,6 @@ int FileListView::ImageFor(int row) {
     if (fileImage != I_IMAGENONE) return fileImage;
     if (IsArchiveFileExtension(extension)) return BrowserArchiveImage;
     return BrowserDocumentImage;
-}
-
-std::wstring FileListView::TextFor(int row, int column) {
-    wchar_t buffer[4096]{};
-    TextFor(row, column, buffer, std::size(buffer));
-    return buffer;
 }
 
 void FileListView::TextFor(int row, int column, wchar_t* buffer, std::size_t bufferSize) {

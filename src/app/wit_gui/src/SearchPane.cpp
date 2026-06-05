@@ -155,8 +155,8 @@ void SearchDialog::ClearCache() {
 
 void SearchDialog::ResetResultItemCache() {
     if (!results_) return;
-    ListView_SetItemCountEx(results_, 0, LVSICF_NOINVALIDATEALL);
-    ListView_SetItemCountEx(results_, total_, LVSICF_NOINVALIDATEALL);
+    ListView_SetItemCountEx(results_, total_, LVSICF_NOSCROLL);
+    ::InvalidateRect(results_, nullptr, TRUE);
 }
 
 void SearchDialog::CachePage(int pageStart) {
@@ -208,12 +208,6 @@ const wit::core::FileEntry* SearchDialog::EntryAt(int row) {
     found->lastUsed = ++cacheClock_;
     const int index = row - found->start;
     return index >= 0 && index < static_cast<int>(found->items.size()) ? &found->items[index] : nullptr;
-}
-
-std::wstring SearchDialog::TextFor(int row, int column) {
-    wchar_t buffer[4096]{};
-    TextFor(row, column, buffer, std::size(buffer));
-    return buffer;
 }
 
 void SearchDialog::TextFor(int row, int column, wchar_t* buffer, std::size_t bufferSize) {

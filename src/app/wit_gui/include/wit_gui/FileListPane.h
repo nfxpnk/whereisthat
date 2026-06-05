@@ -28,7 +28,6 @@ public:
     const wit::core::BrowserItem* BrowserItemAt(int row);
     const wit::core::Disk* DiskAt(int row);
     int ImageFor(int row);
-    std::wstring TextFor(int row, int column);
     void TextFor(int row, int column, wchar_t* buffer, std::size_t bufferSize);
 
 private:

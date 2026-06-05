@@ -45,6 +45,31 @@ static void AppendNumber(std::wstring& output, int value, int width) {
     output += text;
 }
 
+static void AppendNumberToBuffer(wchar_t*& cursor, std::size_t& remaining, int value, int width) {
+    if (remaining == 0) return;
+    wchar_t text[16]{};
+    const auto written = swprintf_s(text, L"%d", value);
+    if (written < 0) return;
+    auto textLength = static_cast<std::size_t>(written);
+    while (width > 1 && textLength < static_cast<std::size_t>(width) && remaining > 1) {
+        *cursor++ = L'0';
+        --remaining;
+        --width;
+    }
+    for (std::size_t index = 0; index < textLength && remaining > 1; ++index) {
+        *cursor++ = text[index];
+        --remaining;
+    }
+    *cursor = L'\0';
+}
+
+static void AppendCharToBuffer(wchar_t*& cursor, std::size_t& remaining, wchar_t character) {
+    if (remaining <= 1) return;
+    *cursor++ = character;
+    --remaining;
+    *cursor = L'\0';
+}
+
 static bool IsPatternSeparator(wchar_t character) {
     return character == L' ' || character == L'-' || character == L'/' ||
         character == L'.' || character == L':' || character == L'\\';
@@ -97,6 +122,57 @@ static std::wstring FormatWithPattern(const SYSTEMTIME& local, std::wstring_view
         }
     }
     return output;
+}
+
+static void FormatWithPatternToBuffer(
+    const SYSTEMTIME& local, std::wstring_view pattern, wchar_t* buffer, std::size_t bufferSize) {
+    if (!buffer || bufferSize == 0) return;
+    buffer[0] = L'\0';
+    auto* cursor = buffer;
+    auto remaining = bufferSize;
+    for (std::size_t index = 0; index < pattern.size() && remaining > 1;) {
+        const auto tail = pattern.substr(index);
+        if (tail.starts_with(L"YYYY")) {
+            AppendNumberToBuffer(cursor, remaining, local.wYear, 4);
+            index += 4;
+        } else if (tail.starts_with(L"YY")) {
+            AppendNumberToBuffer(cursor, remaining, local.wYear % 100, 2);
+            index += 2;
+        } else if (tail.starts_with(L"MM")) {
+            AppendNumberToBuffer(cursor, remaining, local.wMonth, 2);
+            index += 2;
+        } else if (tail.starts_with(L"DD")) {
+            AppendNumberToBuffer(cursor, remaining, local.wDay, 2);
+            index += 2;
+        } else if (tail.starts_with(L"HH")) {
+            AppendNumberToBuffer(cursor, remaining, local.wHour, 2);
+            index += 2;
+        } else if (tail.starts_with(L"mm")) {
+            AppendNumberToBuffer(cursor, remaining, local.wMinute, 2);
+            index += 2;
+        } else if (tail.starts_with(L"ss")) {
+            AppendNumberToBuffer(cursor, remaining, local.wSecond, 2);
+            index += 2;
+        } else if (tail.starts_with(L"M")) {
+            AppendNumberToBuffer(cursor, remaining, local.wMonth, 1);
+            ++index;
+        } else if (tail.starts_with(L"D")) {
+            AppendNumberToBuffer(cursor, remaining, local.wDay, 1);
+            ++index;
+        } else if (tail.starts_with(L"H")) {
+            AppendNumberToBuffer(cursor, remaining, local.wHour, 1);
+            ++index;
+        } else if (tail.starts_with(L"m")) {
+            AppendNumberToBuffer(cursor, remaining, local.wMinute, 1);
+            ++index;
+        } else if (tail.starts_with(L"s")) {
+            AppendNumberToBuffer(cursor, remaining, local.wSecond, 1);
+            ++index;
+        } else {
+            AppendCharToBuffer(cursor, remaining, pattern[index]);
+            ++index;
+        }
+    }
 }
 
 static std::wstring CurrentPattern() {
@@ -227,8 +303,7 @@ void FormatUnixTimestampToBuffer(std::int64_t timestamp, wchar_t* buffer, std::s
         if (timeLength == 0) buffer[used] = L'\0';
         return;
     }
-    const auto formatted = FormatWithPattern(local, pattern);
-    swprintf_s(buffer, bufferSize, L"%s", formatted.c_str());
+    FormatWithPatternToBuffer(local, pattern, buffer, bufferSize);
 }
 std::wstring FormatUnixDate(std::int64_t timestamp) {
     return FormatUnixTimestamp(timestamp);

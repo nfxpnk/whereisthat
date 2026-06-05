@@ -43,11 +43,9 @@ void PopulateDisplayEntry(wit::core::FileEntry& entry, sqlite3_stmt* stmt) {
 SqliteSearchExecutor::SqliteSearchExecutor(sqlite3* db) : db_(db) {}
 
 void SqliteSearchExecutor::SetDatabase(sqlite3* db) {
-    if (db_ != db) {
-        cachedFolderCountTerm_.clear();
-        cachedFolderCount_ = 0;
-        hasCachedFolderCount_ = false;
-    }
+    cachedFolderCountTerm_.clear();
+    cachedFolderCount_ = 0;
+    hasCachedFolderCount_ = false;
     db_ = db;
 }
 

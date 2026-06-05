@@ -23,6 +23,9 @@
         <ClCompile Include="tests\unit\Crc32Tests.cpp">
             <Filter>Tests</Filter>
         </ClCompile>
+        <ClCompile Include="tests\unit\FileListSelectionTests.cpp">
+            <Filter>Tests</Filter>
+        </ClCompile>
         <ClCompile Include="tests\unit\storage\StorageSmokeTests.cpp">
             <Filter>Tests</Filter>
         </ClCompile>
@@ -36,6 +39,9 @@
             <Filter>Production Sources</Filter>
         </ClCompile>
         <ClCompile Include="src\app\wit_gui\src\CatalogWorkflowController.cpp">
+            <Filter>Production Sources</Filter>
+        </ClCompile>
+        <ClCompile Include="src\app\wit_gui\src\FileListPane.cpp">
             <Filter>Production Sources</Filter>
         </ClCompile>
         <ClCompile Include="src\modules\wit_catalog\src\CatalogSession.cpp">

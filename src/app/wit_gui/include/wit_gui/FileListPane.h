@@ -2,6 +2,7 @@
 #include <Windows.h>
 #include <cstdint>
 #include <string>
+#include <unordered_set>
 #include <vector>
 #include "wit_types/BrowserLocation.h"
 #include <wit_types/Disk.h>
@@ -22,6 +23,14 @@ public:
     void SetLocation(const wit::core::BrowserLocation& newLocation, wit::storage::IBrowserRepository* repository);
     void ResetCachedItems();
     void PreloadRange(int firstRow, int lastRow);
+    void ClearSelection();
+    void SelectAllItems();
+    void SelectOnly(int row);
+    void SetSelectionRange(int firstRow, int lastRow, bool selected);
+    bool IsSelected(int row) const;
+    int SelectedCount() const { return selectedCount_; }
+    bool AllItemsSelected() const { return selectAll_; }
+    std::vector<int> SelectedRows(int maxRows) const;
     bool ShowsBrowserItems() const { return browser && (location.isRoot || location.isDiskGroup); }
     bool ShowsDisks() const { return ShowsBrowserItems(); }
     const wit::core::FileEntry* EntryAt(int row);
@@ -42,6 +51,10 @@ private:
 
     unsigned long long cacheClock_{};
     std::vector<CachedFilePage> cachedFilePages_;
+    bool selectAll_{};
+    int selectedCount_{};
+    std::unordered_set<int> selectedIndices_;
+    std::unordered_set<int> deselectedIndices_;
 
     void ConfigureColumns();
     void ClearCache();

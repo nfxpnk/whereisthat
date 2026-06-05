@@ -208,6 +208,7 @@ void FileListView::SetLocation(
     browserPageStart = -1;
     browserPage.clear();
     ClearCache();
+    ClearSelection();
     ListView_SetItemCountEx(hwnd, 0, LVSICF_NOINVALIDATEALL);
     ConfigureColumns();
     total = browser ? (ShowsBrowserItems() ? browser->GetBrowserRootItemCount(location)
@@ -240,6 +241,86 @@ void FileListView::PreloadRange(int firstRow, int lastRow) {
 void FileListView::ClearCache() {
     cacheClock_ = 0;
     cachedFilePages_.clear();
+}
+
+void FileListView::ClearSelection() {
+    selectAll_ = false;
+    selectedCount_ = 0;
+    selectedIndices_.clear();
+    deselectedIndices_.clear();
+}
+
+void FileListView::SelectAllItems() {
+    selectAll_ = true;
+    selectedCount_ = total;
+    selectedIndices_.clear();
+    deselectedIndices_.clear();
+}
+
+void FileListView::SelectOnly(int row) {
+    ClearSelection();
+    SetSelectionRange(row, row, true);
+}
+
+void FileListView::SetSelectionRange(int firstRow, int lastRow, bool selected) {
+    if (total <= 0) {
+        ClearSelection();
+        return;
+    }
+    firstRow = std::clamp(firstRow, 0, total - 1);
+    lastRow = std::clamp(lastRow, 0, total - 1);
+    if (lastRow < firstRow) std::swap(firstRow, lastRow);
+
+    if (!selected && firstRow == 0 && lastRow == total - 1) {
+        ClearSelection();
+        return;
+    }
+
+    if (selected && firstRow == 0 && lastRow == total - 1) {
+        SelectAllItems();
+        return;
+    }
+
+    if (selectAll_) {
+        for (int row = firstRow; row <= lastRow; ++row) {
+            const auto erased = deselectedIndices_.erase(row);
+            if (selected && erased != 0) ++selectedCount_;
+            if (!selected && erased == 0) {
+                deselectedIndices_.insert(row);
+                --selectedCount_;
+            }
+        }
+        return;
+    }
+
+    for (int row = firstRow; row <= lastRow; ++row) {
+        if (selected) {
+            const auto [_, inserted] = selectedIndices_.insert(row);
+            if (inserted) ++selectedCount_;
+        } else if (selectedIndices_.erase(row) != 0) {
+            --selectedCount_;
+        }
+    }
+}
+
+bool FileListView::IsSelected(int row) const {
+    if (row < 0 || row >= total) return false;
+    if (selectAll_) return !deselectedIndices_.contains(row);
+    return selectedIndices_.contains(row);
+}
+
+std::vector<int> FileListView::SelectedRows(int maxRows) const {
+    std::vector<int> rows;
+    if (selectedCount_ <= 0 || selectedCount_ > maxRows) return rows;
+    rows.reserve(static_cast<std::size_t>(selectedCount_));
+    if (!selectAll_) {
+        for (const auto row : selectedIndices_) rows.push_back(row);
+        return rows;
+    }
+    for (int row = 0; row < total; ++row) {
+        if (IsSelected(row)) rows.push_back(row);
+    }
+    return rows;
 }
 
 void FileListView::CacheFilePage(int pageStartValue) {

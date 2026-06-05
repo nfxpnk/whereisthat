@@ -19,7 +19,7 @@ class MainWindowChrome {
 public:
     bool Create(HWND parent, bool showStatusBar, bool showToolbar, int splitterPosition,
         std::function<void()> selectAllAction,
-        std::function<bool()> cancelSelectAllOverrideAction);
+        std::function<void()> prepareSingleSelectionAction);
     void Destroy();
 
     HWND TreeHandle() const { return treeHandle_; }
@@ -55,14 +55,12 @@ private:
         void SetAction(std::function<void()>* selectAllAction) {
             selectAllAction_ = selectAllAction;
         }
-        void SetCancelAction(std::function<bool()>* cancelSelectAllOverrideAction) {
-            cancelSelectAllOverrideAction_ = cancelSelectAllOverrideAction;
+        void SetPrepareSingleSelectionAction(std::function<void()>* prepareSingleSelectionAction) {
+            prepareSingleSelectionAction_ = prepareSingleSelectionAction;
         }
 
         BEGIN_MSG_MAP(ContentsListSubclass)
             MESSAGE_HANDLER(WM_KEYDOWN, OnKeyDown)
-            MESSAGE_HANDLER(WM_LBUTTONDOWN, OnPointerDown)
-            MESSAGE_HANDLER(WM_RBUTTONDOWN, OnPointerDown)
         END_MSG_MAP()
 
     private:
@@ -74,23 +72,26 @@ private:
                 }
                 return 0;
             }
-            if (cancelSelectAllOverrideAction_ != nullptr && *cancelSelectAllOverrideAction_) {
-                (*cancelSelectAllOverrideAction_)();
+            if (IsPlainSingleSelectionKey(wparam) && prepareSingleSelectionAction_ != nullptr &&
+                *prepareSingleSelectionAction_) {
+                (*prepareSingleSelectionAction_)();
             }
             handled = FALSE;
             return 0;
         }
 
-        LRESULT OnPointerDown(UINT, WPARAM, LPARAM, BOOL& handled) {
-            if (cancelSelectAllOverrideAction_ != nullptr && *cancelSelectAllOverrideAction_) {
-                (*cancelSelectAllOverrideAction_)();
+        static bool IsPlainSingleSelectionKey(WPARAM key) {
+            if ((GetKeyState(VK_CONTROL) & 0x8000) != 0 ||
+                (GetKeyState(VK_SHIFT) & 0x8000) != 0 ||
+                (GetKeyState(VK_MENU) & 0x8000) != 0) {
+                return false;
             }
-            handled = FALSE;
-            return 0;
+            return key == VK_UP || key == VK_DOWN || key == VK_HOME || key == VK_END ||
+                key == VK_PRIOR || key == VK_NEXT || key == VK_SPACE;
         }
 
         std::function<void()>* selectAllAction_{};
-        std::function<bool()>* cancelSelectAllOverrideAction_{};
+        std::function<void()>* prepareSingleSelectionAction_{};
     };
 
     static constexpr int kSplitterWidth = 4;
@@ -115,7 +116,7 @@ private:
     AppStatus appStatus_{AppStatus::Idle};
     std::array<std::wstring, 5> statusText_{};
     std::function<void()> selectAllAction_;
-    std::function<bool()> cancelSelectAllOverrideAction_;
+    std::function<void()> prepareSingleSelectionAction_;
     ContentsListSubclass filesSubclass_;
 
     bool CreateToolbar();

@@ -43,10 +43,12 @@ public:
     LRESULT OnFileGetDispInfo(LPNMHDR header);
     LRESULT OnFileCacheHint(LPNMHDR header);
     LRESULT OnFileActivate(LPNMHDR header);
-    bool FileItemStateChanged(LPNMHDR header) const;
+    LRESULT OnFileClick(LPNMHDR header);
+    LRESULT OnFileOdStateChanged(LPNMHDR header);
+    bool FileItemStateChanged(LPNMHDR header);
     void SelectAll();
     void ClearFileSelection();
-    bool CancelSelectAllOverride();
+    void PrepareFileSingleSelection();
 
     std::wstring FocusedItemStatus();
     std::wstring SelectionSummaryStatus();
@@ -66,7 +68,6 @@ private:
     int historyIndex_{-1};
     bool selectingTree_{};
     bool hasTarget_{};
-    bool selectAllOverride_{};
 
     void NavigateTo(const wit::core::BrowserTarget& target, bool addToHistory, bool syncTreeSelection = true);
     void UpdateNavigationControls();

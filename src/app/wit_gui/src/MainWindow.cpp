@@ -302,8 +302,20 @@ LRESULT MainFrame::OnFileCacheHint(int, LPNMHDR header, BOOL&) {
     return browser_.OnFileCacheHint(header);
 }
 
+LRESULT MainFrame::OnFileOdStateChanged(int, LPNMHDR header, BOOL&) {
+    const auto result = browser_.OnFileOdStateChanged(header);
+    UpdateBrowserStatus();
+    return result;
+}
+
 LRESULT MainFrame::OnFileActivate(int, LPNMHDR header, BOOL&) {
     const auto result = browser_.OnFileActivate(header);
+    UpdateBrowserStatus();
+    return result;
+}
+
+LRESULT MainFrame::OnFileClick(int, LPNMHDR header, BOOL&) {
+    const auto result = browser_.OnFileClick(header);
     UpdateBrowserStatus();
     return result;
 }
@@ -333,9 +345,7 @@ bool MainFrame::InitializeFrame() {
         browser_.SelectAll();
         UpdateBrowserStatus();
     }, [this]() {
-        const bool cancelled = browser_.CancelSelectAllOverride();
-        if (cancelled) UpdateBrowserStatus();
-        return cancelled;
+        browser_.PrepareFileSingleSelection();
     })) return false;
     browser_.Attach(chrome_.TreeHandle(), chrome_.FilesHandle(), chrome_.BackHandle(),
         chrome_.ForwardHandle(), chrome_.AddressHandle(),

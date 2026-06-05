@@ -126,13 +126,13 @@ const wchar_t* ToolbarTooltipText(int commandId) {
 }
 
 bool MainWindowChrome::Create(HWND parent, bool showStatusBar, bool showToolbar, int splitterPosition,
-    std::function<void()> selectAllAction, std::function<bool()> cancelSelectAllOverrideAction) {
+    std::function<void()> selectAllAction, std::function<void()> prepareSingleSelectionAction) {
     parent_ = parent;
     statusVisible_ = showStatusBar;
     toolbarVisible_ = showToolbar;
     splitterPosition_ = splitterPosition;
     selectAllAction_ = std::move(selectAllAction);
-    cancelSelectAllOverrideAction_ = std::move(cancelSelectAllOverrideAction);
+    prepareSingleSelectionAction_ = std::move(prepareSingleSelectionAction);
     if (!CreateToolbar()) return false;
     DWORD statusStyle = WS_CHILD;
     if (statusVisible_) statusStyle |= WS_VISIBLE;
@@ -157,8 +157,9 @@ bool MainWindowChrome::Create(HWND parent, bool showStatusBar, bool showToolbar,
     TreeView_SetExtendedStyle(treeHandle_, TVS_EX_DOUBLEBUFFER, TVS_EX_DOUBLEBUFFER);
     if (!CreateBrowserImages()) return false;
     ListView_SetExtendedListViewStyle(filesHandle_, LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER);
+    if (!ListView_SetCallbackMask(filesHandle_, LVIS_SELECTED)) return false;
     filesSubclass_.SetAction(&selectAllAction_);
-    filesSubclass_.SetCancelAction(&cancelSelectAllOverrideAction_);
+    filesSubclass_.SetPrepareSingleSelectionAction(&prepareSingleSelectionAction_);
     return filesSubclass_.SubclassWindow(filesHandle_) != FALSE;
 }
 

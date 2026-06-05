@@ -42,7 +42,6 @@ void BrowserController::Clear() {
     hasTarget_ = false;
     history_.clear();
     historyIndex_ = -1;
-    CancelSelectAllOverride();
     files_.SetLocation({}, nullptr);
     SetWindowTextW(addressHandle_, L"");
     UpdateNavigationControls();
@@ -81,7 +80,6 @@ void BrowserController::NavigateTo(const wit::core::BrowserTarget& target, bool 
     }
     currentTarget_ = target;
     hasTarget_ = true;
-    CancelSelectAllOverride();
     files_.SetLocation(target.location, &database->BrowserRepository());
     const auto address = AddressFor(target);
     SetWindowTextW(addressHandle_, address.c_str());
@@ -104,7 +102,6 @@ void BrowserController::RefreshCatalog(wit::core::CatalogId id, const std::wstri
     wit::storage::Database* database, bool select) {
     if (!database || !database->IsOpen()) return;
     if (hasTarget_ && currentTarget_.catalogId == id) {
-        CancelSelectAllOverride();
         files_.SetLocation({}, nullptr);
     }
     tree_.RefreshCatalog(id, label, database, select);
@@ -115,7 +112,6 @@ void BrowserController::MoveDiskToGroup(wit::core::CatalogId id, std::int64_t di
     std::int64_t diskGroupId, wit::storage::Database* database) {
     if (!database || !database->IsOpen()) return;
     if (hasTarget_ && currentTarget_.catalogId == id) {
-        CancelSelectAllOverride();
         files_.SetLocation({}, nullptr);
     }
     std::wstring diskGroupName;
@@ -132,14 +128,12 @@ void BrowserController::MoveDiskToGroup(wit::core::CatalogId id, std::int64_t di
         WIT_LOG_DEBUG(std::format(L"move disk tree update skipped catalogId={} diskId={} targetGroupId={}",
             id, diskId, diskGroupId));
         if (hasTarget_ && currentTarget_.catalogId == id) {
-            CancelSelectAllOverride();
             files_.SetLocation(currentTarget_.location, &database->BrowserRepository());
         }
         return;
     }
     UpdateMovedDiskTargets(id, diskId, diskGroupId, diskGroupName);
     if (hasTarget_ && currentTarget_.catalogId == id) {
-        CancelSelectAllOverride();
         files_.SetLocation(currentTarget_.location, &database->BrowserRepository());
         const auto address = AddressFor(currentTarget_);
         SetWindowTextW(addressHandle_, address.c_str());
@@ -153,7 +147,6 @@ void BrowserController::RemoveCatalog(wit::core::CatalogId id) {
     if (hasTarget_ && currentTarget_.catalogId == id) {
         currentTarget_ = {};
         hasTarget_ = false;
-        CancelSelectAllOverride();
         files_.SetLocation({}, nullptr);
         SetWindowTextW(addressHandle_, L"");
     }
@@ -209,7 +202,6 @@ void BrowserController::NavigateForward() {
 
 void BrowserController::RefreshDisplay() {
     if (filesHandle_) {
-        CancelSelectAllOverride();
         files_.ResetCachedItems();
         RedrawWindow(filesHandle_, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
     }
@@ -234,9 +226,13 @@ LRESULT BrowserController::OnFileGetDispInfo(LPNMHDR header) {
     if (displayInfo->item.mask & LVIF_IMAGE) {
         displayInfo->item.iImage = files_.ImageFor(displayInfo->item.iItem);
     }
-    if (selectAllOverride_ && (displayInfo->item.mask & LVIF_STATE) &&
+    if ((displayInfo->item.mask & LVIF_STATE) &&
         (displayInfo->item.stateMask & LVIS_SELECTED)) {
-        displayInfo->item.state |= LVIS_SELECTED;
+        if (files_.IsSelected(displayInfo->item.iItem)) {
+            displayInfo->item.state |= LVIS_SELECTED;
+        } else {
+            displayInfo->item.state &= ~LVIS_SELECTED;
+        }
     }
     if (displayInfo->item.mask & LVIF_TEXT) {
         files_.TextFor(displayInfo->item.iItem, displayInfo->item.iSubItem,
@@ -284,45 +280,52 @@ LRESULT BrowserController::OnFileActivate(LPNMHDR header) {
     return 0;
 }
 
-bool BrowserController::FileItemStateChanged(LPNMHDR header) const {
+LRESULT BrowserController::OnFileClick(LPNMHDR header) {
+    const auto* click = reinterpret_cast<NMITEMACTIVATE*>(header);
+    if (!click || click->iItem < 0 || click->iItem >= files_.total) return 0;
+    if ((GetKeyState(VK_CONTROL) & 0x8000) != 0 || (GetKeyState(VK_SHIFT) & 0x8000) != 0) return 0;
+    files_.SelectOnly(click->iItem);
+    RedrawWindow(filesHandle_, nullptr, nullptr, RDW_INVALIDATE | RDW_ALLCHILDREN);
+    return 0;
+}
+
+bool BrowserController::FileItemStateChanged(LPNMHDR header) {
     const auto* changed = reinterpret_cast<NMLISTVIEW*>(header);
+    if ((changed->uChanged & LVIF_STATE) && ((changed->uOldState ^ changed->uNewState) & LVIS_SELECTED) &&
+        changed->iItem >= 0) {
+        files_.SetSelectionRange(changed->iItem, changed->iItem, (changed->uNewState & LVIS_SELECTED) != 0);
+    }
     return (changed->uChanged & LVIF_STATE) &&
         ((changed->uOldState ^ changed->uNewState) & (LVIS_FOCUSED | LVIS_SELECTED));
+}
+
+LRESULT BrowserController::OnFileOdStateChanged(LPNMHDR header) {
+    const auto* changed = reinterpret_cast<NMLVODSTATECHANGE*>(header);
+    if ((changed->uOldState ^ changed->uNewState) & LVIS_SELECTED) {
+        files_.SetSelectionRange(changed->iFrom, changed->iTo, (changed->uNewState & LVIS_SELECTED) != 0);
+    }
+    return 0;
 }
 
 void BrowserController::SelectAll() {
     if (GetFocus() != filesHandle_ || files_.ShowsDisks()) return;
     const int focused = ListView_GetNextItem(filesHandle_, -1, LVNI_FOCUSED);
     if (focused < 0 || !files_.EntryAt(focused)) return;
-    constexpr int kMaxSelectAllItems = 10000;
-    if (files_.total > kMaxSelectAllItems) {
-        if (selectAllOverride_) return;
-        ListView_SetItemState(filesHandle_, -1, 0, LVIS_SELECTED);
-        selectAllOverride_ = true;
-        ListView_SetCallbackMask(filesHandle_, LVIS_SELECTED);
-        RedrawWindow(filesHandle_, nullptr, nullptr, RDW_INVALIDATE | RDW_ALLCHILDREN);
-        return;
-    }
-    CancelSelectAllOverride();
-    if (ListView_GetSelectedCount(filesHandle_) == files_.total) return;
-    ListView_SetItemState(filesHandle_, -1, LVIS_SELECTED, LVIS_SELECTED);
+    if (files_.SelectedCount() == files_.total) return;
+    files_.SelectAllItems();
+    RedrawWindow(filesHandle_, nullptr, nullptr, RDW_INVALIDATE | RDW_ALLCHILDREN);
 }
 
 void BrowserController::ClearFileSelection() {
-    CancelSelectAllOverride();
-    if (!filesHandle_ || ListView_GetSelectedCount(filesHandle_) == 0) return;
-    ListView_SetItemState(filesHandle_, -1, 0, LVIS_SELECTED);
+    if (!filesHandle_ || files_.SelectedCount() == 0) return;
+    files_.ClearSelection();
+    RedrawWindow(filesHandle_, nullptr, nullptr, RDW_INVALIDATE | RDW_ALLCHILDREN);
 }
 
-bool BrowserController::CancelSelectAllOverride() {
-    if (!selectAllOverride_) return false;
-    selectAllOverride_ = false;
-    if (filesHandle_) {
-        ListView_SetCallbackMask(filesHandle_, 0);
-        ListView_SetItemState(filesHandle_, -1, 0, LVIS_SELECTED);
-        RedrawWindow(filesHandle_, nullptr, nullptr, RDW_INVALIDATE | RDW_ALLCHILDREN);
-    }
-    return true;
+void BrowserController::PrepareFileSingleSelection() {
+    if (!filesHandle_ || files_.SelectedCount() == 0) return;
+    files_.ClearSelection();
+    InvalidateRect(filesHandle_, nullptr, FALSE);
 }
 
 std::wstring BrowserController::FocusedItemStatus() {
@@ -347,25 +350,21 @@ std::wstring BrowserController::FocusedItemStatus() {
 }
 
 std::wstring BrowserController::SelectionSummaryStatus() {
-    if (selectAllOverride_) return std::format(L"Selected item(s): {}", files_.total);
-    const int selected = filesHandle_ ? ListView_GetSelectedCount(filesHandle_) : 0;
+    const int selected = files_.SelectedCount();
     if (selected <= 0) return std::format(L"Selected item(s): {} (total: {})", 0, CompactSize(0));
 
     std::uint64_t totalSize{};
     constexpr int kMaxMeasuredSelectionRows = 10000;
     if (selected > kMaxMeasuredSelectionRows) return std::format(L"Selected item(s): {}", selected);
     int measured{};
-    if (filesHandle_) {
-        for (int index = ListView_GetNextItem(filesHandle_, -1, LVNI_SELECTED); index >= 0;
-            index = ListView_GetNextItem(filesHandle_, index, LVNI_SELECTED)) {
-            if (const auto* item = files_.BrowserItemAt(index)) {
-                ++measured;
-                totalSize += item->type == wit::core::BrowserItemType::Disk
-                    ? item->disk.totalCapacity : item->group.totalCapacity;
-            } else if (const auto* entry = files_.EntryAt(index)) {
-                ++measured;
-                totalSize += entry->size;
-            }
+    for (const auto index : files_.SelectedRows(kMaxMeasuredSelectionRows)) {
+        if (const auto* item = files_.BrowserItemAt(index)) {
+            ++measured;
+            totalSize += item->type == wit::core::BrowserItemType::Disk
+                ? item->disk.totalCapacity : item->group.totalCapacity;
+        } else if (const auto* entry = files_.EntryAt(index)) {
+            ++measured;
+            totalSize += entry->size;
         }
     }
     if (measured == selected) {

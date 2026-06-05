@@ -28,6 +28,8 @@ bool GeneralSettingsDialog::Show(HWND owner, const wit::platform::AppSettings& c
 LRESULT GeneralSettingsDialog::OnInitDialog(UINT, WPARAM, LPARAM, BOOL&) {
     CheckDlgButton(IDC_SHOW_STATUS_BAR, settings_.showStatusBar ? BST_CHECKED : BST_UNCHECKED);
     CheckDlgButton(IDC_SHOW_TOOLBAR, settings_.showToolbar ? BST_CHECKED : BST_UNCHECKED);
+    CheckDlgButton(IDC_ENABLE_SCAN_FILE_DELAY,
+        settings_.enableScanFileDelay ? BST_CHECKED : BST_UNCHECKED);
     const auto formatCombo = GetDlgItem(IDC_DATE_TIME_FORMAT);
     SendMessageW(formatCombo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(kUseWindowsDefaultLabel));
     for (const auto* format : kCommonDateTimeFormats) {
@@ -46,6 +48,7 @@ LRESULT GeneralSettingsDialog::OnInitDialog(UINT, WPARAM, LPARAM, BOOL&) {
 LRESULT GeneralSettingsDialog::OnConfirm(WORD, WORD, HWND, BOOL&) {
     settings_.showStatusBar = IsDlgButtonChecked(IDC_SHOW_STATUS_BAR) == BST_CHECKED;
     settings_.showToolbar = IsDlgButtonChecked(IDC_SHOW_TOOLBAR) == BST_CHECKED;
+    settings_.enableScanFileDelay = IsDlgButtonChecked(IDC_ENABLE_SCAN_FILE_DELAY) == BST_CHECKED;
     const auto dateTimeFormat = SelectedDateTimeFormat();
     if (!wit::platform::IsValidDateTimeFormat(dateTimeFormat)) {
         ::MessageBoxW(m_hWnd, L"Use tokens like YYYY, MM, DD, HH, mm, and ss. Example: YYYY-MM-DD HH:mm:ss.",

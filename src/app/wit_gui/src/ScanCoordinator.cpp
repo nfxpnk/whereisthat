@@ -78,6 +78,11 @@ bool ScanCoordinator::Targets(wit::core::CatalogId id) const {
 
 bool ScanCoordinator::Start(wit::storage::Database* source, const wit::core::ScanRequest& request,
     ScanId& scanId) {
+    return Start(source, request, false, scanId);
+}
+
+bool ScanCoordinator::Start(wit::storage::Database* source, const wit::core::ScanRequest& request,
+    bool enableScanFileDelay, ScanId& scanId) {
     AssertOwnerThread();
     if (IsRunning() || !deliveryWindow_ || !source) return false;
     auto candidate = std::make_unique<wit::storage::Database>();
@@ -97,10 +102,10 @@ bool ScanCoordinator::Start(wit::storage::Database* source, const wit::core::Sca
     activeScanId_ = scanId;
     activeCatalogId_ = request.destinationCatalogId;
     cancellationRequested_ = false;
-    worker_ = std::jthread([this, scanId, root, diskName, diskNumber, request,
+    worker_ = std::jthread([this, scanId, root, diskName, diskNumber, request, enableScanFileDelay,
         staged = std::move(candidate)](std::stop_token stopToken) mutable {
         try {
-            RunScan(stopToken, scanId, root, diskName, diskNumber, request, std::move(staged));
+            RunScan(stopToken, scanId, root, diskName, diskNumber, request, enableScanFileDelay, std::move(staged));
         } catch (const std::exception& error) {
             ScanResult result;
             result.id = scanId;
@@ -186,7 +191,7 @@ LRESULT ScanCoordinator::DispatchNotification(UINT message, WPARAM wparam, LPARA
 }
 
 void ScanCoordinator::RunScan(std::stop_token stopToken, ScanId scanId, std::wstring root, std::wstring diskName,
-    std::int64_t diskNumber, wit::core::ScanRequest request,
+    std::int64_t diskNumber, wit::core::ScanRequest request, bool enableScanFileDelay,
     std::unique_ptr<wit::storage::Database> staged) {
     ScanResult result;
     result.id = scanId;
@@ -204,7 +209,7 @@ void ScanCoordinator::RunScan(std::stop_token stopToken, ScanId scanId, std::wst
         return true;
     };
 
-    wit::core::FileScanner scanner;
+    wit::core::FileScanner scanner({enableScanFileDelay});
     std::uint64_t totalFiles{};
     PublishProgress(scanId, {0, 0, 0, 0, false, true});
     bool success = !cancelled() && scanner.CountFiles(root, totalFiles, stopToken);

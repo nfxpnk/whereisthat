@@ -564,7 +564,7 @@ ControllerResult CatalogWorkflowController::MediaSelectionCompleted(
     result.presentation.updateAppStatus = true;
     result.presentation.appStatus = AppStatus::Busy;
     result.presentation.flushStatus = true;
-    if (!scans_.Start(target->WorkingDatabase(), *request, scanId)) {
+    if (!scans_.Start(target->WorkingDatabase(), *request, session_.Settings().enableScanFileDelay, scanId)) {
         result.presentation.appStatus = AppStatus::Idle;
         result.messages.push_back(Message(L"Unable to prepare pending catalog changes.",
             L"Add/Update Disk Image", MB_OK | MB_ICONERROR));

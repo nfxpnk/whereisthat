@@ -50,6 +50,8 @@ public:
     bool IsCancelling() const;
     bool Targets(wit::core::CatalogId id) const;
     [[nodiscard]] bool Start(wit::storage::Database* source, const wit::core::ScanRequest& request, ScanId& scanId);
+    [[nodiscard]] bool Start(wit::storage::Database* source, const wit::core::ScanRequest& request,
+        bool enableScanFileDelay, ScanId& scanId);
     [[nodiscard]] bool RequestCancel();
     [[nodiscard]] std::optional<ScanProgress> TakeProgress(ScanId scanId);
     [[nodiscard]] std::optional<ScanResult> TakeResult(ScanId scanId);
@@ -60,7 +62,7 @@ private:
     static LRESULT CALLBACK DeliveryWindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lparam);
     LRESULT DispatchNotification(UINT message, WPARAM wparam, LPARAM lparam);
     void RunScan(std::stop_token stopToken, ScanId scanId, std::wstring root, std::wstring diskName,
-        std::int64_t diskNumber, wit::core::ScanRequest request,
+        std::int64_t diskNumber, wit::core::ScanRequest request, bool enableScanFileDelay,
         std::unique_ptr<wit::storage::Database> staged);
     void PublishProgress(ScanId scanId, const ScanProgress& progress);
     void PublishResult(ScanResult result);

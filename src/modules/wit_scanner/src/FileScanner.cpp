@@ -20,7 +20,7 @@
 
 namespace wit::core {
 namespace {
-constexpr bool kEnableScanFileDelay = false;
+// Debug aid: when enabled, slows file scanning enough to observe progress reporting and cancellation behavior.
 constexpr std::int64_t kScanFileDelayMicroseconds = 50000;
 constexpr std::uint64_t kProgressReportItemInterval = 250;
 
@@ -281,6 +281,9 @@ void ReportArchiveFailure(const FileScanner::DiagnosticCallback& onDiagnostic, c
 }
 }
 
+FileScanner::FileScanner(Options options) : options_(options) {
+}
+
 bool FileScanner::CountFiles(const std::wstring& rootPath, std::uint64_t& totalFiles,
     std::stop_token stopToken) const {
     totalFiles = 0;
@@ -395,7 +398,7 @@ bool FileScanner::ScanFolder(const std::wstring& rootPath, std::int64_t diskId, 
                             frame.children.emplace_back(fullPath, childId);
                         }
                     } else {
-                        if constexpr (kEnableScanFileDelay) {
+                        if (options_.enableScanFileDelay) {
                             if (fileCount != 0) {
                                 std::this_thread::sleep_for(
                                     std::chrono::microseconds{kScanFileDelayMicroseconds});
@@ -455,7 +458,7 @@ bool FileScanner::ScanFolder(const std::wstring& rootPath, std::int64_t diskId, 
                         ++scannedFiles;
                     }
                     const auto total = scannedFiles + folderCount;
-                    if (onProgress && (kEnableScanFileDelay || total % kProgressReportItemInterval == 0)) {
+                    if (onProgress && (options_.enableScanFileDelay || total % kProgressReportItemInterval == 0)) {
                         onProgress({scannedFiles, folderCount, fullPath});
                     }
                 } while (FindNextFileW(findHandle, &findData));

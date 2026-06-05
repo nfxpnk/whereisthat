@@ -8,6 +8,7 @@ namespace wit::platform {
 struct AppSettings {
     bool showStatusBar{true};
     bool showToolbar{true};
+    bool enableScanFileDelay{false};
     int mainSplitterPosition{360};
     std::wstring dateTimeFormat;
     std::wstring lastCatalogPath;

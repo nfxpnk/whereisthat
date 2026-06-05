@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include <wit_database/Database.h>
+#include <wit_database/SQLiteStatement.h>
 #include <wit_gui/CatalogWorkflowController.h>
 #include <wit_gui/ScanCoordinator.h>
 #include <wit_infra/PathHelpers.h>
@@ -137,6 +138,22 @@ bool WriteZip(const std::filesystem::path& path, const std::vector<ZipMember>& m
     }
     return archive_write_free(writer) == ARCHIVE_OK && success;
 }
+}
+
+TEST(StorageSmoke, SQLiteStatementPrepareFailureDoesNotThrow) {
+    sqlite3* db{};
+    ASSERT_EQ(SQLITE_OK, sqlite3_open(":memory:", &db));
+
+    EXPECT_NO_THROW({
+        wit::storage::SQLiteStatement statement(db, "SELECT FROM broken_sql;");
+        EXPECT_FALSE(statement.IsValid());
+        EXPECT_EQ(nullptr, statement.Raw());
+        statement.BindInt64(1, 42);
+        EXPECT_FALSE(statement.Step());
+        statement.Reset();
+    });
+
+    sqlite3_close(db);
 }
 
 TEST(StorageSmoke, CatalogDatabaseScannerAndCoordinatorIntegration) {

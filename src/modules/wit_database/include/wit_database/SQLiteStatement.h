@@ -15,6 +15,7 @@ public:
     void BindNull(int index);
     [[nodiscard]] bool Step();
     void Reset();
+    [[nodiscard]] bool IsValid() const { return stmt_ != nullptr; }
     sqlite3_stmt* Raw() const { return stmt_; }
 private:
     sqlite3_stmt* stmt_{};

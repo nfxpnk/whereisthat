@@ -282,7 +282,10 @@ bool Database::OpenInternal(const std::wstring& path, bool requireExistingSchema
     }
     if (readOnly) return Exec("PRAGMA foreign_keys=ON;");
     if (!requireExistingSchema && InitializeSchema()) return true;
-    if (requireExistingSchema && ApplyEditableCatalogPragmas(connection_)) return true;
+    if (requireExistingSchema && ApplyEditableCatalogPragmas(connection_) &&
+        CatalogSchema::EnsureIndexes(connection_)) {
+        return true;
+    }
     WIT_LOG_ERROR(std::format(L"database pragmas/schema initialization failed path='{}' code={} message='{}'",
         path, connection_.LastErrorCode(), wit::platform::ToUtf16(connection_.LastErrorMessage())));
     Close();

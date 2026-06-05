@@ -292,6 +292,10 @@ LRESULT MainFrame::OnFileGetDispInfo(int, LPNMHDR header, BOOL&) {
     return browser_.OnFileGetDispInfo(header);
 }
 
+LRESULT MainFrame::OnFileCacheHint(int, LPNMHDR header, BOOL&) {
+    return browser_.OnFileCacheHint(header);
+}
+
 LRESULT MainFrame::OnFileActivate(int, LPNMHDR header, BOOL&) {
     const auto result = browser_.OnFileActivate(header);
     UpdateBrowserStatus();

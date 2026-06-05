@@ -4,6 +4,7 @@
 #include <wit_infra/Win32Helpers.h>
 #include "third_party/sqlite/sqlite3.h"
 
+#include <algorithm>
 #include <cstdint>
 #include <string>
 
@@ -172,23 +173,51 @@ std::vector<wit::core::FileEntry> SqliteBrowserRepository::GetBrowserItemsPage(
     const wit::core::BrowserLocation& location, int offset, int limit) {
     std::vector<wit::core::FileEntry> files;
     if (location.isRoot || location.isDiskGroup) return files;
-    SQLiteStatement statement(db_,
+
+    SQLiteStatement folderCountStatement(db_,
         "WITH parent(id,path) AS (SELECT id,path FROM folders WHERE disk_id=? AND path=? COLLATE NOCASE) "
-        "SELECT id,disk_id,parent_path,name,extension,size,modified_at,attributes,is_directory,entry_type FROM ("
-        "SELECT c.id,c.disk_id,p.path AS parent_path,c.name,'' AS extension,c.content_size AS size,c.modified_at,c.attributes,1 AS is_directory,c.entry_type "
-        "FROM folders c JOIN parent p ON c.parent_folder_id=p.id WHERE c.disk_id=? "
-        "UNION ALL SELECT f.id,f.disk_id,p.path AS parent_path,f.name,f.extension,f.size,f.modified_at,f.attributes,0 AS is_directory,'file' AS entry_type "
-        "FROM files f JOIN parent p ON f.folder_id=p.id)"
-        " ORDER BY is_directory DESC,name LIMIT ? OFFSET ?;");
-    statement.BindInt64(1, location.sourceId);
-    statement.BindText(2, wit::platform::ToUtf8(location.path));
-    statement.BindInt64(3, location.sourceId);
-    statement.BindInt64(4, limit);
-    statement.BindInt64(5, offset);
-    while (sqlite3_step(statement.Raw()) == SQLITE_ROW) {
-        wit::core::FileEntry file;
-        PopulateDisplayEntry(file, statement.Raw());
-        files.push_back(file);
+        "SELECT COUNT(*) FROM folders c JOIN parent p ON c.parent_folder_id=p.id WHERE c.disk_id=?;");
+    folderCountStatement.BindInt64(1, location.sourceId);
+    folderCountStatement.BindText(2, wit::platform::ToUtf8(location.path));
+    folderCountStatement.BindInt64(3, location.sourceId);
+    const int folderCount = sqlite3_step(folderCountStatement.Raw()) == SQLITE_ROW
+        ? sqlite3_column_int(folderCountStatement.Raw(), 0) : 0;
+
+    if (offset < folderCount && limit > 0) {
+        SQLiteStatement folderStatement(db_,
+            "WITH parent(id,path) AS (SELECT id,path FROM folders WHERE disk_id=? AND path=? COLLATE NOCASE) "
+            "SELECT c.id,c.disk_id,p.path,c.name,'' AS extension,c.content_size,c.modified_at,c.attributes,1,c.entry_type "
+            "FROM folders c JOIN parent p ON c.parent_folder_id=p.id "
+            "WHERE c.disk_id=? ORDER BY c.name,c.id LIMIT ? OFFSET ?;");
+        folderStatement.BindInt64(1, location.sourceId);
+        folderStatement.BindText(2, wit::platform::ToUtf8(location.path));
+        folderStatement.BindInt64(3, location.sourceId);
+        folderStatement.BindInt64(4, limit);
+        folderStatement.BindInt64(5, offset);
+        while (sqlite3_step(folderStatement.Raw()) == SQLITE_ROW) {
+            wit::core::FileEntry file;
+            PopulateDisplayEntry(file, folderStatement.Raw());
+            files.push_back(file);
+        }
+    }
+
+    const int remaining = limit - static_cast<int>(files.size());
+    if (remaining > 0) {
+        const int fileOffset = (std::max)(0, offset - folderCount);
+        SQLiteStatement fileStatement(db_,
+            "WITH parent(id,path) AS (SELECT id,path FROM folders WHERE disk_id=? AND path=? COLLATE NOCASE) "
+            "SELECT f.id,f.disk_id,p.path,f.name,f.extension,f.size,f.modified_at,f.attributes,0,'file' "
+            "FROM files f JOIN parent p ON f.folder_id=p.id "
+            "ORDER BY f.name,f.id LIMIT ? OFFSET ?;");
+        fileStatement.BindInt64(1, location.sourceId);
+        fileStatement.BindText(2, wit::platform::ToUtf8(location.path));
+        fileStatement.BindInt64(3, remaining);
+        fileStatement.BindInt64(4, fileOffset);
+        while (sqlite3_step(fileStatement.Raw()) == SQLITE_ROW) {
+            wit::core::FileEntry file;
+            PopulateDisplayEntry(file, fileStatement.Raw());
+            files.push_back(file);
+        }
     }
     return files;
 }

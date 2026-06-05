@@ -2,6 +2,7 @@
 #include "wit_infra/StringUtils.h"
 #include <wit_infra/Win32Helpers.h>
 #include <CommCtrl.h>
+#include <algorithm>
 #include <format>
 #include <utility>
 
@@ -23,8 +24,7 @@ void SearchDialog::Close() {
 
 void SearchDialog::RefreshDisplay() {
     if (!m_hWnd || !results_) return;
-    pageStart_ = -1;
-    page_.clear();
+    ClearCache();
     ::RedrawWindow(results_, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
 }
 
@@ -55,8 +55,7 @@ LRESULT SearchDialog::OnDestroy(UINT, WPARAM, LPARAM, BOOL&) {
     search_ = nullptr;
     nameTerm_.clear();
     total_ = 0;
-    pageStart_ = -1;
-    page_.clear();
+    ClearCache();
     auto onClose = std::move(onClose_);
     onClose_ = {};
     if (onClose) onClose();
@@ -74,6 +73,12 @@ LRESULT SearchDialog::OnGetDisplayInfo(int, LPNMHDR header, BOOL&) {
         const auto text = TextFor(displayInfo->item.iItem, displayInfo->item.iSubItem);
         lstrcpynW(displayInfo->item.pszText, text.c_str(), displayInfo->item.cchTextMax);
     }
+    return 0;
+}
+
+LRESULT SearchDialog::OnCacheHint(int, LPNMHDR header, BOOL&) {
+    const auto* hint = reinterpret_cast<NMLVCACHEHINT*>(header);
+    PreloadRange(hint->iFrom, hint->iTo);
     return 0;
 }
 
@@ -112,8 +117,7 @@ void SearchDialog::Search() {
     if (term.find_first_not_of(L" \t\r\n") == std::wstring::npos) {
         nameTerm_.clear();
         total_ = 0;
-        pageStart_ = -1;
-        page_.clear();
+        ClearCache();
         ListView_SetItemCountEx(results_, 0, LVSICF_NOINVALIDATEALL);
         SetDlgItemTextW(IDC_SEARCH_SUMMARY, L"Enter a name to search for.");
         return;
@@ -122,29 +126,75 @@ void SearchDialog::Search() {
     nameTerm_ = term;
     if (!search_) return;
     total_ = search_->CountByName(nameTerm_);
-    pageStart_ = -1;
-    page_.clear();
+    ClearCache();
     ListView_SetItemCountEx(results_, total_, LVSICF_NOINVALIDATEALL);
+    if (total_ > 0) PreloadRange(0, (std::min)(total_ - 1, PageSize - 1));
     ::InvalidateRect(results_, nullptr, TRUE);
     const auto summary = total_ == 0 ? std::wstring(L"No matching items found.") :
         std::format(L"{} matching item{}.", total_, total_ == 1 ? L"" : L"s");
     SetDlgItemTextW(IDC_SEARCH_SUMMARY, summary.c_str());
 }
 
-void SearchDialog::EnsurePage(int row) {
-    if (!search_ || nameTerm_.empty()) return;
-    constexpr int pageSize = 256;
-    const int desiredPageStart = (row / pageSize) * pageSize;
-    if (desiredPageStart == pageStart_) return;
-    page_ = search_->PageByName(nameTerm_, desiredPageStart, pageSize);
-    pageStart_ = desiredPageStart;
+void SearchDialog::ClearCache() {
+    cacheClock_ = 0;
+    cachedPages_.clear();
+}
+
+void SearchDialog::CachePage(int pageStart) {
+    if (!search_ || nameTerm_.empty() || pageStart < 0 || pageStart >= total_) return;
+
+    const int normalizedStart = (pageStart / PageSize) * PageSize;
+    const auto found = std::ranges::find_if(cachedPages_,
+        [normalizedStart](const CachedPage& page) { return page.start == normalizedStart; });
+    if (found != cachedPages_.end()) {
+        found->lastUsed = ++cacheClock_;
+        return;
+    }
+
+    CachedPage page;
+    page.start = normalizedStart;
+    page.items = search_->PageByName(nameTerm_, normalizedStart, PageSize);
+    page.lastUsed = ++cacheClock_;
+    cachedPages_.push_back(std::move(page));
+
+    while (cachedPages_.size() > MaxCachedPages) {
+        const auto oldest = std::ranges::min_element(cachedPages_,
+            [](const CachedPage& left, const CachedPage& right) { return left.lastUsed < right.lastUsed; });
+        if (oldest == cachedPages_.end()) break;
+        cachedPages_.erase(oldest);
+    }
+}
+
+void SearchDialog::PreloadRange(int firstRow, int lastRow) {
+    if (total_ <= 0) return;
+    firstRow = std::clamp(firstRow, 0, total_ - 1);
+    lastRow = std::clamp(lastRow, firstRow, total_ - 1);
+
+    const int firstPage = (std::max)(0, (firstRow / PageSize) - 1);
+    const int lastPage = (std::min)((total_ - 1) / PageSize, (lastRow / PageSize) + 1);
+    for (int page = firstPage; page <= lastPage; ++page) {
+        CachePage(page * PageSize);
+    }
+}
+
+const wit::core::FileEntry* SearchDialog::EntryAt(int row) {
+    if (row < 0 || row >= total_) return nullptr;
+
+    CachePage(row);
+    const int pageStart = (row / PageSize) * PageSize;
+    const auto found = std::ranges::find_if(cachedPages_,
+        [pageStart](const CachedPage& page) { return page.start == pageStart; });
+    if (found == cachedPages_.end()) return nullptr;
+
+    found->lastUsed = ++cacheClock_;
+    const int index = row - found->start;
+    return index >= 0 && index < static_cast<int>(found->items.size()) ? &found->items[index] : nullptr;
 }
 
 std::wstring SearchDialog::TextFor(int row, int column) {
-    EnsurePage(row);
-    const int index = row - pageStart_;
-    if (index < 0 || index >= static_cast<int>(page_.size())) return L"";
-    const auto& file = page_[index];
+    const auto* entry = EntryAt(row);
+    if (!entry) return L"";
+    const auto& file = *entry;
     switch (column) {
     case 0:
         return file.name;

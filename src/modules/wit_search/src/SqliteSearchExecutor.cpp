@@ -4,6 +4,7 @@
 #include <wit_infra/Win32Helpers.h>
 #include "third_party/sqlite/sqlite3.h"
 
+#include <algorithm>
 #include <cstdint>
 #include <string>
 
@@ -58,22 +59,44 @@ int SqliteSearchExecutor::CountByName(const std::wstring& nameTerm) {
 std::vector<wit::core::FileEntry> SqliteSearchExecutor::PageByName(
     const std::wstring& nameTerm, int offset, int limit) {
     std::vector<wit::core::FileEntry> files;
-    wit::storage::SQLiteStatement statement(db_,
-        "SELECT id,disk_id,parent_path,name,extension,size,modified_at,attributes,is_directory,entry_type FROM ("
-        "SELECT f.id,f.disk_id,p.path AS parent_path,f.name,f.extension,f.size,f.modified_at,f.attributes,0 AS is_directory,'file' AS entry_type "
-        "FROM files f JOIN folders p ON f.folder_id=p.id WHERE f.name LIKE ? ESCAPE '\\' "
-        "UNION ALL SELECT c.id,c.disk_id,COALESCE(p.path,''),c.name,'',c.content_size,c.modified_at,c.attributes,1,c.entry_type "
-        "FROM folders c LEFT JOIN folders p ON c.parent_folder_id=p.id WHERE c.name LIKE ? ESCAPE '\\') "
-        "ORDER BY is_directory DESC,name,parent_path LIMIT ? OFFSET ?;");
     const auto pattern = ItemNameLikePattern(nameTerm);
-    statement.BindText(1, pattern);
-    statement.BindText(2, pattern);
-    statement.BindInt64(3, limit);
-    statement.BindInt64(4, offset);
-    while (sqlite3_step(statement.Raw()) == SQLITE_ROW) {
-        wit::core::FileEntry file;
-        PopulateDisplayEntry(file, statement.Raw());
-        files.push_back(file);
+
+    wit::storage::SQLiteStatement folderCountStatement(db_,
+        "SELECT COUNT(*) FROM folders WHERE name LIKE ? ESCAPE '\\';");
+    folderCountStatement.BindText(1, pattern);
+    const int folderCount = sqlite3_step(folderCountStatement.Raw()) == SQLITE_ROW
+        ? sqlite3_column_int(folderCountStatement.Raw(), 0) : 0;
+
+    if (offset < folderCount && limit > 0) {
+        wit::storage::SQLiteStatement folderStatement(db_,
+            "SELECT c.id,c.disk_id,COALESCE(p.path,''),c.name,'',c.content_size,c.modified_at,c.attributes,1,c.entry_type "
+            "FROM folders c LEFT JOIN folders p ON c.parent_folder_id=p.id "
+            "WHERE c.name LIKE ? ESCAPE '\\' ORDER BY c.name,c.id LIMIT ? OFFSET ?;");
+        folderStatement.BindText(1, pattern);
+        folderStatement.BindInt64(2, limit);
+        folderStatement.BindInt64(3, offset);
+        while (sqlite3_step(folderStatement.Raw()) == SQLITE_ROW) {
+            wit::core::FileEntry file;
+            PopulateDisplayEntry(file, folderStatement.Raw());
+            files.push_back(file);
+        }
+    }
+
+    const int remaining = limit - static_cast<int>(files.size());
+    if (remaining > 0) {
+        const int fileOffset = (std::max)(0, offset - folderCount);
+        wit::storage::SQLiteStatement fileStatement(db_,
+            "SELECT f.id,f.disk_id,p.path,f.name,f.extension,f.size,f.modified_at,f.attributes,0,'file' "
+            "FROM files f JOIN folders p ON f.folder_id=p.id "
+            "WHERE f.name LIKE ? ESCAPE '\\' ORDER BY f.name,f.id LIMIT ? OFFSET ?;");
+        fileStatement.BindText(1, pattern);
+        fileStatement.BindInt64(2, remaining);
+        fileStatement.BindInt64(3, fileOffset);
+        while (sqlite3_step(fileStatement.Raw()) == SQLITE_ROW) {
+            wit::core::FileEntry file;
+            PopulateDisplayEntry(file, fileStatement.Raw());
+            files.push_back(file);
+        }
     }
     return files;
 }

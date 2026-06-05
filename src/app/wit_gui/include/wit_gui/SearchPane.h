@@ -25,6 +25,7 @@ public:
         COMMAND_ID_HANDLER(IDC_SEARCH_EXECUTE, OnExecuteSearch)
         COMMAND_ID_HANDLER(IDCANCEL, OnCloseCommand)
         NOTIFY_HANDLER(IDC_SEARCH_RESULTS, LVN_GETDISPINFOW, OnGetDisplayInfo)
+        NOTIFY_HANDLER(IDC_SEARCH_RESULTS, LVN_ODCACHEHINT, OnCacheHint)
         CHAIN_MSG_MAP(WTL::CDialogResize<SearchDialog>)
     END_MSG_MAP()
 
@@ -37,14 +38,23 @@ public:
     END_DLGRESIZE_MAP()
 
 private:
+    struct CachedPage {
+        int start{};
+        std::vector<wit::core::FileEntry> items;
+        unsigned long long lastUsed{};
+    };
+
+    static constexpr int PageSize = 512;
+    static constexpr std::size_t MaxCachedPages = 16;
+
     HWND results_{};
     HWND launchOwner_{};
     wit::search::ISearchRepository* search_{};
     std::function<void()> onClose_;
     std::wstring nameTerm_;
     int total_{};
-    int pageStart_{-1};
-    std::vector<wit::core::FileEntry> page_;
+    unsigned long long cacheClock_{};
+    std::vector<CachedPage> cachedPages_;
 
     LRESULT OnInitDialog(UINT message, WPARAM wparam, LPARAM lparam, BOOL& handled);
     LRESULT OnExecuteSearch(WORD notifyCode, WORD id, HWND control, BOOL& handled);
@@ -52,9 +62,13 @@ private:
     LRESULT OnDestroy(UINT message, WPARAM wparam, LPARAM lparam, BOOL& handled);
     LRESULT OnCloseCommand(WORD notifyCode, WORD id, HWND control, BOOL& handled);
     LRESULT OnGetDisplayInfo(int id, LPNMHDR header, BOOL& handled);
+    LRESULT OnCacheHint(int id, LPNMHDR header, BOOL& handled);
     void Initialize();
     void Search();
-    void EnsurePage(int row);
+    void ClearCache();
+    void CachePage(int pageStart);
+    void PreloadRange(int firstRow, int lastRow);
+    const wit::core::FileEntry* EntryAt(int row);
     std::wstring TextFor(int row, int column);
 };
 }

@@ -21,6 +21,7 @@ public:
     void Attach(HWND handle) { hwnd = handle; }
     void SetLocation(const wit::core::BrowserLocation& newLocation, wit::storage::IBrowserRepository* repository);
     void EnsurePage(int index);
+    void PreloadRange(int firstRow, int lastRow);
     bool ShowsBrowserItems() const { return browser && (location.isRoot || location.isDiskGroup); }
     bool ShowsDisks() const { return ShowsBrowserItems(); }
     const wit::core::FileEntry* EntryAt(int row);
@@ -30,7 +31,21 @@ public:
     std::wstring TextFor(int row, int column);
 
 private:
+    struct CachedFilePage {
+        int start{};
+        std::vector<wit::core::FileEntry> items;
+        unsigned long long lastUsed{};
+    };
+
+    static constexpr int PageSize = 512;
+    static constexpr std::size_t MaxCachedPages = 16;
+
+    unsigned long long cacheClock_{};
+    std::vector<CachedFilePage> cachedFilePages_;
+
     void ConfigureColumns();
+    void ClearCache();
+    void CacheFilePage(int pageStart);
 };
 }
 #include <Windows.h>

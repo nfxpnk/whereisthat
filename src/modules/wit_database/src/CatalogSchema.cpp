@@ -63,7 +63,11 @@ bool CatalogSchema::Initialize(SqliteConnection& connection) {
     }
     return connection.Exec("INSERT OR IGNORE INTO catalog_metadata(id,description) VALUES(1,'');") &&
         EnsureDiskGroupParentColumn(connection) &&
-        ExecSqlResource(connection, IDR_SQL_INDEXES);
+        EnsureIndexes(connection);
+}
+
+bool CatalogSchema::EnsureIndexes(SqliteConnection& connection) {
+    return ExecSqlResource(connection, IDR_SQL_INDEXES);
 }
 
 bool CatalogSchema::Validate(SqliteConnection& connection) {

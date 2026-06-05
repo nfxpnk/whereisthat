@@ -39,6 +39,7 @@ public:
         NOTIFY_HANDLER(IDC_BROWSER_TREE, TVN_ITEMEXPANDINGW, OnTreeExpanding)
         NOTIFY_HANDLER(IDC_BROWSER_TREE, NM_RCLICK, OnTreeRightClick)
         NOTIFY_HANDLER(IDC_FILES, LVN_GETDISPINFOW, OnFileGetDispInfo)
+        NOTIFY_HANDLER(IDC_FILES, LVN_ODCACHEHINT, OnFileCacheHint)
         NOTIFY_HANDLER(IDC_FILES, LVN_ITEMACTIVATE, OnFileActivate)
         NOTIFY_HANDLER(IDC_FILES, LVN_ITEMCHANGED, OnFileItemChanged)
         NOTIFY_HANDLER(IDC_TOOLBAR, TBN_DROPDOWN, OnToolbarDropDown)
@@ -74,6 +75,7 @@ private:
     LRESULT OnTreeExpanding(int id, LPNMHDR header, BOOL& handled);
     LRESULT OnTreeRightClick(int id, LPNMHDR header, BOOL& handled);
     LRESULT OnFileGetDispInfo(int id, LPNMHDR header, BOOL& handled);
+    LRESULT OnFileCacheHint(int id, LPNMHDR header, BOOL& handled);
     LRESULT OnFileActivate(int id, LPNMHDR header, BOOL& handled);
     LRESULT OnFileItemChanged(int id, LPNMHDR header, BOOL& handled);
     LRESULT OnToolbarDropDown(int id, LPNMHDR header, BOOL& handled);

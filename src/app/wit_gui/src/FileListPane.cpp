@@ -189,6 +189,7 @@ void FileListView::SetLocation(
     pageStart = -1;
     page.clear();
     browserPage.clear();
+    ClearCache();
     ListView_SetItemCountEx(hwnd, 0, LVSICF_NOINVALIDATEALL);
     ConfigureColumns();
     total = browser ? (ShowsBrowserItems() ? browser->GetBrowserRootItemCount(location)
@@ -199,17 +200,61 @@ void FileListView::SetLocation(
 
 void FileListView::EnsurePage(int index) {
     if (!browser) return;
-    const int pageSize = 256;
-    int desired = (index / pageSize) * pageSize;
+    int desired = (index / PageSize) * PageSize;
     if (desired == pageStart) return;
     if (ShowsBrowserItems()) {
-        browserPage = browser->GetBrowserRootItemsPage(location, desired, pageSize);
+        browserPage = browser->GetBrowserRootItemsPage(location, desired, PageSize);
         page.clear();
     } else {
-        page = browser->GetBrowserItemsPage(location, desired, pageSize);
+        CacheFilePage(desired);
+        const auto found = std::ranges::find_if(cachedFilePages_,
+            [desired](const CachedFilePage& cachedPage) { return cachedPage.start == desired; });
+        page = found != cachedFilePages_.end() ? found->items : std::vector<wit::core::FileEntry>{};
         browserPage.clear();
     }
     pageStart = desired;
+}
+
+void FileListView::PreloadRange(int firstRow, int lastRow) {
+    if (!browser || ShowsBrowserItems() || total <= 0) return;
+    firstRow = std::clamp(firstRow, 0, total - 1);
+    lastRow = std::clamp(lastRow, firstRow, total - 1);
+
+    const int firstPage = (std::max)(0, (firstRow / PageSize) - 1);
+    const int lastPage = (std::min)((total - 1) / PageSize, (lastRow / PageSize) + 1);
+    for (int pageIndex = firstPage; pageIndex <= lastPage; ++pageIndex) {
+        CacheFilePage(pageIndex * PageSize);
+    }
+}
+
+void FileListView::ClearCache() {
+    cacheClock_ = 0;
+    cachedFilePages_.clear();
+}
+
+void FileListView::CacheFilePage(int pageStartValue) {
+    if (!browser || ShowsBrowserItems() || pageStartValue < 0 || pageStartValue >= total) return;
+
+    const int normalizedStart = (pageStartValue / PageSize) * PageSize;
+    const auto found = std::ranges::find_if(cachedFilePages_,
+        [normalizedStart](const CachedFilePage& cachedPage) { return cachedPage.start == normalizedStart; });
+    if (found != cachedFilePages_.end()) {
+        found->lastUsed = ++cacheClock_;
+        return;
+    }
+
+    CachedFilePage cachedPage;
+    cachedPage.start = normalizedStart;
+    cachedPage.items = browser->GetBrowserItemsPage(location, normalizedStart, PageSize);
+    cachedPage.lastUsed = ++cacheClock_;
+    cachedFilePages_.push_back(std::move(cachedPage));
+
+    while (cachedFilePages_.size() > MaxCachedPages) {
+        const auto oldest = std::ranges::min_element(cachedFilePages_,
+            [](const CachedFilePage& left, const CachedFilePage& right) { return left.lastUsed < right.lastUsed; });
+        if (oldest == cachedFilePages_.end()) break;
+        cachedFilePages_.erase(oldest);
+    }
 }
 
 const wit::core::FileEntry* FileListView::EntryAt(int row) {

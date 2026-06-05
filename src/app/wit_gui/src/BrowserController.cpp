@@ -235,6 +235,12 @@ LRESULT BrowserController::OnFileGetDispInfo(LPNMHDR header) {
     return 0;
 }
 
+LRESULT BrowserController::OnFileCacheHint(LPNMHDR header) {
+    const auto* hint = reinterpret_cast<NMLVCACHEHINT*>(header);
+    files_.PreloadRange(hint->iFrom, hint->iTo);
+    return 0;
+}
+
 LRESULT BrowserController::OnFileActivate(LPNMHDR header) {
     if (!hasTarget_) return 0;
     const auto* activation = reinterpret_cast<NMITEMACTIVATE*>(header);

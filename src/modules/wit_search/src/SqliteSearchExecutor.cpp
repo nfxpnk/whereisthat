@@ -43,6 +43,11 @@ void PopulateDisplayEntry(wit::core::FileEntry& entry, sqlite3_stmt* stmt) {
 SqliteSearchExecutor::SqliteSearchExecutor(sqlite3* db) : db_(db) {}
 
 void SqliteSearchExecutor::SetDatabase(sqlite3* db) {
+    if (db_ != db) {
+        cachedFolderCountTerm_.clear();
+        cachedFolderCount_ = 0;
+        hasCachedFolderCount_ = false;
+    }
     db_ = db;
 }
 
@@ -61,11 +66,16 @@ std::vector<wit::core::FileEntry> SqliteSearchExecutor::PageByName(
     std::vector<wit::core::FileEntry> files;
     const auto pattern = ItemNameLikePattern(nameTerm);
 
-    wit::storage::SQLiteStatement folderCountStatement(db_,
-        "SELECT COUNT(*) FROM folders WHERE name LIKE ? ESCAPE '\\';");
-    folderCountStatement.BindText(1, pattern);
-    const int folderCount = sqlite3_step(folderCountStatement.Raw()) == SQLITE_ROW
-        ? sqlite3_column_int(folderCountStatement.Raw(), 0) : 0;
+    if (!hasCachedFolderCount_ || cachedFolderCountTerm_ != nameTerm) {
+        wit::storage::SQLiteStatement folderCountStatement(db_,
+            "SELECT COUNT(*) FROM folders WHERE name LIKE ? ESCAPE '\\';");
+        folderCountStatement.BindText(1, pattern);
+        cachedFolderCount_ = sqlite3_step(folderCountStatement.Raw()) == SQLITE_ROW
+            ? sqlite3_column_int(folderCountStatement.Raw(), 0) : 0;
+        cachedFolderCountTerm_ = nameTerm;
+        hasCachedFolderCount_ = true;
+    }
+    const int folderCount = cachedFolderCount_;
 
     if (offset < folderCount && limit > 0) {
         wit::storage::SQLiteStatement folderStatement(db_,

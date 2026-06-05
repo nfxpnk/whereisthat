@@ -66,10 +66,11 @@ private:
     void Initialize();
     void Search();
     void ClearCache();
+    void ResetResultItemCache();
     void CachePage(int pageStart);
     void PreloadRange(int firstRow, int lastRow);
     const wit::core::FileEntry* EntryAt(int row);
     std::wstring TextFor(int row, int column);
+    void TextFor(int row, int column, wchar_t* buffer, std::size_t bufferSize);
 };
 }
-

@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <format>
 #include <mutex>
+#include <cwchar>
 #include <string_view>
 
 namespace wit::platform {
@@ -207,6 +208,27 @@ std::wstring FormatUnixTimestamp(std::int64_t timestamp) {
     if (!UnixTimestampToLocalSystemTime(timestamp, local)) return {};
     const auto pattern = CurrentPattern();
     return pattern.empty() ? FormatWithWindowsLocale(local) : FormatWithPattern(local, pattern);
+}
+void FormatUnixTimestampToBuffer(std::int64_t timestamp, wchar_t* buffer, std::size_t bufferSize) {
+    if (!buffer || bufferSize == 0) return;
+    buffer[0] = L'\0';
+    SYSTEMTIME local{};
+    if (!UnixTimestampToLocalSystemTime(timestamp, local)) return;
+    const auto pattern = CurrentPattern();
+    if (pattern.empty()) {
+        const int dateLength = GetDateFormatEx(LOCALE_NAME_USER_DEFAULT, DATE_SHORTDATE, &local, nullptr,
+            buffer, static_cast<int>(bufferSize), nullptr);
+        if (dateLength == 0) return;
+        const auto used = static_cast<std::size_t>(dateLength - 1);
+        if (used + 1 >= bufferSize) return;
+        buffer[used] = L' ';
+        const int timeLength = GetTimeFormatEx(LOCALE_NAME_USER_DEFAULT, TIME_FORCE24HOURFORMAT, &local, nullptr,
+            buffer + used + 1, static_cast<int>(bufferSize - used - 1));
+        if (timeLength == 0) buffer[used] = L'\0';
+        return;
+    }
+    const auto formatted = FormatWithPattern(local, pattern);
+    swprintf_s(buffer, bufferSize, L"%s", formatted.c_str());
 }
 std::wstring FormatUnixDate(std::int64_t timestamp) {
     return FormatUnixTimestamp(timestamp);

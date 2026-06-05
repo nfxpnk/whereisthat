@@ -1,6 +1,7 @@
 #pragma once
 #include <Windows.h>
 #include <cstdint>
+#include <string>
 #include <vector>
 #include "wit_types/BrowserLocation.h"
 #include <wit_types/Disk.h>
@@ -14,13 +15,12 @@ public:
     wit::core::BrowserLocation location;
     wit::storage::IBrowserRepository* browser{};
     int total{};
-    int pageStart{-1};
-    std::vector<wit::core::FileEntry> page;
+    int browserPageStart{-1};
     std::vector<wit::core::BrowserItem> browserPage;
 
     void Attach(HWND handle) { hwnd = handle; }
     void SetLocation(const wit::core::BrowserLocation& newLocation, wit::storage::IBrowserRepository* repository);
-    void EnsurePage(int index);
+    void ResetCachedItems();
     void PreloadRange(int firstRow, int lastRow);
     bool ShowsBrowserItems() const { return browser && (location.isRoot || location.isDiskGroup); }
     bool ShowsDisks() const { return ShowsBrowserItems(); }
@@ -29,6 +29,7 @@ public:
     const wit::core::Disk* DiskAt(int row);
     int ImageFor(int row);
     std::wstring TextFor(int row, int column);
+    void TextFor(int row, int column, wchar_t* buffer, std::size_t bufferSize);
 
 private:
     struct CachedFilePage {

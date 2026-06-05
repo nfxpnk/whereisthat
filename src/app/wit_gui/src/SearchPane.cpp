@@ -4,9 +4,19 @@
 #include <CommCtrl.h>
 #include <algorithm>
 #include <format>
+#include <iterator>
+#include <strsafe.h>
+#include <string_view>
 #include <utility>
 
 namespace wit::ui {
+namespace {
+void CopyText(std::wstring_view text, wchar_t* buffer, std::size_t bufferSize) {
+    if (!buffer || bufferSize == 0) return;
+    StringCchCopyNW(buffer, bufferSize, text.data(), text.size());
+}
+}
+
 bool SearchDialog::Show(HWND owner, wit::search::ISearchRepository* search, std::function<void()> onClose) {
     if (!search) return false;
     launchOwner_ = owner;
@@ -24,7 +34,9 @@ void SearchDialog::Close() {
 
 void SearchDialog::RefreshDisplay() {
     if (!m_hWnd || !results_) return;
+    if (search_ && !nameTerm_.empty()) total_ = search_->CountByName(nameTerm_);
     ClearCache();
+    ResetResultItemCache();
     ::RedrawWindow(results_, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
 }
 
@@ -70,9 +82,10 @@ LRESULT SearchDialog::OnCloseCommand(WORD, WORD, HWND, BOOL&) {
 LRESULT SearchDialog::OnGetDisplayInfo(int, LPNMHDR header, BOOL&) {
     auto* displayInfo = reinterpret_cast<NMLVDISPINFOW*>(header);
     if (displayInfo->item.mask & LVIF_TEXT) {
-        const auto text = TextFor(displayInfo->item.iItem, displayInfo->item.iSubItem);
-        lstrcpynW(displayInfo->item.pszText, text.c_str(), displayInfo->item.cchTextMax);
+        TextFor(displayInfo->item.iItem, displayInfo->item.iSubItem,
+            displayInfo->item.pszText, displayInfo->item.cchTextMax);
     }
+    displayInfo->item.mask |= LVIF_DI_SETITEM;
     return 0;
 }
 
@@ -127,7 +140,7 @@ void SearchDialog::Search() {
     if (!search_) return;
     total_ = search_->CountByName(nameTerm_);
     ClearCache();
-    ListView_SetItemCountEx(results_, total_, LVSICF_NOINVALIDATEALL);
+    ResetResultItemCache();
     if (total_ > 0) PreloadRange(0, (std::min)(total_ - 1, PageSize - 1));
     ::InvalidateRect(results_, nullptr, TRUE);
     const auto summary = total_ == 0 ? std::wstring(L"No matching items found.") :
@@ -138,6 +151,12 @@ void SearchDialog::Search() {
 void SearchDialog::ClearCache() {
     cacheClock_ = 0;
     cachedPages_.clear();
+}
+
+void SearchDialog::ResetResultItemCache() {
+    if (!results_) return;
+    ListView_SetItemCountEx(results_, 0, LVSICF_NOINVALIDATEALL);
+    ListView_SetItemCountEx(results_, total_, LVSICF_NOINVALIDATEALL);
 }
 
 void SearchDialog::CachePage(int pageStart) {
@@ -192,22 +211,36 @@ const wit::core::FileEntry* SearchDialog::EntryAt(int row) {
 }
 
 std::wstring SearchDialog::TextFor(int row, int column) {
+    wchar_t buffer[4096]{};
+    TextFor(row, column, buffer, std::size(buffer));
+    return buffer;
+}
+
+void SearchDialog::TextFor(int row, int column, wchar_t* buffer, std::size_t bufferSize) {
+    if (!buffer || bufferSize == 0) return;
+    buffer[0] = L'\0';
     const auto* entry = EntryAt(row);
-    if (!entry) return L"";
+    if (!entry) return;
     const auto& file = *entry;
     switch (column) {
     case 0:
-        return file.name;
+        CopyText(file.name, buffer, bufferSize);
+        return;
     case 1:
-        return file.isArchive ? L"Archive" : (file.isDirectory ? L"Folder" : file.extension);
+        CopyText(file.isArchive ? std::wstring_view(L"Archive") :
+            (file.isDirectory ? std::wstring_view(L"Folder") : std::wstring_view(file.extension)), buffer, bufferSize);
+        return;
     case 2:
-        return file.isDirectory ? L"" : wit::core::FormatSize(file.size);
+        if (!file.isDirectory) wit::core::FormatSizeToBuffer(file.size, buffer, bufferSize);
+        return;
     case 3:
-        return file.parentPath;
+        CopyText(file.parentPath, buffer, bufferSize);
+        return;
     case 4:
-        return wit::platform::FormatUnixTimestamp(file.modifiedAt);
+        wit::platform::FormatUnixTimestampToBuffer(file.modifiedAt, buffer, bufferSize);
+        return;
     default:
-        return L"";
+        return;
     }
 }
 }

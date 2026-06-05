@@ -18,5 +18,8 @@ public:
 
 private:
     sqlite3* db_{};
+    std::wstring cachedFolderCountTerm_;
+    int cachedFolderCount_{};
+    bool hasCachedFolderCount_{};
 };
 }

@@ -13,5 +13,6 @@ std::wstring DateTimeFormatOverride();
 bool IsValidDateTimeFormat(const std::wstring& pattern);
 std::wstring FormatDateTimeSample(const std::wstring& pattern);
 std::wstring FormatUnixTimestamp(std::int64_t timestamp);
+void FormatUnixTimestampToBuffer(std::int64_t timestamp, wchar_t* buffer, std::size_t bufferSize);
 std::wstring FormatUnixDate(std::int64_t timestamp);
 }

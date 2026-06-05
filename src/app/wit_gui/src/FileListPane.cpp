@@ -7,7 +7,10 @@
 #include <array>
 #include <cwctype>
 #include <format>
+#include <iterator>
+#include <strsafe.h>
 #include <string_view>
+#include <unordered_map>
 
 namespace wit::ui {
 namespace {
@@ -51,7 +54,8 @@ bool IsArchiveFileExtension(std::wstring_view extension) {
 }
 
 int ImageForFileExtension(std::wstring_view extension) {
-    constexpr std::array<FileExtensionImage, 100> kFileExtensionImages{{
+    static const std::unordered_map<std::wstring, int> kFileExtensionImages = [] {
+        constexpr std::array<FileExtensionImage, 100> images{{
         { L"txt", BrowserFileTxtImage },
         { L"doc", BrowserFileDocImage },
         { L"docx", BrowserFileDocxImage },
@@ -152,11 +156,26 @@ int ImageForFileExtension(std::wstring_view extension) {
         { L"rb", BrowserFileRbImage },
         { L"go", BrowserFileGoImage },
         { L"sh", BrowserFileShImage },
-    }};
+        }};
+        std::unordered_map<std::wstring, int> map;
+        map.reserve(images.size());
+        for (const auto& image : images) {
+            map.emplace(image.extension, image.image);
+        }
+        return map;
+    }();
 
-    const auto match = std::ranges::find_if(kFileExtensionImages,
-        [extension](const FileExtensionImage& item) { return FileExtensionEquals(extension, item.extension); });
-    return match != kFileExtensionImages.end() ? match->image : I_IMAGENONE;
+    std::wstring key(extension);
+    std::ranges::transform(key, key.begin(), [](wchar_t character) {
+        return static_cast<wchar_t>(std::towlower(character));
+    });
+    const auto match = kFileExtensionImages.find(key);
+    return match != kFileExtensionImages.end() ? match->second : I_IMAGENONE;
+}
+
+void CopyText(std::wstring_view text, wchar_t* buffer, std::size_t bufferSize) {
+    if (!buffer || bufferSize == 0) return;
+    StringCchCopyNW(buffer, bufferSize, text.data(), text.size());
 }
 }
 
@@ -186,8 +205,7 @@ void FileListView::SetLocation(
     location = newLocation;
     browser = repository;
     total = 0;
-    pageStart = -1;
-    page.clear();
+    browserPageStart = -1;
     browserPage.clear();
     ClearCache();
     ListView_SetItemCountEx(hwnd, 0, LVSICF_NOINVALIDATEALL);
@@ -198,21 +216,13 @@ void FileListView::SetLocation(
     InvalidateRect(hwnd, nullptr, TRUE);
 }
 
-void FileListView::EnsurePage(int index) {
-    if (!browser) return;
-    int desired = (index / PageSize) * PageSize;
-    if (desired == pageStart) return;
-    if (ShowsBrowserItems()) {
-        browserPage = browser->GetBrowserRootItemsPage(location, desired, PageSize);
-        page.clear();
-    } else {
-        CacheFilePage(desired);
-        const auto found = std::ranges::find_if(cachedFilePages_,
-            [desired](const CachedFilePage& cachedPage) { return cachedPage.start == desired; });
-        page = found != cachedFilePages_.end() ? found->items : std::vector<wit::core::FileEntry>{};
-        browserPage.clear();
-    }
-    pageStart = desired;
+void FileListView::ResetCachedItems() {
+    browserPageStart = -1;
+    browserPage.clear();
+    ClearCache();
+    if (!hwnd) return;
+    ListView_SetItemCountEx(hwnd, 0, LVSICF_NOINVALIDATEALL);
+    ListView_SetItemCountEx(hwnd, total, LVSICF_NOINVALIDATEALL);
 }
 
 void FileListView::PreloadRange(int firstRow, int lastRow) {
@@ -258,10 +268,15 @@ void FileListView::CacheFilePage(int pageStartValue) {
 }
 
 const wit::core::FileEntry* FileListView::EntryAt(int row) {
-    if (ShowsBrowserItems()) return nullptr;
-    EnsurePage(row);
-    const int index = row - pageStart;
-    return index >= 0 && index < static_cast<int>(page.size()) ? &page[index] : nullptr;
+    if (!browser || ShowsBrowserItems() || row < 0 || row >= total) return nullptr;
+    const int pageStart = (row / PageSize) * PageSize;
+    CacheFilePage(pageStart);
+    const auto found = std::ranges::find_if(cachedFilePages_,
+        [pageStart](const CachedFilePage& cachedPage) { return cachedPage.start == pageStart; });
+    if (found == cachedFilePages_.end()) return nullptr;
+    found->lastUsed = ++cacheClock_;
+    const int index = row - found->start;
+    return index >= 0 && index < static_cast<int>(found->items.size()) ? &found->items[index] : nullptr;
 }
 
 const wit::core::Disk* FileListView::DiskAt(int row) {
@@ -270,8 +285,12 @@ const wit::core::Disk* FileListView::DiskAt(int row) {
 }
 
 const wit::core::BrowserItem* FileListView::BrowserItemAt(int row) {
-    if (!ShowsBrowserItems()) return nullptr;
-    EnsurePage(row);
+    if (!browser || !ShowsBrowserItems() || row < 0 || row >= total) return nullptr;
+    const int pageStart = (row / PageSize) * PageSize;
+    if (browserPageStart != pageStart) {
+        browserPage = browser->GetBrowserRootItemsPage(location, pageStart, PageSize);
+        browserPageStart = pageStart;
+    }
     const int index = row - pageStart;
     return index >= 0 && index < static_cast<int>(browserPage.size()) ? &browserPage[index] : nullptr;
 }
@@ -293,50 +312,64 @@ int FileListView::ImageFor(int row) {
 }
 
 std::wstring FileListView::TextFor(int row, int column) {
+    wchar_t buffer[4096]{};
+    TextFor(row, column, buffer, std::size(buffer));
+    return buffer;
+}
+
+void FileListView::TextFor(int row, int column, wchar_t* buffer, std::size_t bufferSize) {
+    if (!buffer || bufferSize == 0) return;
+    buffer[0] = L'\0';
     if (ShowsDisks()) {
         const auto* item = BrowserItemAt(row);
-        if (!item) return L"";
+        if (!item) return;
         if (item->type == wit::core::BrowserItemType::DiskGroup) {
             switch (column) {
-            case 0: return item->group.name;
-            case 1: return L"Disk Group";
-            case 2: return wit::core::FormatSize(item->group.totalCapacity);
-            case 3: return wit::core::FormatSize(item->group.freeSpace);
-            case 4: return wit::platform::FormatUnixTimestamp(item->group.updatedAt);
-            case 5: return std::format(L"{}", item->group.totalDisks);
-            default: return L"";
+            case 0: CopyText(item->group.name, buffer, bufferSize); return;
+            case 1: CopyText(L"Disk Group", buffer, bufferSize); return;
+            case 2: wit::core::FormatSizeToBuffer(item->group.totalCapacity, buffer, bufferSize); return;
+            case 3: wit::core::FormatSizeToBuffer(item->group.freeSpace, buffer, bufferSize); return;
+            case 4: wit::platform::FormatUnixTimestampToBuffer(item->group.updatedAt, buffer, bufferSize); return;
+            case 5: swprintf_s(buffer, bufferSize, L"%lld", static_cast<long long>(item->group.totalDisks)); return;
+            default: return;
             }
         }
         const auto* disk = &item->disk;
         switch (column) {
-        case 0: return disk->diskName;
-        case 1: return DiskTypeLabel(disk->diskType);
-        case 2: return wit::core::FormatSize(disk->totalCapacity);
-        case 3: return wit::core::FormatSize(disk->freeSpace);
-        case 4: return wit::platform::FormatUnixTimestamp(disk->updatedAt);
-        case 5: return std::format(L"{}", disk->diskNumber);
-        case 6: return disk->description;
-        case 7: return disk->category;
-        case 8: return disk->location;
-        default: return L"";
+        case 0: CopyText(disk->diskName, buffer, bufferSize); return;
+        case 1: CopyText(DiskTypeLabel(disk->diskType), buffer, bufferSize); return;
+        case 2: wit::core::FormatSizeToBuffer(disk->totalCapacity, buffer, bufferSize); return;
+        case 3: wit::core::FormatSizeToBuffer(disk->freeSpace, buffer, bufferSize); return;
+        case 4: wit::platform::FormatUnixTimestampToBuffer(disk->updatedAt, buffer, bufferSize); return;
+        case 5: swprintf_s(buffer, bufferSize, L"%lld", static_cast<long long>(disk->diskNumber)); return;
+        case 6: CopyText(disk->description, buffer, bufferSize); return;
+        case 7: CopyText(disk->category, buffer, bufferSize); return;
+        case 8: CopyText(disk->location, buffer, bufferSize); return;
+        default: return;
         }
     }
     const auto* entry = EntryAt(row);
-    if (!entry) return L"";
+    if (!entry) return;
     const auto& file = *entry;
     switch (column) {
     case 0:
-        return file.name;
+        CopyText(file.name, buffer, bufferSize);
+        return;
     case 1:
-        return file.isArchive ? L"Archive" : (file.isDirectory ? L"Folder" : file.extension);
+        CopyText(file.isArchive ? std::wstring_view(L"Archive") :
+            (file.isDirectory ? std::wstring_view(L"Folder") : std::wstring_view(file.extension)), buffer, bufferSize);
+        return;
     case 2:
-        return wit::core::FormatSize(file.size);
+        wit::core::FormatSizeToBuffer(file.size, buffer, bufferSize);
+        return;
     case 3:
-        return file.parentPath;
+        CopyText(file.parentPath, buffer, bufferSize);
+        return;
     case 4:
-        return wit::platform::FormatUnixTimestamp(file.modifiedAt);
+        wit::platform::FormatUnixTimestampToBuffer(file.modifiedAt, buffer, bufferSize);
+        return;
     default:
-        return L"";
+        return;
     }
 }
 }

@@ -202,9 +202,7 @@ void BrowserController::NavigateForward() {
 
 void BrowserController::RefreshDisplay() {
     if (filesHandle_) {
-        files_.pageStart = -1;
-        files_.page.clear();
-        files_.browserPage.clear();
+        files_.ResetCachedItems();
         RedrawWindow(filesHandle_, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
     }
 }
@@ -229,9 +227,10 @@ LRESULT BrowserController::OnFileGetDispInfo(LPNMHDR header) {
         displayInfo->item.iImage = files_.ImageFor(displayInfo->item.iItem);
     }
     if (displayInfo->item.mask & LVIF_TEXT) {
-        auto text = files_.TextFor(displayInfo->item.iItem, displayInfo->item.iSubItem);
-        lstrcpynW(displayInfo->item.pszText, text.c_str(), displayInfo->item.cchTextMax);
+        files_.TextFor(displayInfo->item.iItem, displayInfo->item.iSubItem,
+            displayInfo->item.pszText, displayInfo->item.cchTextMax);
     }
+    displayInfo->item.mask |= LVIF_DI_SETITEM;
     return 0;
 }
 

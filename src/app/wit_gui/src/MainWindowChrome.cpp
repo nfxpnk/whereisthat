@@ -126,12 +126,13 @@ const wchar_t* ToolbarTooltipText(int commandId) {
 }
 
 bool MainWindowChrome::Create(HWND parent, bool showStatusBar, bool showToolbar, int splitterPosition,
-    std::function<void()> selectAllAction) {
+    std::function<void()> selectAllAction, std::function<bool()> cancelSelectAllOverrideAction) {
     parent_ = parent;
     statusVisible_ = showStatusBar;
     toolbarVisible_ = showToolbar;
     splitterPosition_ = splitterPosition;
     selectAllAction_ = std::move(selectAllAction);
+    cancelSelectAllOverrideAction_ = std::move(cancelSelectAllOverrideAction);
     if (!CreateToolbar()) return false;
     DWORD statusStyle = WS_CHILD;
     if (statusVisible_) statusStyle |= WS_VISIBLE;
@@ -157,6 +158,7 @@ bool MainWindowChrome::Create(HWND parent, bool showStatusBar, bool showToolbar,
     if (!CreateBrowserImages()) return false;
     ListView_SetExtendedListViewStyle(filesHandle_, LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER);
     filesSubclass_.SetAction(&selectAllAction_);
+    filesSubclass_.SetCancelAction(&cancelSelectAllOverrideAction_);
     return filesSubclass_.SubclassWindow(filesHandle_) != FALSE;
 }
 

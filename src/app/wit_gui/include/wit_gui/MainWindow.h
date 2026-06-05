@@ -38,6 +38,7 @@ public:
         MESSAGE_HANDLER(WM_DRAWITEM, OnDrawItem)
         NOTIFY_HANDLER(IDC_BROWSER_TREE, TVN_SELCHANGEDW, OnTreeSelectionChanged)
         NOTIFY_HANDLER(IDC_BROWSER_TREE, TVN_ITEMEXPANDINGW, OnTreeExpanding)
+        NOTIFY_HANDLER(IDC_BROWSER_TREE, NM_CLICK, OnTreeClick)
         NOTIFY_HANDLER(IDC_BROWSER_TREE, NM_RCLICK, OnTreeRightClick)
         NOTIFY_HANDLER(IDC_FILES, LVN_GETDISPINFOW, OnFileGetDispInfo)
         NOTIFY_HANDLER(IDC_FILES, LVN_ODCACHEHINT, OnFileCacheHint)
@@ -75,6 +76,7 @@ private:
     LRESULT OnDestroy(UINT message, WPARAM wparam, LPARAM lparam, BOOL& handled);
     LRESULT OnTreeSelectionChanged(int id, LPNMHDR header, BOOL& handled);
     LRESULT OnTreeExpanding(int id, LPNMHDR header, BOOL& handled);
+    LRESULT OnTreeClick(int id, LPNMHDR header, BOOL& handled);
     LRESULT OnTreeRightClick(int id, LPNMHDR header, BOOL& handled);
     LRESULT OnFileGetDispInfo(int id, LPNMHDR header, BOOL& handled);
     LRESULT OnFileCacheHint(int id, LPNMHDR header, BOOL& handled);

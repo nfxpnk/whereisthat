@@ -284,6 +284,12 @@ LRESULT MainFrame::OnTreeExpanding(int, LPNMHDR header, BOOL&) {
     return browser_.OnTreeExpanding(header);
 }
 
+LRESULT MainFrame::OnTreeClick(int, LPNMHDR, BOOL&) {
+    browser_.ClearFileSelection();
+    UpdateBrowserStatus();
+    return 0;
+}
+
 LRESULT MainFrame::OnTreeRightClick(int, LPNMHDR, BOOL&) {
     return ShowTreeContextMenu();
 }
@@ -326,6 +332,10 @@ bool MainFrame::InitializeFrame() {
         initial.presentation.mainSplitterPosition, [this]() {
         browser_.SelectAll();
         UpdateBrowserStatus();
+    }, [this]() {
+        const bool cancelled = browser_.CancelSelectAllOverride();
+        if (cancelled) UpdateBrowserStatus();
+        return cancelled;
     })) return false;
     browser_.Attach(chrome_.TreeHandle(), chrome_.FilesHandle(), chrome_.BackHandle(),
         chrome_.ForwardHandle(), chrome_.AddressHandle(),

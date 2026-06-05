@@ -1,0 +1,118 @@
+name: Build Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    name: Build Windows x64 Release
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Resolve release version
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $version = (Get-Content "VERSION" -Raw).Trim()
+          if (!$version) {
+            throw "VERSION file is empty."
+          }
+
+          $expectedTag = "v$version"
+
+          if ("${{ github.event_name }}" -eq "push") {
+            $tag = "${{ github.ref_name }}"
+
+            if ($tag -ne $expectedTag) {
+              throw "VERSION file contains '$version', but pushed tag is '$tag'. Expected tag: '$expectedTag'."
+            }
+          } else {
+            $tag = $expectedTag
+          }
+
+          "RELEASE_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "RELEASE_TAG=$tag" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+          Write-Host "Release version resolved: VERSION=$version, tag=$tag"
+
+      - name: Build Release x64
+        shell: cmd
+        run: msbuild WhereIsThat.vcxproj /p:Configuration=Release /p:Platform=x64 /m
+
+      - name: Prepare release package
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $tag = "$env:RELEASE_TAG"
+          $packageName = "WhereIsThat-$tag-windows-x64"
+          $packageDir = "dist\$packageName"
+          $zipPath = "dist\$packageName.zip"
+
+          New-Item -ItemType Directory -Force -Path "dist" | Out-Null
+          New-Item -ItemType Directory -Force -Path $packageDir | Out-Null
+
+          if (!(Test-Path "x64\Release\WhereIsThat.exe")) {
+            throw "Expected executable was not found: x64\Release\WhereIsThat.exe"
+          }
+
+          Copy-Item "x64\Release\WhereIsThat.exe" $packageDir -Force
+
+          Get-ChildItem "x64\Release" -Filter "*.dll" | ForEach-Object {
+            Copy-Item $_.FullName $packageDir -Force
+          }
+
+          if (Test-Path "README.md") {
+            Copy-Item "README.md" $packageDir -Force
+          }
+
+          if (Test-Path "CHANGELOG.md") {
+            Copy-Item "CHANGELOG.md" $packageDir -Force
+          }
+
+          if (Test-Path "VERSION") {
+            Copy-Item "VERSION" $packageDir -Force
+          }
+
+          Compress-Archive -Path "$packageDir\*" -DestinationPath $zipPath -Force
+
+          if (!(Test-Path $zipPath)) {
+            throw "Release package was not created: $zipPath"
+          }
+
+          Write-Host "Created release package: $zipPath"
+
+      - name: Create GitHub Release
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $tag = "$env:RELEASE_TAG"
+          $zipPath = "dist\WhereIsThat-$tag-windows-x64.zip"
+
+          if (!(Test-Path $zipPath)) {
+            throw "Release package not found: $zipPath"
+          }
+
+          gh release create $tag $zipPath `
+            --title "WhereIsThat $tag" `
+            --generate-notes

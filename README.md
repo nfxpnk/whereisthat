@@ -37,6 +37,80 @@ From **Developer Command Prompt for VS 2022**:
 
 `msbuild whereisthat.sln /p:Configuration=Release /p:Platform=x64 /m`
 
+## Versioning and releases
+WhereIsThat uses simple semantic versioning:
+
+```text
+MAJOR.MINOR.PATCH
+```
+
+Examples:
+
+```text
+0.1.0
+0.1.1
+0.2.0
+1.0.0
+```
+
+Version rules:
+
+- Increment `PATCH` for bug fixes.
+- Increment `MINOR` for new features.
+- Increment `MAJOR` for major stable releases or incompatible changes.
+
+The current version is stored in the root `VERSION` file without the leading `v`.
+
+Git tags use the same version with a leading `v`.
+
+Example:
+
+```text
+VERSION file: 0.1.0
+Git tag:      v0.1.0
+```
+
+To create a release from the current `main` commit:
+
+```bash
+git checkout main
+git pull origin main
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+Pushing the tag starts the `Build Release` GitHub Actions workflow. The workflow builds `WhereIsThat.vcxproj` using `Release|x64`, packages the output into a ZIP archive, creates a GitHub Release, and attaches the ZIP file.
+
+Before creating a new release:
+
+1. Update `VERSION`.
+2. Update `CHANGELOG.md`.
+3. Commit and push the changes to `main`.
+4. Create and push a matching tag.
+
+Example for a bugfix release:
+
+```bash
+# edit VERSION from 0.1.0 to 0.1.1
+# edit CHANGELOG.md
+
+git add VERSION CHANGELOG.md
+git commit -m "Bump version to 0.1.1"
+git push origin main
+
+git tag v0.1.1
+git push origin v0.1.1
+```
+
+Do not delete release tags after publishing. A tag marks the exact commit used to build a release.
+
+Only delete a tag if it was created by mistake and the release has not been published yet:
+
+```bash
+git tag -d v0.1.0
+git push origin --delete v0.1.0
+```
+
 ## Features (v1)
 - Scan a folder or drive root into a catalog.
 - Store normalized disk, latest scan-statistics, folder, and file records in SQLite.

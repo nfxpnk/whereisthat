@@ -29,6 +29,8 @@ jobs:
         with:
           languages: c-cpp
           queries: security-and-quality
+          paths-ignore: |
+            third_party/**
 
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2

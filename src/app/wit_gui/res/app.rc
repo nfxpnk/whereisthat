@@ -12,3 +12,4 @@ IDR_SQL_TABLE_DISK_SCAN_STATISTICS RCDATA "..\\..\\..\\..\\sql\\tables\\disk_sca
 IDR_SQL_TABLE_FOLDERS RCDATA "..\\..\\..\\..\\sql\\tables\\folders.sql"
 IDR_SQL_TABLE_FILES RCDATA "..\\..\\..\\..\\sql\\tables\\files.sql"
 IDR_SQL_INDEXES RCDATA "..\\..\\..\\..\\sql\\indexes.sql"
+IDR_APP_VERSION RCDATA "..\\..\\..\\..\\VERSION"

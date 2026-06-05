@@ -1,11 +1,18 @@
 #include "wit_gui/AboutDialog.h"
 
+#include "wit_infra/StringUtils.h"
+#include "wit_infra/Win32Helpers.h"
+
 #include <shellapi.h>
+
+#include <string>
+#include <string_view>
 
 namespace {
 
 constexpr wchar_t kProjectUrl[] = L"https://nfxpnk.github.io/whereisthat";
 constexpr wchar_t kRepositoryUrl[] = L"https://github.com/nfxpnk/whereisthat";
+constexpr wchar_t kUnknownVersionText[] = L"Version: unknown (64-bit)";
 
 HFONT CreateBoldDialogFont(HWND dialog, int pointSizeDelta) {
     NONCLIENTMETRICSW metrics{};
@@ -18,6 +25,34 @@ HFONT CreateBoldDialogFont(HWND dialog, int pointSizeDelta) {
     font.lfWeight = FW_BOLD;
     font.lfHeight -= pointSizeDelta;
     return CreateFontIndirectW(&font);
+}
+
+std::wstring LoadAboutVersionText() {
+    const HMODULE module = GetModuleHandleW(nullptr);
+    const HRSRC resource = FindResourceW(module, MAKEINTRESOURCEW(IDR_APP_VERSION), RT_RCDATA);
+    if (resource == nullptr) {
+        return kUnknownVersionText;
+    }
+
+    const HGLOBAL handle = LoadResource(module, resource);
+    if (handle == nullptr) {
+        return kUnknownVersionText;
+    }
+
+    const DWORD size = SizeofResource(module, resource);
+    const void* data = LockResource(handle);
+    if (data == nullptr || size == 0) {
+        return kUnknownVersionText;
+    }
+
+    const auto* bytes = static_cast<const char*>(data);
+    const std::string_view version = wit::core::TrimAsciiWhitespace(std::string_view(bytes, size));
+    const std::wstring versionText = wit::platform::ToUtf16(std::string(version));
+    if (versionText.empty()) {
+        return kUnknownVersionText;
+    }
+
+    return L"Version: " + versionText + L" (64-bit)";
 }
 
 }
@@ -55,6 +90,7 @@ LRESULT AboutDialog::OnInitDialog(UINT, WPARAM, LPARAM, BOOL&) {
     if (versionFont_ != nullptr) {
         SendDlgItemMessageW(IDC_ABOUT_VERSION, WM_SETFONT, reinterpret_cast<WPARAM>(versionFont_), TRUE);
     }
+    SetDlgItemTextW(IDC_ABOUT_VERSION, LoadAboutVersionText().c_str());
 
     ShowActivePage();
     return TRUE;

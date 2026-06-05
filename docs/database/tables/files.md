@@ -25,7 +25,7 @@ Stores file-only scanned metadata under normalized folders. `FileScanner::ScanFo
 | `name` | `TEXT` | No | none | `idx_files_disk_name` | Filename. | Scanner; list/search display | Explicit |
 | `description` | `TEXT` | No | `''` | none | Free-text file description. | `Database::InsertFile`; currently no importer/editor | Explicit |
 | `extension` | `TEXT` | No | `''` | `idx_files_extension` | Extension without a leading dot; empty for no extension. | `PathHelpers::FileExtension`; display/storage | Explicit |
-| `crc` | `TEXT` | Yes | `NULL` | none | Uppercase hexadecimal CRC-32 when calculated. | `FileScanner::FileCrc32`; storage insert | Explicit |
+| `crc` | `TEXT` | Yes | `NULL` | none | Uppercase hexadecimal CRC-32 when calculated. | `CalculateFileCrc32Text`; archive member CRC accumulator; storage insert | Explicit |
 | `size` | `INTEGER` | No | none | none | File size in bytes. | Scanner; list/status display | Explicit |
 | `created_at` | `INTEGER` | No | none | none | Creation time as Unix timestamp. | Scanner | Explicit |
 | `modified_at` | `INTEGER` | No | none | none | Modification time as Unix timestamp. | Scanner; display projection | Explicit |

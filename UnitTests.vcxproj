@@ -54,11 +54,13 @@ copy /Y "$(ProjectDir)third_party\libarchive\bin\*.dll" "$(OutDir)"</Command>
         <ClCompile Include="third_party\googletest\googletest\src\gtest-all.cc" />
         <ClCompile Include="third_party\googletest\googletest\src\gtest_main.cc" />
         <ClCompile Include="tests\unit\PathHelpersTests.cpp" />
+        <ClCompile Include="tests\unit\Crc32Tests.cpp" />
         <ClCompile Include="tests\unit\SmokeTests.cpp" />
         <ClCompile Include="tests\unit\storage\StorageSmokeTests.cpp" />
         <ClCompile Include="src\app\wit_gui\src\CatalogWorkflowController.cpp" />
         <ClCompile Include="src\modules\wit_catalog\src\CatalogSession.cpp" />
         <ClCompile Include="src\app\wit_gui\src\ScanCoordinator.cpp" />
+        <ClCompile Include="src\modules\wit_scanner\src\Crc32.cpp" />
         <ClCompile Include="src\modules\wit_scanner\src\FileScanner.cpp" />
         <ClCompile Include="src\modules\wit_database\src\CatalogSchema.cpp" />
         <ClCompile Include="src\modules\wit_database\src\Database.cpp" />

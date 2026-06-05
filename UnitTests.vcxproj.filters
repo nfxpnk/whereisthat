@@ -20,6 +20,9 @@
         <ClCompile Include="tests\unit\PathHelpersTests.cpp">
             <Filter>Tests</Filter>
         </ClCompile>
+        <ClCompile Include="tests\unit\Crc32Tests.cpp">
+            <Filter>Tests</Filter>
+        </ClCompile>
         <ClCompile Include="tests\unit\storage\StorageSmokeTests.cpp">
             <Filter>Tests</Filter>
         </ClCompile>
@@ -39,6 +42,9 @@
             <Filter>Production Sources</Filter>
         </ClCompile>
         <ClCompile Include="src\modules\wit_scanner\src\FileScanner.cpp">
+            <Filter>Production Sources</Filter>
+        </ClCompile>
+        <ClCompile Include="src\modules\wit_scanner\src\Crc32.cpp">
             <Filter>Production Sources</Filter>
         </ClCompile>
         <ClCompile Include="src\modules\wit_database\src\CatalogSchema.cpp">

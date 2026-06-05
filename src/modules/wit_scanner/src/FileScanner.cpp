@@ -1,4 +1,5 @@
 #include "wit_scanner/FileScanner.h"
+#include "wit_scanner/Crc32.h"
 #include "wit_types/FolderEntry.h"
 #include <wit_infra/PathHelpers.h>
 #include <wit_infra/Win32Helpers.h>
@@ -7,11 +8,11 @@
 #include <archive_entry.h>
 #include <algorithm>
 #include <chrono>
+#include <cstddef>
 #include <cwctype>
-#include <iomanip>
 #include <map>
 #include <optional>
-#include <sstream>
+#include <span>
 #include <stop_token>
 #include <thread>
 #include <utility>
@@ -26,46 +27,6 @@ constexpr std::uint64_t kProgressReportItemInterval = 250;
 std::wstring WildcardFor(const std::wstring& path) {
     const auto last = path.empty() ? L'\0' : path.back();
     return (last == L'\\' || last == L'/') ? path + L"*" : path + L"\\*";
-}
-
-void UpdateCrc(std::uint32_t& crc, const unsigned char* buffer, std::size_t count) {
-    for (std::size_t index = 0; index < count; ++index) {
-        crc ^= buffer[index];
-        for (int bit = 0; bit < 8; ++bit) {
-            crc = (crc >> 1) ^ ((crc & 1u) ? 0xEDB88320u : 0u);
-        }
-    }
-}
-
-std::wstring FormatCrc(std::uint32_t crc) {
-    std::wostringstream stream;
-    stream << std::uppercase << std::hex << std::setfill(L'0') << std::setw(8) << (crc ^ 0xFFFFFFFFu);
-    return stream.str();
-}
-
-std::optional<std::wstring> FileCrc32(const std::wstring& path, std::stop_token stopToken, bool& cancelled) {
-    const auto file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
-        FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
-    if (file == INVALID_HANDLE_VALUE) return std::nullopt;
-    std::uint32_t crc = 0xFFFFFFFFu;
-    std::vector<unsigned char> buffer(64 * 1024);
-    DWORD count{};
-    bool success = true;
-    for (;;) {
-        if (stopToken.stop_requested()) {
-            cancelled = true;
-            success = false;
-            break;
-        }
-        if (!ReadFile(file, buffer.data(), static_cast<DWORD>(buffer.size()), &count, nullptr)) {
-            success = false;
-            break;
-        }
-        if (count == 0) break;
-        UpdateCrc(crc, buffer.data(), count);
-    }
-    CloseHandle(file);
-    return success ? std::optional<std::wstring>{FormatCrc(crc)} : std::nullopt;
 }
 
 FolderEntry FolderFromData(std::int64_t diskId, std::int64_t parentId, bool hasParent,
@@ -203,7 +164,7 @@ ArchiveReadResult ReadArchive(const std::wstring& path, bool calculateCrc, std::
                 break;
             }
         } else {
-            std::uint32_t crc = 0xFFFFFFFFu;
+            Crc32 crc;
             std::vector<unsigned char> buffer(64 * 1024);
             for (;;) {
                 if (stopToken.stop_requested()) {
@@ -218,10 +179,12 @@ ArchiveReadResult ReadArchive(const std::wstring& path, bool calculateCrc, std::
                     break;
                 }
                 member.size += static_cast<std::uint64_t>(read);
-                if (calculateCrc) UpdateCrc(crc, buffer.data(), static_cast<std::size_t>(read));
+                if (calculateCrc) {
+                    crc.Update(std::as_bytes(std::span{buffer.data(), static_cast<std::size_t>(read)}));
+                }
             }
             if (!success) break;
-            if (calculateCrc) member.crc = FormatCrc(crc);
+            if (calculateCrc) member.crc = FormatCrc32(crc.Finalize());
         }
         parsed.members.push_back(std::move(member));
     }
@@ -477,7 +440,7 @@ bool FileScanner::ScanFolder(const std::wstring& rootPath, std::int64_t diskId, 
                             entry.accessedAt = wit::platform::FileTimeToUnixSeconds(findData.ftLastAccessTime);
                             entry.attributes = findData.dwFileAttributes;
                             bool crcCancelled{};
-                            if (calculateCrc) entry.crc = FileCrc32(fullPath, stopToken, crcCancelled);
+                            if (calculateCrc) entry.crc = CalculateFileCrc32Text(fullPath, stopToken, &crcCancelled);
                             if (crcCancelled || stopToken.stop_requested()) {
                                 FindClose(findHandle);
                                 return fail();

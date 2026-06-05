@@ -390,7 +390,7 @@ void MainFrame::HandleCommand(int id) {
     } else if (id == IDC_BROWSER_FORWARD) {
         browser_.NavigateForward();
         UpdateBrowserStatus();
-    } else if (id == ID_OPTIONS_GENERAL_SETTINGS) {
+    } else if (id == ID_OPTIONS_GENERAL_SETTINGS || id == ID_OPTIONS_USER_INTERFACE_SETUP) {
         ApplyControllerResult(controller_.RequestGeneralSettings());
     } else if (id == ID_WIT_VIEW_TOOLBAR) {
         ApplyControllerResult(controller_.ToggleToolbar());
@@ -580,7 +580,13 @@ void MainFrame::PerformRequest(const wit::app::RequestEffect& request) {
     case wit::app::RequestKind::ShowGeneralSettings: {
         wit::ui::GeneralSettingsDialog dialog;
         wit::platform::AppSettings settings;
-        const bool accepted = dialog.Show(m_hWnd, request.settings, settings);
+        const bool accepted = dialog.Show(m_hWnd, request.settings, settings,
+            [this](const wit::platform::AppSettings& appliedSettings) {
+                const auto result = controller_.GeneralSettingsCompleted(appliedSettings);
+                const bool saved = result.messages.empty();
+                ApplyControllerResult(std::move(result));
+                return saved;
+            });
         ApplyControllerResult(controller_.GeneralSettingsCompleted(
             accepted ? std::optional<wit::platform::AppSettings>(settings) : std::nullopt));
         break;

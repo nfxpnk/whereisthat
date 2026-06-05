@@ -35,8 +35,7 @@ jobs:
 
       - name: Build solution
         shell: cmd
-        run: |
-          msbuild whereisthat.sln /p:Configuration=Debug /p:Platform=x64 /m
+        run: msbuild WhereIsThat.vcxproj /p:Configuration=Debug /p:Platform=x64 /m
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v4

@@ -122,10 +122,7 @@ LONG WINAPI UnhandledExceptionFilter(EXCEPTION_POINTERS* exceptionInfo) {
     return EXCEPTION_EXECUTE_HANDLER;
 }
 
-}
-
-void InitializeLogging() {
-    std::lock_guard lock(g_logMutex);
+void InitializeLoggingUnlocked() {
     if (g_initialized) return;
 
     g_logDirectory = LogDirectory();
@@ -146,6 +143,13 @@ void InitializeLogging() {
     g_initialized = true;
 }
 
+}
+
+void InitializeLogging() {
+    std::lock_guard lock(g_logMutex);
+    InitializeLoggingUnlocked();
+}
+
 void ShutdownLogging() {
     std::lock_guard lock(g_logMutex);
     if (!g_initialized) return;
@@ -158,8 +162,8 @@ void ShutdownLogging() {
 }
 
 void Log(LogLevel level, const wchar_t* file, int line, const wchar_t* function, std::wstring_view message) {
-    if (!g_initialized) InitializeLogging();
     std::lock_guard lock(g_logMutex);
+    InitializeLoggingUnlocked();
     const auto formatted = std::format(L"{} [{}] {}:{} {}: {}",
         TimestampForLine(), LevelText(level), LeafName(file ? file : L""), line,
         function ? function : L"", message);

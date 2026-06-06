@@ -115,6 +115,7 @@ LRESULT GeneralSettingsDialog::OnInitDialog(UINT, WPARAM, LPARAM, BOOL&) {
 
     PopulateTree();
     SelectInitialPage();
+    ShowPage(Page::General);
     ::SetFocus(GetDlgItem(IDC_SETTINGS_TREE));
     SetApplyEnabled(false);
     initializing_ = false;

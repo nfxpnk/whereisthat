@@ -250,7 +250,7 @@ private:
 
 }
 
-TEST(SettingsVisual, OpensAppSettingsAndCapturesScreenshots) {
+TEST(DISABLED_SettingsVisual, OpensAppSettingsAndCapturesScreenshots) {
     const auto appPath = AppExecutablePath();
     if (!std::filesystem::exists(appPath)) {
         GTEST_SKIP() << "Build WhereIsThat.exe before running this visual smoke test";

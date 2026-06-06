@@ -19,7 +19,8 @@ public:
         UserInterface
     };
 
-    // ApplyHandler is the single persistence path for Apply and OK. Cancel does not call it.
+    // ApplyHandler is the single persistence path for Apply and OK. The accepted output is only
+    // meaningful when Show returns true; callers that persist via ApplyHandler can ignore it.
     bool Show(HWND owner, const wit::platform::AppSettings& current, wit::platform::AppSettings& accepted,
         ApplyHandler applyHandler = {});
 

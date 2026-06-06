@@ -579,8 +579,8 @@ void MainFrame::PerformRequest(const wit::app::RequestEffect& request) {
     }
     case wit::app::RequestKind::ShowGeneralSettings: {
         wit::ui::GeneralSettingsDialog dialog;
-        wit::platform::AppSettings ignoredSettings;
-        (void)dialog.Show(m_hWnd, request.settings, ignoredSettings,
+        wit::platform::AppSettings applyHandlerOwnsPersistence;
+        (void)dialog.Show(m_hWnd, request.settings, applyHandlerOwnsPersistence,
             [this](const wit::platform::AppSettings& appliedSettings) {
                 const auto result = controller_.GeneralSettingsCompleted(appliedSettings);
                 const bool saved = result.messages.empty();

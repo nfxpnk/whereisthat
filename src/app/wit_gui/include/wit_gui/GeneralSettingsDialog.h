@@ -12,14 +12,20 @@ class GeneralSettingsDialog : public ATL::CDialogImpl<GeneralSettingsDialog> {
 public:
     enum { IDD = IDD_GENERAL_SETTINGS };
 
-    using ApplyHandler = std::function<bool(const wit::platform::AppSettings&)>;
+    enum class ApplyResult {
+        Applied,
+        Rejected
+    };
+
+    using ApplyHandler = std::function<ApplyResult(const wit::platform::AppSettings&)>;
 
     enum class Page {
         General,
         UserInterface
     };
 
-    // ApplyHandler is the required persistence path for Apply and OK. Cancel does not call it.
+    // ApplyHandler is the required persistence path for Apply and OK. It owns user-facing errors
+    // and presentation updates; Cancel does not call it.
     void Show(HWND owner, const wit::platform::AppSettings& current, ApplyHandler applyHandler);
 
     BEGIN_MSG_MAP(GeneralSettingsDialog)

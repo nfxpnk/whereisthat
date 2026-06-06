@@ -53,7 +53,7 @@ public:
                 [this](const wit::platform::AppSettings& settings) {
                     std::lock_guard lock(mutex);
                     appliedSettings.push_back(settings);
-                    return true;
+                    return wit::ui::GeneralSettingsDialog::ApplyResult::Applied;
                 });
             finished_.set_value();
         });

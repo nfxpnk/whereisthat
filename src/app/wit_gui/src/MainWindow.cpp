@@ -584,7 +584,8 @@ void MainFrame::PerformRequest(const wit::app::RequestEffect& request) {
                 const auto result = controller_.GeneralSettingsCompleted(appliedSettings);
                 const bool saved = result.messages.empty();
                 ApplyControllerResult(std::move(result));
-                return saved;
+                return saved ? wit::ui::GeneralSettingsDialog::ApplyResult::Applied
+                    : wit::ui::GeneralSettingsDialog::ApplyResult::Rejected;
             });
         break;
     }

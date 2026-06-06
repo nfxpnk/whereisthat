@@ -225,7 +225,7 @@ bool GeneralSettingsDialog::ApplyChanges(bool closeAfterApply) {
     wit::platform::AppSettings updated;
     if (!TryReadControls(updated, true)) return false;
     if (!SameEditableSettings(updated, settings_)) {
-        if (!applyHandler_ || !applyHandler_(updated)) return false;
+        if (!applyHandler_ || applyHandler_(updated) != ApplyResult::Applied) return false;
         settings_ = std::move(updated);
     }
     SetApplyEnabled(false);

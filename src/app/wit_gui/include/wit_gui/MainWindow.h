@@ -11,6 +11,7 @@
 #include "resource.h"
 #include "wit_gui/ProgressDialog.h"
 #include "wit_gui/SearchPane.h"
+#include "wit_gui/GeneralSettingsDialog.h"
 
 class MainFrame : public WTL::CFrameWindowImpl<MainFrame>, public WTL::CMessageFilter {
 public:
@@ -22,6 +23,7 @@ public:
     HWND WindowHandle() const { return m_hWnd; }
     BOOL PreTranslateMessage(MSG* message) override {
         if (searchDialog_.PreTranslateMessage(message)) return TRUE;
+        if (settingsDialog_.PreTranslateMessage(message)) return TRUE;
         return WTL::CFrameWindowImpl<MainFrame>::PreTranslateMessage(message);
     }
 
@@ -57,7 +59,9 @@ private:
     wit::app::CatalogWorkflowController controller_;
     wit::ui::ProgressDialog scanProgressDialog_;
     wit::ui::SearchDialog searchDialog_;
+    wit::ui::GeneralSettingsDialog settingsDialog_;
     std::wstring startupCatalogPath_;
+    wit::ui::GeneralSettingsDialog::Page pendingSettingsPage_{wit::ui::GeneralSettingsDialog::Page::General};
     bool protectedCatalog_{};
 
     LRESULT OnCreate(UINT message, WPARAM wparam, LPARAM lparam, BOOL& handled);

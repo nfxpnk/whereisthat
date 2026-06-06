@@ -210,6 +210,16 @@ std::wstring WindowText(HWND window) {
     return text;
 }
 
+bool WaitForControlText(HWND dialog, int controlId, const wchar_t* expected) {
+    const auto deadline = GetTickCount64() + 5000;
+    while (GetTickCount64() < deadline) {
+        const HWND control = Control(dialog, controlId);
+        if (control && WindowText(control) == expected) return true;
+        Sleep(25);
+    }
+    return false;
+}
+
 std::string NarrowForTest(const std::wstring& text) {
     std::string result;
     result.reserve(text.size());
@@ -302,6 +312,8 @@ TEST(DISABLED_SettingsVisual, OpensAppSettingsAndCapturesScreenshots) {
     SetForegroundWindow(settingsWindow);
     UpdateWindow(settingsWindow);
     Sleep(100);
+    EXPECT_TRUE(IsWindowEnabled(mainWindow));
+    EXPECT_TRUE(WaitForControlText(settingsWindow, IDC_SETTINGS_HEADER_TITLE, L"General Settings"));
 
     const auto settingsScreenshot = CaptureWindow(settingsWindow);
     const auto settingsPath = ArtifactPath(L"settings-dialog-opened-from-app.bmp");
@@ -367,11 +379,9 @@ TEST(DISABLED_SettingsVisual, OpensAppSettingsAndCapturesScreenshots) {
             << "'; screenshot: " << settingsPath.string();
     }
 
-    const HWND tree = Control(settingsWindow, IDC_SETTINGS_TREE);
-    const HTREEITEM generalItem = TreeView_GetRoot(tree);
-    const HTREEITEM userInterfaceItem = TreeView_GetNextSibling(tree, generalItem);
-    ASSERT_NE(userInterfaceItem, nullptr);
-    TreeView_SelectItem(tree, userInterfaceItem);
+    ASSERT_TRUE(PostMessageW(mainWindow, WM_COMMAND, MAKEWPARAM(ID_OPTIONS_USER_INTERFACE_SETUP, 0), 0));
+    EXPECT_TRUE(IsWindowEnabled(mainWindow));
+    EXPECT_TRUE(WaitForControlText(settingsWindow, IDC_SETTINGS_HEADER_TITLE, L"User Interface Setup"));
     UpdateWindow(settingsWindow);
     Sleep(100);
 

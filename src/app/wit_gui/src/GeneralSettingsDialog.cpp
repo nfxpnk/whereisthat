@@ -25,6 +25,17 @@ bool SameEditableSettings(const wit::platform::AppSettings& left, const wit::pla
         left.dateTimeFormat == right.dateTimeFormat;
 }
 
+const wchar_t* PageTitle(GeneralSettingsDialog::Page page) {
+    switch (page) {
+    case GeneralSettingsDialog::Page::General: return L"General Settings";
+    case GeneralSettingsDialog::Page::UserInterface: return L"User Interface Setup";
+    case GeneralSettingsDialog::Page::FileList: return L"File List Settings";
+    case GeneralSettingsDialog::Page::DiskImage: return L"Disk Image Settings";
+    case GeneralSettingsDialog::Page::Description: return L"Description Settings";
+    }
+    return L"General Settings";
+}
+
 void InsertTreeItem(HWND tree, std::wstring text, GeneralSettingsDialog::Page page) {
     TVINSERTSTRUCTW item{};
     item.hParent = TVI_ROOT;
@@ -37,10 +48,31 @@ void InsertTreeItem(HWND tree, std::wstring text, GeneralSettingsDialog::Page pa
 
 }
 
-void GeneralSettingsDialog::Show(HWND owner, const wit::platform::AppSettings& current, ApplyHandler applyHandler) {
-    settings_ = current;
+bool GeneralSettingsDialog::Show(HWND owner, const wit::platform::AppSettings& current, Page initialPage,
+    ApplyHandler applyHandler) {
+    launchOwner_ = owner;
+    initialPage_ = initialPage;
     applyHandler_ = std::move(applyHandler);
-    DoModal(owner);
+    if (m_hWnd) {
+        SelectPage(initialPage);
+        ShowWindow(IsIconic() ? SW_RESTORE : SW_SHOW);
+        SetForegroundWindow(m_hWnd);
+        return true;
+    }
+
+    settings_ = current;
+    if (Create(nullptr) == nullptr) return false;
+    ShowWindow(SW_SHOW);
+    SetForegroundWindow(m_hWnd);
+    return true;
+}
+
+void GeneralSettingsDialog::Close() {
+    if (m_hWnd) DestroyWindow();
+}
+
+BOOL GeneralSettingsDialog::PreTranslateMessage(MSG* message) {
+    return m_hWnd != nullptr && IsDialogMessage(message);
 }
 
 LRESULT GeneralSettingsDialog::GeneralPageDialog::OnDateTimeFormatChanged(
@@ -88,12 +120,27 @@ LRESULT GeneralSettingsDialog::OnInitDialog(UINT, WPARAM, LPARAM, BOOL&) {
     ::SetWindowTextW(Control(IDC_LAST_OPENED_CATALOG), settings_.lastCatalogPath.c_str());
 
     PopulateTree();
-    SelectInitialPage();
-    ShowPage(Page::General);
+    SelectPage(initialPage_);
     ::SetFocus(GetDlgItem(IDC_SETTINGS_TREE));
     SetApplyEnabled(false);
     initializing_ = false;
+    CenterWindow(launchOwner_);
     return FALSE;
+}
+
+LRESULT GeneralSettingsDialog::OnWindowClose(UINT, WPARAM, LPARAM, BOOL&) {
+    DestroyWindow();
+    return 0;
+}
+
+LRESULT GeneralSettingsDialog::OnDestroy(UINT, WPARAM, LPARAM, BOOL&) {
+    if (generalPage_.m_hWnd) generalPage_.DestroyWindow();
+    if (userInterfacePage_.m_hWnd) userInterfacePage_.DestroyWindow();
+    launchOwner_ = nullptr;
+    applyHandler_ = {};
+    initializing_ = false;
+    initialPage_ = Page::General;
+    return 0;
 }
 
 LRESULT GeneralSettingsDialog::OnTreeSelectionChanged(int, LPNMHDR header, BOOL&) {
@@ -104,12 +151,12 @@ LRESULT GeneralSettingsDialog::OnTreeSelectionChanged(int, LPNMHDR header, BOOL&
 
 LRESULT GeneralSettingsDialog::OnConfirm(WORD, WORD, HWND, BOOL&) {
     if (!ApplyChanges(true)) return 0;
-    EndDialog(IDOK);
+    DestroyWindow();
     return 0;
 }
 
 LRESULT GeneralSettingsDialog::OnCancel(WORD, WORD, HWND, BOOL&) {
-    EndDialog(IDCANCEL);
+    DestroyWindow();
     return 0;
 }
 
@@ -187,21 +234,34 @@ void GeneralSettingsDialog::PositionPage(HWND page) {
 void GeneralSettingsDialog::PopulateTree() {
     const auto tree = GetDlgItem(IDC_SETTINGS_TREE);
     TreeView_DeleteAllItems(tree);
-    InsertTreeItem(tree, L"General Settings", Page::General);
-    InsertTreeItem(tree, L"User Interface Setup", Page::UserInterface);
+    InsertTreeItem(tree, PageTitle(Page::General), Page::General);
+    InsertTreeItem(tree, PageTitle(Page::UserInterface), Page::UserInterface);
+    InsertTreeItem(tree, PageTitle(Page::FileList), Page::FileList);
+    InsertTreeItem(tree, PageTitle(Page::DiskImage), Page::DiskImage);
+    InsertTreeItem(tree, PageTitle(Page::Description), Page::Description);
 }
 
-void GeneralSettingsDialog::SelectInitialPage() {
+void GeneralSettingsDialog::SelectPage(Page page) {
     const auto tree = GetDlgItem(IDC_SETTINGS_TREE);
-    TreeView_SelectItem(tree, TreeView_GetRoot(tree));
+    for (auto item = TreeView_GetRoot(tree); item; item = TreeView_GetNextSibling(tree, item)) {
+        TVITEMW treeItem{};
+        treeItem.mask = TVIF_PARAM;
+        treeItem.hItem = item;
+        TreeView_GetItem(tree, &treeItem);
+        if (static_cast<Page>(treeItem.lParam) == page) {
+            TreeView_SelectItem(tree, item);
+            ShowPage(page);
+            return;
+        }
+    }
+    ShowPage(Page::General);
 }
 
 void GeneralSettingsDialog::ShowPage(Page page) {
     const bool showGeneral = page == Page::General;
     const bool showUserInterface = page == Page::UserInterface;
 
-    SetDlgItemTextW(IDC_SETTINGS_HEADER_TITLE,
-        showUserInterface ? L"User Interface Setup" : L"General Settings");
+    SetDlgItemTextW(IDC_SETTINGS_HEADER_TITLE, PageTitle(page));
     ::ShowWindow(generalPage_.m_hWnd, showGeneral ? SW_SHOW : SW_HIDE);
     ::ShowWindow(userInterfacePage_.m_hWnd, showUserInterface ? SW_SHOW : SW_HIDE);
 }

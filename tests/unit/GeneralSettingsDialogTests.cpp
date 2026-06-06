@@ -49,12 +49,21 @@ public:
             threadId = GetCurrentThreadId();
             started_.set_value();
             wit::ui::GeneralSettingsDialog dialog;
-            dialog.Show(nullptr, initial_,
+            if (dialog.Show(nullptr, initial_, wit::ui::GeneralSettingsDialog::Page::General,
                 [this](const wit::platform::AppSettings& settings) {
                     std::lock_guard lock(mutex);
                     appliedSettings.push_back(settings);
                     return wit::ui::GeneralSettingsDialog::ApplyResult::Applied;
-                });
+                })) {
+                const HWND dialogWindow = dialog.WindowHandle();
+                MSG message{};
+                while (IsWindow(dialogWindow) && GetMessageW(&message, nullptr, 0, 0) > 0) {
+                    if (!dialog.PreTranslateMessage(&message)) {
+                        TranslateMessage(&message);
+                        DispatchMessageW(&message);
+                    }
+                }
+            }
             finished_.set_value();
         });
     }
@@ -73,6 +82,10 @@ public:
 
     void Join() {
         if (thread_.joinable()) thread_.join();
+    }
+
+    void WakeMessageLoop() const {
+        PostThreadMessageW(threadId, WM_NULL, 0, 0);
     }
 
     std::mutex mutex;
@@ -192,11 +205,23 @@ TEST(GeneralSettingsDialog, NativeSettingsUiExposesOnlyRequestedPagesAndEditable
     ASSERT_NE(general, nullptr);
     const HTREEITEM userInterface = TreeView_GetNextSibling(tree, general);
     ASSERT_NE(userInterface, nullptr);
-    EXPECT_EQ(TreeView_GetNextSibling(tree, userInterface), nullptr);
+    const HTREEITEM fileList = TreeView_GetNextSibling(tree, userInterface);
+    ASSERT_NE(fileList, nullptr);
+    const HTREEITEM diskImage = TreeView_GetNextSibling(tree, fileList);
+    ASSERT_NE(diskImage, nullptr);
+    const HTREEITEM description = TreeView_GetNextSibling(tree, diskImage);
+    ASSERT_NE(description, nullptr);
+    EXPECT_EQ(TreeView_GetNextSibling(tree, description), nullptr);
     EXPECT_EQ(TreeView_GetChild(tree, general), nullptr);
     EXPECT_EQ(TreeView_GetChild(tree, userInterface), nullptr);
+    EXPECT_EQ(TreeView_GetChild(tree, fileList), nullptr);
+    EXPECT_EQ(TreeView_GetChild(tree, diskImage), nullptr);
+    EXPECT_EQ(TreeView_GetChild(tree, description), nullptr);
     EXPECT_EQ(TreeItemText(tree, general), L"General Settings");
     EXPECT_EQ(TreeItemText(tree, userInterface), L"User Interface Setup");
+    EXPECT_EQ(TreeItemText(tree, fileList), L"File List Settings");
+    EXPECT_EQ(TreeItemText(tree, diskImage), L"Disk Image Settings");
+    EXPECT_EQ(TreeItemText(tree, description), L"Description Settings");
 
     EXPECT_FALSE(IsApplyEnabled(dialog));
     EXPECT_TRUE(IsWindowVisible(GetDlgItem(dialog, IDC_SETTINGS_PANEL)));
@@ -241,6 +266,7 @@ TEST(GeneralSettingsDialog, NativeSettingsUiExposesOnlyRequestedPagesAndEditable
     }
 
     SendMessageW(dialog, WM_CLOSE, 0, 0);
+    run.WakeMessageLoop();
     ASSERT_EQ(run.WaitFinished(std::chrono::seconds(5)), std::future_status::ready);
     run.Join();
 }
@@ -269,6 +295,7 @@ TEST(GeneralSettingsDialog, ReadOnlyInformationalFieldsDoNotDirtyOrApply) {
     EXPECT_FALSE(IsApplyEnabled(dialog));
 
     ClickButton(dialog, IDOK);
+    run.WakeMessageLoop();
     ASSERT_EQ(run.WaitFinished(std::chrono::seconds(5)), std::future_status::ready);
 
     {
@@ -294,6 +321,7 @@ TEST(GeneralSettingsDialog, OkAppliesPendingEditableChangesOnce) {
     EXPECT_TRUE(IsApplyEnabled(dialog));
 
     ClickButton(dialog, IDOK);
+    run.WakeMessageLoop();
     ASSERT_EQ(run.WaitFinished(std::chrono::seconds(5)), std::future_status::ready);
 
     {

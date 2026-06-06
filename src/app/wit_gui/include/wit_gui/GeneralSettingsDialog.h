@@ -20,15 +20,23 @@ public:
 
     enum class Page {
         General,
-        UserInterface
+        UserInterface,
+        FileList,
+        DiskImage,
+        Description
     };
 
     // ApplyHandler is the required persistence path for Apply and OK. It owns user-facing errors
-    // and presentation updates; Cancel does not call it.
-    void Show(HWND owner, const wit::platform::AppSettings& current, ApplyHandler applyHandler);
+    // and presentation updates; closing the window without Apply or OK does not call it.
+    bool Show(HWND owner, const wit::platform::AppSettings& current, Page initialPage, ApplyHandler applyHandler);
+    void Close();
+    HWND WindowHandle() const noexcept { return m_hWnd; }
+    BOOL PreTranslateMessage(MSG* message);
 
     BEGIN_MSG_MAP(GeneralSettingsDialog)
         MESSAGE_HANDLER(WM_INITDIALOG, OnInitDialog)
+        MESSAGE_HANDLER(WM_CLOSE, OnWindowClose)
+        MESSAGE_HANDLER(WM_DESTROY, OnDestroy)
         NOTIFY_HANDLER(IDC_SETTINGS_TREE, TVN_SELCHANGEDW, OnTreeSelectionChanged)
         COMMAND_ID_HANDLER(IDOK, OnConfirm)
         COMMAND_ID_HANDLER(IDCANCEL, OnCancel)
@@ -77,9 +85,13 @@ private:
     ApplyHandler applyHandler_;
     GeneralPageDialog generalPage_;
     UserInterfacePageDialog userInterfacePage_;
+    HWND launchOwner_{};
+    Page initialPage_{Page::General};
     bool initializing_{};
 
     LRESULT OnInitDialog(UINT message, WPARAM wparam, LPARAM lparam, BOOL& handled);
+    LRESULT OnWindowClose(UINT message, WPARAM wparam, LPARAM lparam, BOOL& handled);
+    LRESULT OnDestroy(UINT message, WPARAM wparam, LPARAM lparam, BOOL& handled);
     LRESULT OnTreeSelectionChanged(int id, LPNMHDR header, BOOL& handled);
     LRESULT OnConfirm(WORD notifyCode, WORD id, HWND control, BOOL& handled);
     LRESULT OnCancel(WORD notifyCode, WORD id, HWND control, BOOL& handled);
@@ -91,7 +103,7 @@ private:
     void CreatePages();
     void PositionPage(HWND page);
     void PopulateTree();
-    void SelectInitialPage();
+    void SelectPage(Page page);
     void ShowPage(Page page);
     bool TryReadControls(wit::platform::AppSettings& settings, bool showValidation);
     bool ApplyChanges(bool closeAfterApply);

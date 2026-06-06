@@ -19,10 +19,8 @@ public:
         UserInterface
     };
 
-    // ApplyHandler is the required persistence path for Apply and OK. It owns any save/error handling.
-    // The accepted output is only meaningful when Show returns true.
-    bool Show(HWND owner, const wit::platform::AppSettings& current, wit::platform::AppSettings& accepted,
-        ApplyHandler applyHandler);
+    // ApplyHandler is the required persistence path for Apply and OK. Cancel does not call it.
+    void Show(HWND owner, const wit::platform::AppSettings& current, ApplyHandler applyHandler);
 
     BEGIN_MSG_MAP(GeneralSettingsDialog)
         MESSAGE_HANDLER(WM_INITDIALOG, OnInitDialog)
@@ -70,7 +68,6 @@ private:
     wit::platform::AppSettings settings_;
     ApplyHandler applyHandler_;
     UniqueGdiObject headerBrush_;
-    bool accepted_{};
     bool initializing_{};
 
     LRESULT OnInitDialog(UINT message, WPARAM wparam, LPARAM lparam, BOOL& handled);

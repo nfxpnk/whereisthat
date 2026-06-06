@@ -49,13 +49,13 @@ public:
             threadId = GetCurrentThreadId();
             started_.set_value();
             wit::ui::GeneralSettingsDialog dialog;
-            const bool result = dialog.Show(nullptr, initial_, accepted,
+            dialog.Show(nullptr, initial_,
                 [this](const wit::platform::AppSettings& settings) {
                     std::lock_guard lock(mutex);
                     appliedSettings.push_back(settings);
                     return true;
                 });
-            finished_.set_value(result);
+            finished_.set_value();
         });
     }
 
@@ -71,25 +71,20 @@ public:
         return finishedFuture_.wait_for(timeout);
     }
 
-    bool FinishedResult() {
-        return finishedFuture_.get();
-    }
-
     void Join() {
         if (thread_.joinable()) thread_.join();
     }
 
     std::mutex mutex;
     std::vector<wit::platform::AppSettings> appliedSettings;
-    wit::platform::AppSettings accepted;
     DWORD threadId{};
 
 private:
     wit::platform::AppSettings initial_;
     std::promise<void> started_;
-    std::promise<bool> finished_;
+    std::promise<void> finished_;
     std::future<void> startedFuture_;
-    std::future<bool> finishedFuture_;
+    std::future<void> finishedFuture_;
     std::thread thread_;
 };
 
@@ -226,7 +221,6 @@ TEST(GeneralSettingsDialog, NativeSettingsUiExposesOnlyRequestedPagesAndEditable
 
     SendMessageW(dialog, WM_CLOSE, 0, 0);
     ASSERT_EQ(run.WaitFinished(std::chrono::seconds(5)), std::future_status::ready);
-    EXPECT_FALSE(run.FinishedResult());
     run.Join();
 }
 
@@ -253,14 +247,11 @@ TEST(GeneralSettingsDialog, ReadOnlyInformationalFieldsDoNotDirtyOrApply) {
 
     ClickButton(dialog, IDOK);
     ASSERT_EQ(run.WaitFinished(std::chrono::seconds(5)), std::future_status::ready);
-    EXPECT_TRUE(run.FinishedResult());
 
     {
         std::lock_guard lock(run.mutex);
         EXPECT_TRUE(run.appliedSettings.empty());
     }
-    EXPECT_EQ(run.accepted.mainSplitterPosition, initial.mainSplitterPosition);
-    EXPECT_EQ(run.accepted.lastCatalogPath, initial.lastCatalogPath);
     run.Join();
 }
 
@@ -281,7 +272,6 @@ TEST(GeneralSettingsDialog, OkAppliesPendingEditableChangesOnce) {
 
     ClickButton(dialog, IDOK);
     ASSERT_EQ(run.WaitFinished(std::chrono::seconds(5)), std::future_status::ready);
-    EXPECT_TRUE(run.FinishedResult());
 
     {
         std::lock_guard lock(run.mutex);
@@ -290,6 +280,5 @@ TEST(GeneralSettingsDialog, OkAppliesPendingEditableChangesOnce) {
         EXPECT_EQ(run.appliedSettings.back().mainSplitterPosition, initial.mainSplitterPosition);
         EXPECT_EQ(run.appliedSettings.back().lastCatalogPath, initial.lastCatalogPath);
     }
-    EXPECT_TRUE(run.accepted.enableScanFileDelay);
     run.Join();
 }

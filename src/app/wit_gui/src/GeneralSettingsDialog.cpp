@@ -69,14 +69,10 @@ void InsertTreeItem(HWND tree, std::wstring text, GeneralSettingsDialog::Page pa
 
 }
 
-bool GeneralSettingsDialog::Show(HWND owner, const wit::platform::AppSettings& current,
-    wit::platform::AppSettings& accepted, ApplyHandler applyHandler) {
+void GeneralSettingsDialog::Show(HWND owner, const wit::platform::AppSettings& current, ApplyHandler applyHandler) {
     settings_ = current;
     applyHandler_ = std::move(applyHandler);
-    accepted_ = false;
-    if (DoModal(owner) != IDOK) return false;
-    accepted = settings_;
-    return accepted_;
+    DoModal(owner);
 }
 
 LRESULT GeneralSettingsDialog::OnInitDialog(UINT, WPARAM, LPARAM, BOOL&) {
@@ -135,7 +131,6 @@ LRESULT GeneralSettingsDialog::OnTreeSelectionChanged(int, LPNMHDR header, BOOL&
 
 LRESULT GeneralSettingsDialog::OnConfirm(WORD, WORD, HWND, BOOL&) {
     if (!ApplyChanges(true)) return 0;
-    accepted_ = true;
     EndDialog(IDOK);
     return 0;
 }

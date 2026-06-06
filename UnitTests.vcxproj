@@ -58,6 +58,7 @@ copy /Y "$(ProjectDir)third_party\libarchive\bin\*.dll" "$(OutDir)"</Command>
         <ClCompile Include="tests\unit\SearchExecutorTests.cpp" />
         <ClCompile Include="tests\unit\SearchPaneUiPerformanceTests.cpp" />
         <ClCompile Include="tests\unit\GeneralSettingsDialogTests.cpp" />
+        <ClCompile Include="tests\unit\SettingsVisualTests.cpp" />
         <ClCompile Include="tests\unit\SmokeTests.cpp" />
         <ClCompile Include="tests\unit\storage\StorageSmokeTests.cpp" />
         <ClCompile Include="src\app\wit_gui\src\CatalogWorkflowController.cpp" />

@@ -29,6 +29,9 @@
         <ClCompile Include="tests\unit\GeneralSettingsDialogTests.cpp">
             <Filter>Tests</Filter>
         </ClCompile>
+        <ClCompile Include="tests\unit\SettingsVisualTests.cpp">
+            <Filter>Tests</Filter>
+        </ClCompile>
         <ClCompile Include="third_party\googletest\googletest\src\gtest-all.cc">
             <Filter>GoogleTest</Filter>
         </ClCompile>

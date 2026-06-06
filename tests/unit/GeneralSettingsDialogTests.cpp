@@ -10,6 +10,7 @@
 #include <optional>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 #include <wit_gui/GeneralSettingsDialog.h>
 
@@ -20,13 +21,11 @@ namespace {
 class WtlModuleGuard {
 public:
     WtlModuleGuard() {
-        INITCOMMONCONTROLSEX controls{sizeof(controls), ICC_WIN95_CLASSES | ICC_STANDARD_CLASSES};
-        InitCommonControlsEx(&controls);
-        initialized_ = SUCCEEDED(_Module.Init(nullptr, GetModuleHandleW(nullptr)));
-    }
-
-    ~WtlModuleGuard() {
-        if (initialized_) _Module.Term();
+        std::call_once(initOnce_, [] {
+            INITCOMMONCONTROLSEX controls{sizeof(controls), ICC_WIN95_CLASSES | ICC_STANDARD_CLASSES};
+            InitCommonControlsEx(&controls);
+            initialized_ = SUCCEEDED(_Module.Init(nullptr, GetModuleHandleW(nullptr)));
+        });
     }
 
     WtlModuleGuard(const WtlModuleGuard&) = delete;
@@ -35,15 +34,63 @@ public:
     bool Initialized() const { return initialized_; }
 
 private:
-    bool initialized_{};
+    inline static std::once_flag initOnce_;
+    inline static bool initialized_{};
 };
 
-struct DialogRun {
-    std::promise<void> started;
-    std::promise<bool> finished;
+class DialogRun {
+public:
+    explicit DialogRun(wit::platform::AppSettings initial) : initial_(std::move(initial)) {}
+
+    void Start() {
+        startedFuture_ = started_.get_future();
+        finishedFuture_ = finished_.get_future();
+        thread_ = std::thread([this]() {
+            threadId = GetCurrentThreadId();
+            started_.set_value();
+            wit::ui::GeneralSettingsDialog dialog;
+            const bool result = dialog.Show(nullptr, initial_, accepted,
+                [this](const wit::platform::AppSettings& settings) {
+                    std::lock_guard lock(mutex);
+                    appliedSettings.push_back(settings);
+                    return true;
+                });
+            finished_.set_value(result);
+        });
+    }
+
+    ~DialogRun() {
+        if (thread_.joinable()) thread_.join();
+    }
+
+    std::future_status WaitStarted(std::chrono::seconds timeout) {
+        return startedFuture_.wait_for(timeout);
+    }
+
+    std::future_status WaitFinished(std::chrono::seconds timeout) {
+        return finishedFuture_.wait_for(timeout);
+    }
+
+    bool FinishedResult() {
+        return finishedFuture_.get();
+    }
+
+    void Join() {
+        if (thread_.joinable()) thread_.join();
+    }
+
     std::mutex mutex;
     std::vector<wit::platform::AppSettings> appliedSettings;
+    wit::platform::AppSettings accepted;
     DWORD threadId{};
+
+private:
+    wit::platform::AppSettings initial_;
+    std::promise<void> started_;
+    std::promise<bool> finished_;
+    std::future<void> startedFuture_;
+    std::future<bool> finishedFuture_;
+    std::thread thread_;
 };
 
 BOOL CALLBACK FindThreadWindow(HWND window, LPARAM context) {
@@ -54,14 +101,6 @@ BOOL CALLBACK FindThreadWindow(HWND window, LPARAM context) {
         return FALSE;
     }
     return TRUE;
-}
-
-void AssertClickableAndClick(HWND dialog, HWND window) {
-    RECT rect{};
-    ASSERT_TRUE(GetWindowRect(window, &rect));
-    POINT screenPoint{(rect.left + rect.right) / 2, (rect.top + rect.bottom) / 2};
-    EXPECT_EQ(WindowFromPoint(screenPoint), window);
-    SendMessageW(window, BM_CLICK, 0, 0);
 }
 
 HWND WaitForSettingsWindow(DWORD threadId) {
@@ -102,38 +141,27 @@ bool IsApplyEnabled(HWND dialog) {
     return IsWindowEnabled(GetDlgItem(dialog, IDC_SETTINGS_APPLY)) != FALSE;
 }
 
+wit::platform::AppSettings TestSettings() {
+    wit::platform::AppSettings settings;
+    settings.showStatusBar = true;
+    settings.showToolbar = false;
+    settings.enableScanFileDelay = false;
+    settings.mainSplitterPosition = 360;
+    settings.lastCatalogPath = L"H:\\github\\whereisthat\\tools\\import\\d-import-test.db";
+    return settings;
+}
+
 }
 
 TEST(GeneralSettingsDialog, NativeSettingsUiExposesOnlyRequestedPagesAndEditableSettings) {
     WtlModuleGuard module;
     ASSERT_TRUE(module.Initialized());
 
-    wit::platform::AppSettings initial;
-    initial.showStatusBar = true;
-    initial.showToolbar = false;
-    initial.enableScanFileDelay = false;
-    initial.mainSplitterPosition = 360;
-    initial.lastCatalogPath = L"H:\\github\\whereisthat\\tools\\import\\d-import-test.db";
+    const auto initial = TestSettings();
+    DialogRun run(initial);
+    run.Start();
 
-    DialogRun run;
-    std::future<void> started = run.started.get_future();
-    std::future<bool> finished = run.finished.get_future();
-
-    std::thread dialogThread([&run, initial]() mutable {
-        run.threadId = GetCurrentThreadId();
-        run.started.set_value();
-        wit::ui::GeneralSettingsDialog dialog;
-        wit::platform::AppSettings accepted;
-        const bool result = dialog.Show(nullptr, initial, accepted,
-            [&run](const wit::platform::AppSettings& settings) {
-                std::lock_guard lock(run.mutex);
-                run.appliedSettings.push_back(settings);
-                return true;
-            });
-        run.finished.set_value(result);
-    });
-
-    ASSERT_EQ(started.wait_for(std::chrono::seconds(5)), std::future_status::ready);
+    ASSERT_EQ(run.WaitStarted(std::chrono::seconds(5)), std::future_status::ready);
     HWND dialog = WaitForSettingsWindow(run.threadId);
     ASSERT_NE(dialog, nullptr);
 
@@ -155,8 +183,8 @@ TEST(GeneralSettingsDialog, NativeSettingsUiExposesOnlyRequestedPagesAndEditable
     EXPECT_EQ(TreeItemText(tree, userInterface), L"User Interface Setup");
 
     EXPECT_FALSE(IsApplyEnabled(dialog));
-    EXPECT_FALSE(IsWindowVisible(GetDlgItem(dialog, IDC_SETTINGS_PANEL)));
-    EXPECT_FALSE(IsWindowVisible(GetDlgItem(dialog, IDC_SETTINGS_HEADER)));
+    EXPECT_TRUE(IsWindowVisible(GetDlgItem(dialog, IDC_SETTINGS_PANEL)));
+    EXPECT_TRUE(IsWindowVisible(GetDlgItem(dialog, IDC_SETTINGS_HEADER)));
     EXPECT_NE(GetWindowLongPtrW(GetDlgItem(dialog, IDC_LAST_OPENED_CATALOG), GWL_STYLE) & ES_READONLY, 0);
     EXPECT_NE(GetWindowLongPtrW(GetDlgItem(dialog, IDC_MAIN_SPLITTER_POSITION), GWL_STYLE) & ES_READONLY, 0);
 
@@ -168,7 +196,7 @@ TEST(GeneralSettingsDialog, NativeSettingsUiExposesOnlyRequestedPagesAndEditable
     EXPECT_EQ(WindowText(dateFormat), L"YYYY-MM-DD HH:mm:ss");
     EXPECT_TRUE(IsApplyEnabled(dialog));
 
-    AssertClickableAndClick(dialog, GetDlgItem(dialog, IDC_ENABLE_SCAN_FILE_DELAY));
+    ClickButton(dialog, IDC_ENABLE_SCAN_FILE_DELAY);
     EXPECT_TRUE(IsApplyEnabled(dialog));
 
     TreeView_SelectItem(tree, userInterface);
@@ -177,8 +205,8 @@ TEST(GeneralSettingsDialog, NativeSettingsUiExposesOnlyRequestedPagesAndEditable
     EXPECT_TRUE(IsWindowVisible(GetDlgItem(dialog, IDC_SHOW_TOOLBAR)));
     EXPECT_TRUE(IsWindowVisible(GetDlgItem(dialog, IDC_MAIN_SPLITTER_POSITION)));
 
-    AssertClickableAndClick(dialog, GetDlgItem(dialog, IDC_SHOW_STATUS_BAR));
-    AssertClickableAndClick(dialog, GetDlgItem(dialog, IDC_SHOW_TOOLBAR));
+    ClickButton(dialog, IDC_SHOW_STATUS_BAR);
+    ClickButton(dialog, IDC_SHOW_TOOLBAR);
     EXPECT_TRUE(IsApplyEnabled(dialog));
 
     ClickButton(dialog, IDC_SETTINGS_APPLY);
@@ -197,7 +225,71 @@ TEST(GeneralSettingsDialog, NativeSettingsUiExposesOnlyRequestedPagesAndEditable
     }
 
     SendMessageW(dialog, WM_CLOSE, 0, 0);
-    ASSERT_EQ(finished.wait_for(std::chrono::seconds(5)), std::future_status::ready);
-    EXPECT_FALSE(finished.get());
-    dialogThread.join();
+    ASSERT_EQ(run.WaitFinished(std::chrono::seconds(5)), std::future_status::ready);
+    EXPECT_FALSE(run.FinishedResult());
+    run.Join();
+}
+
+TEST(GeneralSettingsDialog, ReadOnlyInformationalFieldsDoNotDirtyOrApply) {
+    WtlModuleGuard module;
+    ASSERT_TRUE(module.Initialized());
+
+    const auto initial = TestSettings();
+    DialogRun run(initial);
+    run.Start();
+
+    ASSERT_EQ(run.WaitStarted(std::chrono::seconds(5)), std::future_status::ready);
+    HWND dialog = WaitForSettingsWindow(run.threadId);
+    ASSERT_NE(dialog, nullptr);
+
+    SetWindowTextW(GetDlgItem(dialog, IDC_LAST_OPENED_CATALOG), L"changed.db");
+    SendMessageW(dialog, WM_COMMAND, MAKEWPARAM(IDC_LAST_OPENED_CATALOG, EN_CHANGE),
+        reinterpret_cast<LPARAM>(GetDlgItem(dialog, IDC_LAST_OPENED_CATALOG)));
+    SetWindowTextW(GetDlgItem(dialog, IDC_MAIN_SPLITTER_POSITION), L"not an integer");
+    SendMessageW(dialog, WM_COMMAND, MAKEWPARAM(IDC_MAIN_SPLITTER_POSITION, EN_CHANGE),
+        reinterpret_cast<LPARAM>(GetDlgItem(dialog, IDC_MAIN_SPLITTER_POSITION)));
+
+    EXPECT_FALSE(IsApplyEnabled(dialog));
+
+    ClickButton(dialog, IDOK);
+    ASSERT_EQ(run.WaitFinished(std::chrono::seconds(5)), std::future_status::ready);
+    EXPECT_TRUE(run.FinishedResult());
+
+    {
+        std::lock_guard lock(run.mutex);
+        EXPECT_TRUE(run.appliedSettings.empty());
+    }
+    EXPECT_EQ(run.accepted.mainSplitterPosition, initial.mainSplitterPosition);
+    EXPECT_EQ(run.accepted.lastCatalogPath, initial.lastCatalogPath);
+    run.Join();
+}
+
+TEST(GeneralSettingsDialog, OkAppliesPendingEditableChangesOnce) {
+    WtlModuleGuard module;
+    ASSERT_TRUE(module.Initialized());
+
+    const auto initial = TestSettings();
+    DialogRun run(initial);
+    run.Start();
+
+    ASSERT_EQ(run.WaitStarted(std::chrono::seconds(5)), std::future_status::ready);
+    HWND dialog = WaitForSettingsWindow(run.threadId);
+    ASSERT_NE(dialog, nullptr);
+
+    ClickButton(dialog, IDC_ENABLE_SCAN_FILE_DELAY);
+    EXPECT_TRUE(IsApplyEnabled(dialog));
+
+    ClickButton(dialog, IDOK);
+    ASSERT_EQ(run.WaitFinished(std::chrono::seconds(5)), std::future_status::ready);
+    EXPECT_TRUE(run.FinishedResult());
+
+    {
+        std::lock_guard lock(run.mutex);
+        ASSERT_EQ(run.appliedSettings.size(), 1u);
+        EXPECT_TRUE(run.appliedSettings.back().enableScanFileDelay);
+        EXPECT_EQ(run.appliedSettings.back().mainSplitterPosition, initial.mainSplitterPosition);
+        EXPECT_EQ(run.appliedSettings.back().lastCatalogPath, initial.lastCatalogPath);
+    }
+    EXPECT_TRUE(run.accepted.enableScanFileDelay);
+    run.Join();
 }

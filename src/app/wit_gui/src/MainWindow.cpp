@@ -579,16 +579,14 @@ void MainFrame::PerformRequest(const wit::app::RequestEffect& request) {
     }
     case wit::app::RequestKind::ShowGeneralSettings: {
         wit::ui::GeneralSettingsDialog dialog;
-        wit::platform::AppSettings settings;
-        const bool accepted = dialog.Show(m_hWnd, request.settings, settings,
+        wit::platform::AppSettings ignoredSettings;
+        (void)dialog.Show(m_hWnd, request.settings, ignoredSettings,
             [this](const wit::platform::AppSettings& appliedSettings) {
                 const auto result = controller_.GeneralSettingsCompleted(appliedSettings);
                 const bool saved = result.messages.empty();
                 ApplyControllerResult(std::move(result));
                 return saved;
             });
-        ApplyControllerResult(controller_.GeneralSettingsCompleted(
-            accepted ? std::optional<wit::platform::AppSettings>(settings) : std::nullopt));
         break;
     }
     case wit::app::RequestKind::None:

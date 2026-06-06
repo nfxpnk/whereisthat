@@ -4,6 +4,7 @@
 /WhereIsThat/
 /UnitTests/
 /artifacts/
+/test-artifacts/
 
 # Local database created by the app
 /catalog.db

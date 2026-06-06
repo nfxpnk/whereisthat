@@ -34,6 +34,11 @@ struct CapturedBitmap {
     std::vector<BgraPixel> pixels;
 };
 
+struct FindControlContext {
+    int id{};
+    HWND control{};
+};
+
 BOOL CALLBACK FindWindowForProcess(HWND window, LPARAM context) {
     auto& search = *reinterpret_cast<WindowSearch*>(context);
     DWORD processId{};
@@ -54,6 +59,22 @@ BOOL CALLBACK FindWindowForProcess(HWND window, LPARAM context) {
 
     search.found = window;
     return FALSE;
+}
+
+BOOL CALLBACK FindDescendantControl(HWND window, LPARAM context) {
+    auto& search = *reinterpret_cast<FindControlContext*>(context);
+    if (GetDlgCtrlID(window) == search.id) {
+        search.control = window;
+        return FALSE;
+    }
+    return TRUE;
+}
+
+HWND Control(HWND dialog, int controlId) {
+    if (const auto control = GetDlgItem(dialog, controlId)) return control;
+    FindControlContext context{controlId};
+    EnumChildWindows(dialog, FindDescendantControl, reinterpret_cast<LPARAM>(&context));
+    return context.control;
 }
 
 HWND WaitForWindow(DWORD processId, const wchar_t* className, const wchar_t* title) {
@@ -163,7 +184,7 @@ int DistinctColorBuckets(const CapturedBitmap& capture) {
 
 RECT ChildRect(HWND dialog, int controlId) {
     RECT rect{};
-    GetWindowRect(GetDlgItem(dialog, controlId), &rect);
+    GetWindowRect(Control(dialog, controlId), &rect);
     return rect;
 }
 
@@ -312,7 +333,7 @@ TEST(DISABLED_SettingsVisual, OpensAppSettingsAndCapturesScreenshots) {
     };
 
     for (const auto controlId : visibleControls) {
-        const HWND control = GetDlgItem(settingsWindow, controlId);
+        const HWND control = Control(settingsWindow, controlId);
         ASSERT_NE(control, nullptr) << "Missing control id " << controlId;
         EXPECT_TRUE(IsWindowVisible(control)) << "Expected visible control id " << controlId;
         EXPECT_TRUE(RectInside(dialogRect, ChildRect(settingsWindow, controlId)))
@@ -339,14 +360,14 @@ TEST(DISABLED_SettingsVisual, OpensAppSettingsAndCapturesScreenshots) {
     };
 
     for (const auto controlId : textMustFitControls) {
-        const HWND control = GetDlgItem(settingsWindow, controlId);
+        const HWND control = Control(settingsWindow, controlId);
         const auto text = WindowText(control);
         EXPECT_TRUE(TextFitsControl(control))
             << "Control id " << controlId << " clips text '" << NarrowForTest(text)
             << "'; screenshot: " << settingsPath.string();
     }
 
-    const HWND tree = GetDlgItem(settingsWindow, IDC_SETTINGS_TREE);
+    const HWND tree = Control(settingsWindow, IDC_SETTINGS_TREE);
     const HTREEITEM generalItem = TreeView_GetRoot(tree);
     const HTREEITEM userInterfaceItem = TreeView_GetNextSibling(tree, generalItem);
     ASSERT_NE(userInterfaceItem, nullptr);
@@ -370,7 +391,7 @@ TEST(DISABLED_SettingsVisual, OpensAppSettingsAndCapturesScreenshots) {
     };
 
     for (const auto controlId : userInterfaceControls) {
-        const HWND control = GetDlgItem(settingsWindow, controlId);
+        const HWND control = Control(settingsWindow, controlId);
         ASSERT_NE(control, nullptr) << "Missing control id " << controlId;
         EXPECT_TRUE(IsWindowVisible(control)) << "Expected visible control id " << controlId;
         EXPECT_TRUE(RectInside(dialogRect, ChildRect(settingsWindow, controlId)))
@@ -379,7 +400,7 @@ TEST(DISABLED_SettingsVisual, OpensAppSettingsAndCapturesScreenshots) {
     }
 
     for (const auto controlId : {IDC_SHOW_STATUS_BAR, IDC_SHOW_TOOLBAR, IDC_SETTINGS_LABEL_SPLITTER}) {
-        const HWND control = GetDlgItem(settingsWindow, controlId);
+        const HWND control = Control(settingsWindow, controlId);
         const auto text = WindowText(control);
         EXPECT_TRUE(TextFitsControl(control))
             << "Control id " << controlId << " clips text '" << NarrowForTest(text)

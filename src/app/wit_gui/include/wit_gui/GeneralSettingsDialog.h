@@ -34,16 +34,49 @@ public:
         COMMAND_ID_HANDLER(IDCANCEL, OnCancel)
         COMMAND_ID_HANDLER(IDC_SETTINGS_APPLY, OnApply)
         COMMAND_ID_HANDLER(IDHELP, OnHelp)
-        COMMAND_HANDLER(IDC_DATE_TIME_FORMAT, CBN_SELCHANGE, OnDateTimeFormatChanged)
-        COMMAND_HANDLER(IDC_DATE_TIME_FORMAT, CBN_EDITCHANGE, OnDateTimeFormatChanged)
-        COMMAND_HANDLER(IDC_SHOW_STATUS_BAR, BN_CLICKED, OnSettingChanged)
-        COMMAND_HANDLER(IDC_SHOW_TOOLBAR, BN_CLICKED, OnSettingChanged)
-        COMMAND_HANDLER(IDC_ENABLE_SCAN_FILE_DELAY, BN_CLICKED, OnSettingChanged)
     END_MSG_MAP()
 
 private:
+    class GeneralPageDialog : public ATL::CDialogImpl<GeneralPageDialog> {
+    public:
+        enum { IDD = IDD_SETTINGS_GENERAL_PAGE };
+
+        void SetOwner(GeneralSettingsDialog* owner) noexcept { owner_ = owner; }
+
+        BEGIN_MSG_MAP(GeneralPageDialog)
+            COMMAND_HANDLER(IDC_DATE_TIME_FORMAT, CBN_SELCHANGE, OnDateTimeFormatChanged)
+            COMMAND_HANDLER(IDC_DATE_TIME_FORMAT, CBN_EDITCHANGE, OnDateTimeFormatChanged)
+            COMMAND_HANDLER(IDC_ENABLE_SCAN_FILE_DELAY, BN_CLICKED, OnSettingChanged)
+        END_MSG_MAP()
+
+    private:
+        GeneralSettingsDialog* owner_{};
+
+        LRESULT OnDateTimeFormatChanged(WORD notifyCode, WORD id, HWND control, BOOL& handled);
+        LRESULT OnSettingChanged(WORD notifyCode, WORD id, HWND control, BOOL& handled);
+    };
+
+    class UserInterfacePageDialog : public ATL::CDialogImpl<UserInterfacePageDialog> {
+    public:
+        enum { IDD = IDD_SETTINGS_USER_INTERFACE_PAGE };
+
+        void SetOwner(GeneralSettingsDialog* owner) noexcept { owner_ = owner; }
+
+        BEGIN_MSG_MAP(UserInterfacePageDialog)
+            COMMAND_HANDLER(IDC_SHOW_STATUS_BAR, BN_CLICKED, OnSettingChanged)
+            COMMAND_HANDLER(IDC_SHOW_TOOLBAR, BN_CLICKED, OnSettingChanged)
+        END_MSG_MAP()
+
+    private:
+        GeneralSettingsDialog* owner_{};
+
+        LRESULT OnSettingChanged(WORD notifyCode, WORD id, HWND control, BOOL& handled);
+    };
+
     wit::platform::AppSettings settings_;
     ApplyHandler applyHandler_;
+    GeneralPageDialog generalPage_;
+    UserInterfacePageDialog userInterfacePage_;
     bool initializing_{};
 
     LRESULT OnInitDialog(UINT message, WPARAM wparam, LPARAM lparam, BOOL& handled);
@@ -54,6 +87,9 @@ private:
     LRESULT OnHelp(WORD notifyCode, WORD id, HWND control, BOOL& handled);
     LRESULT OnDateTimeFormatChanged(WORD notifyCode, WORD id, HWND control, BOOL& handled);
     LRESULT OnSettingChanged(WORD notifyCode, WORD id, HWND control, BOOL& handled);
+    HWND Control(int id) const;
+    void CreatePages();
+    void PositionPage(HWND page);
     void PopulateTree();
     void SelectInitialPage();
     void ShowPage(Page page);

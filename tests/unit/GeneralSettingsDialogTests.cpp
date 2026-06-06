@@ -128,12 +128,33 @@ std::wstring TreeItemText(HWND tree, HTREEITEM item) {
     return buffer;
 }
 
+struct FindControlContext {
+    int id{};
+    HWND control{};
+};
+
+BOOL CALLBACK FindDescendantControl(HWND window, LPARAM context) {
+    auto& search = *reinterpret_cast<FindControlContext*>(context);
+    if (GetDlgCtrlID(window) == search.id) {
+        search.control = window;
+        return FALSE;
+    }
+    return TRUE;
+}
+
+HWND Control(HWND dialog, int controlId) {
+    if (const auto control = GetDlgItem(dialog, controlId)) return control;
+    FindControlContext context{controlId};
+    EnumChildWindows(dialog, FindDescendantControl, reinterpret_cast<LPARAM>(&context));
+    return context.control;
+}
+
 void ClickButton(HWND dialog, int controlId) {
-    SendMessageW(GetDlgItem(dialog, controlId), BM_CLICK, 0, 0);
+    SendMessageW(Control(dialog, controlId), BM_CLICK, 0, 0);
 }
 
 bool IsApplyEnabled(HWND dialog) {
-    return IsWindowEnabled(GetDlgItem(dialog, IDC_SETTINGS_APPLY)) != FALSE;
+    return IsWindowEnabled(Control(dialog, IDC_SETTINGS_APPLY)) != FALSE;
 }
 
 wit::platform::AppSettings TestSettings() {
@@ -180,13 +201,13 @@ TEST(GeneralSettingsDialog, NativeSettingsUiExposesOnlyRequestedPagesAndEditable
     EXPECT_FALSE(IsApplyEnabled(dialog));
     EXPECT_TRUE(IsWindowVisible(GetDlgItem(dialog, IDC_SETTINGS_PANEL)));
     EXPECT_TRUE(IsWindowVisible(GetDlgItem(dialog, IDC_SETTINGS_HEADER)));
-    EXPECT_NE(GetWindowLongPtrW(GetDlgItem(dialog, IDC_LAST_OPENED_CATALOG), GWL_STYLE) & ES_READONLY, 0);
-    EXPECT_NE(GetWindowLongPtrW(GetDlgItem(dialog, IDC_MAIN_SPLITTER_POSITION), GWL_STYLE) & ES_READONLY, 0);
+    EXPECT_NE(GetWindowLongPtrW(Control(dialog, IDC_LAST_OPENED_CATALOG), GWL_STYLE) & ES_READONLY, 0);
+    EXPECT_NE(GetWindowLongPtrW(Control(dialog, IDC_MAIN_SPLITTER_POSITION), GWL_STYLE) & ES_READONLY, 0);
 
-    const HWND dateFormat = GetDlgItem(dialog, IDC_DATE_TIME_FORMAT);
+    const HWND dateFormat = Control(dialog, IDC_DATE_TIME_FORMAT);
     ASSERT_NE(dateFormat, nullptr);
     SendMessageW(dateFormat, CB_SETCURSEL, 1, 0);
-    SendMessageW(dialog, WM_COMMAND, MAKEWPARAM(IDC_DATE_TIME_FORMAT, CBN_SELCHANGE),
+    SendMessageW(GetParent(dateFormat), WM_COMMAND, MAKEWPARAM(IDC_DATE_TIME_FORMAT, CBN_SELCHANGE),
         reinterpret_cast<LPARAM>(dateFormat));
     EXPECT_EQ(WindowText(dateFormat), L"YYYY-MM-DD HH:mm:ss");
     EXPECT_TRUE(IsApplyEnabled(dialog));
@@ -195,10 +216,10 @@ TEST(GeneralSettingsDialog, NativeSettingsUiExposesOnlyRequestedPagesAndEditable
     EXPECT_TRUE(IsApplyEnabled(dialog));
 
     TreeView_SelectItem(tree, userInterface);
-    EXPECT_FALSE(IsWindowVisible(GetDlgItem(dialog, IDC_DATE_TIME_FORMAT)));
-    EXPECT_TRUE(IsWindowVisible(GetDlgItem(dialog, IDC_SHOW_STATUS_BAR)));
-    EXPECT_TRUE(IsWindowVisible(GetDlgItem(dialog, IDC_SHOW_TOOLBAR)));
-    EXPECT_TRUE(IsWindowVisible(GetDlgItem(dialog, IDC_MAIN_SPLITTER_POSITION)));
+    EXPECT_FALSE(IsWindowVisible(Control(dialog, IDC_DATE_TIME_FORMAT)));
+    EXPECT_TRUE(IsWindowVisible(Control(dialog, IDC_SHOW_STATUS_BAR)));
+    EXPECT_TRUE(IsWindowVisible(Control(dialog, IDC_SHOW_TOOLBAR)));
+    EXPECT_TRUE(IsWindowVisible(Control(dialog, IDC_MAIN_SPLITTER_POSITION)));
 
     ClickButton(dialog, IDC_SHOW_STATUS_BAR);
     ClickButton(dialog, IDC_SHOW_TOOLBAR);
@@ -236,12 +257,14 @@ TEST(GeneralSettingsDialog, ReadOnlyInformationalFieldsDoNotDirtyOrApply) {
     HWND dialog = WaitForSettingsWindow(run.threadId);
     ASSERT_NE(dialog, nullptr);
 
-    SetWindowTextW(GetDlgItem(dialog, IDC_LAST_OPENED_CATALOG), L"changed.db");
-    SendMessageW(dialog, WM_COMMAND, MAKEWPARAM(IDC_LAST_OPENED_CATALOG, EN_CHANGE),
-        reinterpret_cast<LPARAM>(GetDlgItem(dialog, IDC_LAST_OPENED_CATALOG)));
-    SetWindowTextW(GetDlgItem(dialog, IDC_MAIN_SPLITTER_POSITION), L"not an integer");
-    SendMessageW(dialog, WM_COMMAND, MAKEWPARAM(IDC_MAIN_SPLITTER_POSITION, EN_CHANGE),
-        reinterpret_cast<LPARAM>(GetDlgItem(dialog, IDC_MAIN_SPLITTER_POSITION)));
+    SetWindowTextW(Control(dialog, IDC_LAST_OPENED_CATALOG), L"changed.db");
+    SendMessageW(GetParent(Control(dialog, IDC_LAST_OPENED_CATALOG)), WM_COMMAND,
+        MAKEWPARAM(IDC_LAST_OPENED_CATALOG, EN_CHANGE),
+        reinterpret_cast<LPARAM>(Control(dialog, IDC_LAST_OPENED_CATALOG)));
+    SetWindowTextW(Control(dialog, IDC_MAIN_SPLITTER_POSITION), L"not an integer");
+    SendMessageW(GetParent(Control(dialog, IDC_MAIN_SPLITTER_POSITION)), WM_COMMAND,
+        MAKEWPARAM(IDC_MAIN_SPLITTER_POSITION, EN_CHANGE),
+        reinterpret_cast<LPARAM>(Control(dialog, IDC_MAIN_SPLITTER_POSITION)));
 
     EXPECT_FALSE(IsApplyEnabled(dialog));
 

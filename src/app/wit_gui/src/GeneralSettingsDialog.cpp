@@ -83,13 +83,6 @@ LRESULT GeneralSettingsDialog::OnInitDialog(UINT, WPARAM, LPARAM, BOOL&) {
     initializing_ = true;
     SetWindowTextW(L"Settings");
     headerBrush_.Reset(CreateSolidBrush(RGB(226, 234, 246)));
-    SendMessageW(WM_SETICON, ICON_SMALL,
-        reinterpret_cast<LPARAM>(LoadIconW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDI_APPICON))));
-    SendMessageW(WM_SETICON, ICON_BIG,
-        reinterpret_cast<LPARAM>(LoadIconW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDI_APPICON))));
-    SendDlgItemMessageW(IDC_SETTINGS_HEADER_ICON, STM_SETICON,
-        reinterpret_cast<WPARAM>(LoadImageW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDI_APPICON),
-            IMAGE_ICON, 16, 16, LR_DEFAULTCOLOR | LR_SHARED)), 0);
 
     CheckDlgButton(IDC_SHOW_STATUS_BAR, settings_.showStatusBar ? BST_CHECKED : BST_UNCHECKED);
     CheckDlgButton(IDC_SHOW_TOOLBAR, settings_.showToolbar ? BST_CHECKED : BST_UNCHECKED);
@@ -124,8 +117,7 @@ LRESULT GeneralSettingsDialog::OnInitDialog(UINT, WPARAM, LPARAM, BOOL&) {
 
 LRESULT GeneralSettingsDialog::OnControlColorStatic(UINT, WPARAM wparam, LPARAM lparam, BOOL& handled) {
     const auto control = reinterpret_cast<HWND>(lparam);
-    if (control == GetDlgItem(IDC_SETTINGS_HEADER) || control == GetDlgItem(IDC_SETTINGS_HEADER_TITLE) ||
-        control == GetDlgItem(IDC_SETTINGS_HEADER_ICON)) {
+    if (control == GetDlgItem(IDC_SETTINGS_HEADER) || control == GetDlgItem(IDC_SETTINGS_HEADER_TITLE)) {
         const auto dc = reinterpret_cast<HDC>(wparam);
         SetBkColor(dc, RGB(226, 234, 246));
         SetTextColor(dc, GetSysColor(COLOR_BTNTEXT));

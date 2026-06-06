@@ -78,7 +78,6 @@ void GeneralSettingsDialog::Show(HWND owner, const wit::platform::AppSettings& c
 LRESULT GeneralSettingsDialog::OnInitDialog(UINT, WPARAM, LPARAM, BOOL&) {
     initializing_ = true;
     SetWindowTextW(L"Settings");
-    headerBrush_.Reset(CreateSolidBrush(RGB(226, 234, 246)));
 
     CheckDlgButton(IDC_SHOW_STATUS_BAR, settings_.showStatusBar ? BST_CHECKED : BST_UNCHECKED);
     CheckDlgButton(IDC_SHOW_TOOLBAR, settings_.showToolbar ? BST_CHECKED : BST_UNCHECKED);
@@ -109,18 +108,6 @@ LRESULT GeneralSettingsDialog::OnInitDialog(UINT, WPARAM, LPARAM, BOOL&) {
     SetApplyEnabled(false);
     initializing_ = false;
     return FALSE;
-}
-
-LRESULT GeneralSettingsDialog::OnControlColorStatic(UINT, WPARAM wparam, LPARAM lparam, BOOL& handled) {
-    const auto control = reinterpret_cast<HWND>(lparam);
-    if (control == GetDlgItem(IDC_SETTINGS_HEADER) || control == GetDlgItem(IDC_SETTINGS_HEADER_TITLE)) {
-        const auto dc = reinterpret_cast<HDC>(wparam);
-        SetBkColor(dc, RGB(226, 234, 246));
-        SetTextColor(dc, GetSysColor(COLOR_BTNTEXT));
-        return reinterpret_cast<LRESULT>(HeaderBrush());
-    }
-    handled = FALSE;
-    return 0;
 }
 
 LRESULT GeneralSettingsDialog::OnTreeSelectionChanged(int, LPNMHDR header, BOOL&) {
@@ -242,10 +229,6 @@ void GeneralSettingsDialog::MarkDirtyIfChanged() {
 
 void GeneralSettingsDialog::SetApplyEnabled(bool enabled) {
     ::EnableWindow(GetDlgItem(IDC_SETTINGS_APPLY), enabled ? TRUE : FALSE);
-}
-
-HBRUSH GeneralSettingsDialog::HeaderBrush() const noexcept {
-    return headerBrush_ ? static_cast<HBRUSH>(headerBrush_.Get()) : GetSysColorBrush(COLOR_BTNFACE);
 }
 
 std::wstring GeneralSettingsDialog::SelectedDateTimeFormat() const {

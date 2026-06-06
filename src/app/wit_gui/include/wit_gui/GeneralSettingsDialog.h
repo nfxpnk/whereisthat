@@ -4,7 +4,6 @@
 #include "resource.h"
 #include <wit_infra/AppSettings.h>
 #include <functional>
-#include <utility>
 
 namespace wit::ui {
 
@@ -30,7 +29,6 @@ public:
 
     BEGIN_MSG_MAP(GeneralSettingsDialog)
         MESSAGE_HANDLER(WM_INITDIALOG, OnInitDialog)
-        MESSAGE_HANDLER(WM_CTLCOLORSTATIC, OnControlColorStatic)
         NOTIFY_HANDLER(IDC_SETTINGS_TREE, TVN_SELCHANGEDW, OnTreeSelectionChanged)
         COMMAND_ID_HANDLER(IDOK, OnConfirm)
         COMMAND_ID_HANDLER(IDCANCEL, OnCancel)
@@ -44,40 +42,11 @@ public:
     END_MSG_MAP()
 
 private:
-    class UniqueGdiObject {
-    public:
-        UniqueGdiObject() = default;
-        explicit UniqueGdiObject(HGDIOBJ handle) noexcept : handle_(handle) {}
-        ~UniqueGdiObject() { Reset(); }
-
-        UniqueGdiObject(const UniqueGdiObject&) = delete;
-        UniqueGdiObject& operator=(const UniqueGdiObject&) = delete;
-
-        UniqueGdiObject(UniqueGdiObject&& other) noexcept : handle_(std::exchange(other.handle_, nullptr)) {}
-        UniqueGdiObject& operator=(UniqueGdiObject&& other) noexcept {
-            if (this != &other) Reset(std::exchange(other.handle_, nullptr));
-            return *this;
-        }
-
-        void Reset(HGDIOBJ handle = nullptr) noexcept {
-            if (handle_) DeleteObject(handle_);
-            handle_ = handle;
-        }
-
-        HGDIOBJ Get() const noexcept { return handle_; }
-        explicit operator bool() const noexcept { return handle_ != nullptr; }
-
-    private:
-        HGDIOBJ handle_{};
-    };
-
     wit::platform::AppSettings settings_;
     ApplyHandler applyHandler_;
-    UniqueGdiObject headerBrush_;
     bool initializing_{};
 
     LRESULT OnInitDialog(UINT message, WPARAM wparam, LPARAM lparam, BOOL& handled);
-    LRESULT OnControlColorStatic(UINT message, WPARAM wparam, LPARAM lparam, BOOL& handled);
     LRESULT OnTreeSelectionChanged(int id, LPNMHDR header, BOOL& handled);
     LRESULT OnConfirm(WORD notifyCode, WORD id, HWND control, BOOL& handled);
     LRESULT OnCancel(WORD notifyCode, WORD id, HWND control, BOOL& handled);
@@ -92,7 +61,6 @@ private:
     bool ApplyChanges(bool closeAfterApply);
     void MarkDirtyIfChanged();
     void SetApplyEnabled(bool enabled);
-    HBRUSH HeaderBrush() const noexcept;
     std::wstring SelectedDateTimeFormat() const;
     std::wstring ControlText(int id) const;
     void UpdateDateTimeFormatSample();

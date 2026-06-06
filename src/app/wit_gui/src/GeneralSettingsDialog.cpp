@@ -238,11 +238,7 @@ bool GeneralSettingsDialog::ApplyChanges(bool closeAfterApply) {
     wit::platform::AppSettings updated;
     if (!TryReadControls(updated, true)) return false;
     if (!SameEditableSettings(updated, settings_)) {
-        const bool saved = applyHandler_ ? applyHandler_(updated) : wit::platform::SaveAppSettings(updated);
-        if (!saved) {
-            MessageBoxW(L"Unable to save settings.ini.", L"Settings", MB_OK | MB_ICONERROR);
-            return false;
-        }
+        if (!applyHandler_ || !applyHandler_(updated)) return false;
         settings_ = std::move(updated);
     }
     SetApplyEnabled(false);

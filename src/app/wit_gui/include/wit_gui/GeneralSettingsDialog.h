@@ -19,10 +19,10 @@ public:
         UserInterface
     };
 
-    // ApplyHandler is the single persistence path for Apply and OK. The accepted output is only
-    // meaningful when Show returns true; callers that persist via ApplyHandler can ignore it.
+    // ApplyHandler is the required persistence path for Apply and OK. It owns any save/error handling.
+    // The accepted output is only meaningful when Show returns true.
     bool Show(HWND owner, const wit::platform::AppSettings& current, wit::platform::AppSettings& accepted,
-        ApplyHandler applyHandler = {});
+        ApplyHandler applyHandler);
 
     BEGIN_MSG_MAP(GeneralSettingsDialog)
         MESSAGE_HANDLER(WM_INITDIALOG, OnInitDialog)

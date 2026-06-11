@@ -353,6 +353,7 @@ void MainFrame::CleanupFrame() {
     // Best-effort final preference save during teardown.
     (void)controller_.SaveMainSplitterPosition(chrome_.SplitterPosition());
     searchDialog_.Close();
+    settingsDialog_.Close();
     scanProgressDialog_.Close();
     controller_.DetachTarget();
     chrome_.Destroy();
@@ -390,7 +391,25 @@ void MainFrame::HandleCommand(int id) {
     } else if (id == IDC_BROWSER_FORWARD) {
         browser_.NavigateForward();
         UpdateBrowserStatus();
-    } else if (id == ID_OPTIONS_GENERAL_SETTINGS) {
+    } else if (id >= ID_OPTIONS_GENERAL_SETTINGS && id <= ID_OPTIONS_DESCRIPTION_SETTINGS) {
+        switch (id) {
+        case ID_OPTIONS_USER_INTERFACE_SETUP:
+            pendingSettingsPage_ = wit::ui::GeneralSettingsDialog::Page::UserInterface;
+            break;
+        case ID_OPTIONS_FILE_LIST_SETTINGS:
+            pendingSettingsPage_ = wit::ui::GeneralSettingsDialog::Page::FileList;
+            break;
+        case ID_OPTIONS_DISK_IMAGE_SETTINGS:
+            pendingSettingsPage_ = wit::ui::GeneralSettingsDialog::Page::DiskImage;
+            break;
+        case ID_OPTIONS_DESCRIPTION_SETTINGS:
+            pendingSettingsPage_ = wit::ui::GeneralSettingsDialog::Page::Description;
+            break;
+        case ID_OPTIONS_GENERAL_SETTINGS:
+        default:
+            pendingSettingsPage_ = wit::ui::GeneralSettingsDialog::Page::General;
+            break;
+        }
         ApplyControllerResult(controller_.RequestGeneralSettings());
     } else if (id == ID_WIT_VIEW_TOOLBAR) {
         ApplyControllerResult(controller_.ToggleToolbar());
@@ -578,11 +597,19 @@ void MainFrame::PerformRequest(const wit::app::RequestEffect& request) {
         break;
     }
     case wit::app::RequestKind::ShowGeneralSettings: {
-        wit::ui::GeneralSettingsDialog dialog;
-        wit::platform::AppSettings settings;
-        const bool accepted = dialog.Show(m_hWnd, request.settings, settings);
-        ApplyControllerResult(controller_.GeneralSettingsCompleted(
-            accepted ? std::optional<wit::platform::AppSettings>(settings) : std::nullopt));
+        const auto page = pendingSettingsPage_;
+        pendingSettingsPage_ = wit::ui::GeneralSettingsDialog::Page::General;
+        if (!settingsDialog_.Show(m_hWnd, request.settings, page,
+            [this](const wit::platform::AppSettings& appliedSettings) {
+                const auto result = controller_.GeneralSettingsCompleted(appliedSettings);
+                const bool saved = result.messages.empty();
+                ApplyControllerResult(std::move(result));
+                return saved ? wit::ui::GeneralSettingsDialog::ApplyResult::Applied
+                    : wit::ui::GeneralSettingsDialog::ApplyResult::Rejected;
+            })) {
+            ::MessageBoxW(m_hWnd, L"Unable to open the Settings window.",
+                L"Settings", MB_OK | MB_ICONERROR);
+        }
         break;
     }
     case wit::app::RequestKind::None:

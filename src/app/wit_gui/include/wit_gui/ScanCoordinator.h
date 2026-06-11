@@ -63,7 +63,7 @@ private:
     LRESULT DispatchNotification(UINT message, WPARAM wparam, LPARAM lparam);
     void RunScan(std::stop_token stopToken, ScanId scanId, std::wstring root, std::wstring diskName,
         std::int64_t diskNumber, wit::core::ScanRequest request, bool enableScanFileDelay,
-        std::unique_ptr<wit::storage::Database> staged);
+        std::unique_ptr<wit::storage::Database> staged, std::uint64_t workingCopyCreateNs);
     void PublishProgress(ScanId scanId, const ScanProgress& progress);
     void PublishResult(ScanResult result);
     void PostNotification(UINT message, ScanId scanId) const;

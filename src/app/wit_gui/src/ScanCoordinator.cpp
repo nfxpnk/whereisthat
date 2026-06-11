@@ -1,12 +1,15 @@
 #include <wit_gui/ScanCoordinator.h>
 #include <cassert>
+#include <chrono>
 #include <exception>
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
 #include "wit_scanner/FileScanner.h"
 #include <wit_infra/PathHelpers.h>
+#include <wit_infra/ScanProfiler.h>
 #include <wit_infra/VolumeInfo.h>
 #include <wit_infra/Win32Helpers.h>
 
@@ -86,7 +89,11 @@ bool ScanCoordinator::Start(wit::storage::Database* source, const wit::core::Sca
     AssertOwnerThread();
     if (IsRunning() || !deliveryWindow_ || !source) return false;
     auto candidate = std::make_unique<wit::storage::Database>();
-    if (!candidate->CreateWorkingCopy(*source)) return false;
+    std::uint64_t workingCopyCreateNs{};
+    {
+        wit::infra::ScopedScanTimer timer(workingCopyCreateNs);
+        if (!candidate->CreateWorkingCopy(*source)) return false;
+    }
     const auto rootPath = std::filesystem::absolute(request.scanRoot);
     const std::wstring root = rootPath.wstring();
     const std::wstring diskName = request.diskName.empty()
@@ -103,9 +110,11 @@ bool ScanCoordinator::Start(wit::storage::Database* source, const wit::core::Sca
     activeCatalogId_ = request.destinationCatalogId;
     cancellationRequested_ = false;
     worker_ = std::jthread([this, scanId, root, diskName, diskNumber, request, enableScanFileDelay,
+        workingCopyCreateNs,
         staged = std::move(candidate)](std::stop_token stopToken) mutable {
         try {
-            RunScan(stopToken, scanId, root, diskName, diskNumber, request, enableScanFileDelay, std::move(staged));
+            RunScan(stopToken, scanId, root, diskName, diskNumber, request, enableScanFileDelay, std::move(staged),
+                workingCopyCreateNs);
         } catch (const std::exception& error) {
             ScanResult result;
             result.id = scanId;
@@ -192,16 +201,50 @@ LRESULT ScanCoordinator::DispatchNotification(UINT message, WPARAM wparam, LPARA
 
 void ScanCoordinator::RunScan(std::stop_token stopToken, ScanId scanId, std::wstring root, std::wstring diskName,
     std::int64_t diskNumber, wit::core::ScanRequest request, bool enableScanFileDelay,
-    std::unique_ptr<wit::storage::Database> staged) {
+    std::unique_ptr<wit::storage::Database> staged, std::uint64_t workingCopyCreateNs) {
+    wit::infra::ScanProfile profile;
+    profile.scanId = static_cast<std::uint64_t>(scanId);
+    profile.root = root;
+    profile.options.calculateCrc = request.calculateCrc;
+    profile.options.browseArchives = request.browseArchives;
+    profile.options.countFilesBeforeScan = true;
+    profile.timingsNs.workingCopyCreate = workingCopyCreateNs;
+    profile.timingsNs.total = workingCopyCreateNs;
     ScanResult result;
     result.id = scanId;
     result.destinationCatalogId = request.destinationCatalogId;
     result.outcome = ScanOutcome::Failed;
     result.error = L"The scan could not be staged. The saved catalog was not changed.";
+    const auto writeProfile = [](wit::infra::ScanProfile& profile, const ScanResult& result) noexcept {
+        switch (result.outcome) {
+        case ScanOutcome::Completed: profile.result = "completed"; break;
+        case ScanOutcome::Cancelled: profile.result = "cancelled"; break;
+        case ScanOutcome::Failed: profile.result = "failed"; break;
+        }
+        return wit::infra::WriteScanProfileJson(profile);
+    };
+    bool profileWritten{};
+    struct ProfileFinalizer {
+        wit::infra::ScanProfile& profile;
+        const ScanResult& result;
+        const bool& written;
+        ~ProfileFinalizer() noexcept {
+            if (written) return;
+            switch (result.outcome) {
+            case ScanOutcome::Completed: profile.result = "completed"; break;
+            case ScanOutcome::Cancelled: profile.result = "cancelled"; break;
+            case ScanOutcome::Failed: profile.result = "failed"; break;
+            }
+            (void)wit::infra::WriteScanProfileJson(profile);
+        }
+    } profileFinalizer{profile, result, profileWritten};
+    std::optional<wit::infra::ScopedScanTimer> totalTimer;
+    totalTimer.emplace(profile.timingsNs.total);
     const auto cancelled = [&]() {
         if (!stopToken.stop_requested()) return false;
         if (staged->IsOpen()) {
             // Best-effort cleanup; the cancellation result is already recorded below.
+            wit::infra::ScopedScanTimer timer(profile.timingsNs.rollback);
             (void)staged->Rollback();
         }
         result.outcome = ScanOutcome::Cancelled;
@@ -212,11 +255,18 @@ void ScanCoordinator::RunScan(std::stop_token stopToken, ScanId scanId, std::wst
     wit::core::FileScanner scanner({enableScanFileDelay});
     std::uint64_t totalFiles{};
     PublishProgress(scanId, {0, 0, 0, 0, false, true});
-    bool success = !cancelled() && scanner.CountFiles(root, totalFiles, stopToken);
+    bool success = !cancelled();
+    if (success) {
+        wit::infra::ScopedScanTimer timer(profile.timingsNs.countFiles);
+        success = scanner.CountFiles(root, totalFiles, stopToken);
+    }
     if (success && !cancelled()) PublishProgress(scanId, {0, 0, totalFiles, totalFiles, true, false});
 
     std::int64_t id{};
-    success = success && !cancelled() && staged->BeginTransaction();
+    if (success && !cancelled()) {
+        wit::infra::ScopedScanTimer timer(profile.timingsNs.beginTransaction);
+        success = staged->BeginTransaction();
+    }
     wit::core::Disk disk;
     disk.diskGroupId = request.diskGroupId;
     disk.diskName = diskName;
@@ -227,28 +277,41 @@ void ScanCoordinator::RunScan(std::stop_token stopToken, ScanId scanId, std::wst
         ? wit::core::DiskType::VirtualDisk : wit::core::DiskType::Other;
     disk.addedAt = wit::platform::NowUnixSeconds();
     disk.updatedAt = disk.addedAt;
-    if (success && !cancelled()) wit::platform::PopulateVolumeMetadata(root, disk);
     if (success && !cancelled()) {
-        id = staged->FindDiskBySourcePath(root,
-            request.kind == wit::core::MediaSourceKind::Iso ? request.originalPath : L"");
+        wit::infra::ScopedScanTimer timer(profile.timingsNs.populateVolumeMetadata);
+        wit::platform::PopulateVolumeMetadata(root, disk);
+    }
+    if (success && !cancelled()) {
+        {
+            wit::infra::ScopedScanTimer timer(profile.timingsNs.findExistingDisk);
+            id = staged->FindDiskBySourcePath(root,
+                request.kind == wit::core::MediaSourceKind::Iso ? request.originalPath : L"");
+        }
         if (id != 0) {
             disk.id = id;
+            wit::infra::ScopedScanTimer timer(profile.timingsNs.deleteOldDiskContent);
             success = staged->DeleteContentForDisk(id);
         } else {
-            id = staged->AddDisk(disk);
+            {
+                wit::infra::ScopedScanTimer timer(profile.timingsNs.addDisk);
+                id = staged->AddDisk(disk);
+            }
             disk.id = id;
             success = id != 0;
         }
     }
     if (success && !cancelled()) {
         wit::core::FileScanner::Result scanResult;
-        success = scanner.ScanFolder(root, id, *staged,
-            [this, scanId, totalFiles](const wit::core::FileScanner::Progress& progress) {
-                const auto remaining = progress.scannedFiles < totalFiles
-                    ? totalFiles - progress.scannedFiles : 0;
-                PublishProgress(scanId, {progress.scannedFiles, progress.scannedFolders, totalFiles,
-                    remaining, true, false});
-            }, scanResult, request.calculateCrc, false, stopToken, request.browseArchives);
+        {
+            wit::infra::ScopedScanTimer timer(profile.timingsNs.scanFolder);
+            success = scanner.ScanFolder(root, id, *staged,
+                [this, scanId, totalFiles](const wit::core::FileScanner::Progress& progress) {
+                    const auto remaining = progress.scannedFiles < totalFiles
+                        ? totalFiles - progress.scannedFiles : 0;
+                    PublishProgress(scanId, {progress.scannedFiles, progress.scannedFolders, totalFiles,
+                        remaining, true, false});
+                }, scanResult, request.calculateCrc, false, stopToken, request.browseArchives, {}, &profile);
+        }
         if (success && !cancelled()) {
             disk.totalFiles = static_cast<std::int64_t>(scanResult.totalFiles);
             disk.totalFolders = static_cast<std::int64_t>(scanResult.totalFolders);
@@ -261,11 +324,23 @@ void ScanCoordinator::RunScan(std::stop_token stopToken, ScanId scanId, std::wst
             statistics.scannedArchives = static_cast<std::int64_t>(scanResult.scannedArchives);
             statistics.archiveFilesCount = static_cast<std::int64_t>(scanResult.archiveFiles);
             statistics.archiveFoldersCount = static_cast<std::int64_t>(scanResult.archiveFolders);
-            success = staged->UpdateDisk(disk) && staged->UpdateDiskScanStatistics(statistics);
+            {
+                wit::infra::ScopedScanTimer timer(profile.timingsNs.updateDisk);
+                success = staged->UpdateDisk(disk);
+            }
+            if (success) {
+                wit::infra::ScopedScanTimer timer(profile.timingsNs.updateDiskScanStatistics);
+                success = staged->UpdateDiskScanStatistics(statistics);
+            }
         }
     }
     if (!cancelled() && success) {
-        if (staged->Commit()) {
+        bool committed{};
+        {
+            wit::infra::ScopedScanTimer timer(profile.timingsNs.commit);
+            committed = staged->Commit();
+        }
+        if (committed) {
             if (stopToken.stop_requested()) {
                 result.outcome = ScanOutcome::Cancelled;
                 result.error.clear();
@@ -276,12 +351,16 @@ void ScanCoordinator::RunScan(std::stop_token stopToken, ScanId scanId, std::wst
             }
         } else {
             // Best-effort cleanup; the commit failure remains the reported error.
+            wit::infra::ScopedScanTimer timer(profile.timingsNs.rollback);
             (void)staged->Rollback();
         }
     } else if (result.outcome != ScanOutcome::Cancelled && staged->IsOpen()) {
         // Best-effort cleanup; the earlier failure remains the reported error.
+        wit::infra::ScopedScanTimer timer(profile.timingsNs.rollback);
         (void)staged->Rollback();
     }
+    totalTimer.reset();
+    profileWritten = writeProfile(profile, result);
     PublishResult(std::move(result));
 }
 

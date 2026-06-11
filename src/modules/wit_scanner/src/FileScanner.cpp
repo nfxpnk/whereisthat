@@ -2,6 +2,7 @@
 #include "wit_scanner/Crc32.h"
 #include "wit_types/FolderEntry.h"
 #include <wit_infra/PathHelpers.h>
+#include <wit_infra/ScanProfiler.h>
 #include <wit_infra/Win32Helpers.h>
 #include <Windows.h>
 #include <archive.h>
@@ -105,7 +106,7 @@ std::wstring ArchiveError(struct archive* reader) {
 }
 
 ArchiveReadResult ReadArchive(const std::wstring& path, bool calculateCrc, std::stop_token stopToken,
-    ParsedArchive& parsed, std::wstring& failure) {
+    ParsedArchive& parsed, std::wstring& failure, wit::infra::ScanProfile* profile) {
     auto* reader = archive_read_new();
     if (!reader) {
         failure = L"libarchive reader allocation failed";
@@ -171,13 +172,19 @@ ArchiveReadResult ReadArchive(const std::wstring& path, bool calculateCrc, std::
                     archive_read_free(reader);
                     return ArchiveReadResult::Cancelled;
                 }
-                const auto read = archive_read_data(reader, buffer.data(), buffer.size());
+                la_ssize_t read{};
+                {
+                    const auto timer = profile ? std::make_optional<wit::infra::ScopedScanTimer>(
+                        profile->timingsNs.archiveRead) : std::nullopt;
+                    read = archive_read_data(reader, buffer.data(), buffer.size());
+                }
                 if (read == 0) break;
                 if (read < 0) {
                     failure = ArchiveError(reader);
                     success = false;
                     break;
                 }
+                if (profile) profile->bytes.archiveBytesRead += static_cast<std::uint64_t>(read);
                 member.size += static_cast<std::uint64_t>(read);
                 if (calculateCrc) {
                     crc.Update(std::as_bytes(std::span{buffer.data(), static_cast<std::size_t>(read)}));
@@ -205,10 +212,11 @@ struct StoredArchive {
 };
 
 bool StoreArchive(const ParsedArchive& parsed, const std::wstring& physicalPath, const WIN32_FIND_DATAW& data,
-    std::int64_t diskId, std::int64_t parentId, wit::storage::Database& db, StoredArchive& stored) {
+    std::int64_t diskId, std::int64_t parentId, wit::storage::Database& db, StoredArchive& stored,
+    wit::infra::ScanProfile* profile) {
     auto archiveFolder = FolderFromData(diskId, parentId, true, physicalPath, data.cFileName, data);
     archiveFolder.entryType = FolderEntryType::Archive;
-    const auto archiveId = db.InsertFolder(archiveFolder);
+    const auto archiveId = db.InsertFolder(archiveFolder, profile);
     if (archiveId == 0) return false;
 
     std::map<std::wstring, std::int64_t, CaseInsensitiveLess> folderIds{{L"", archiveId}};
@@ -230,7 +238,7 @@ bool StoreArchive(const ParsedArchive& parsed, const std::wstring& physicalPath,
             folder.entryType = FolderEntryType::Directory;
             folder.contentSize = 0;
             folder.attributes = 0;
-            currentId = db.InsertFolder(folder);
+            currentId = db.InsertFolder(folder, profile);
             if (currentId == 0) return std::int64_t{0};
             folderIds.emplace(relative, currentId);
             folderSizes.emplace(relative, 0);
@@ -254,7 +262,7 @@ bool StoreArchive(const ParsedArchive& parsed, const std::wstring& physicalPath,
         file.modifiedAt = member.modifiedAt != 0 ? member.modifiedAt : archiveFolder.modifiedAt;
         file.accessedAt = archiveFolder.accessedAt;
         file.crc = member.crc;
-        if (!db.InsertFile(file)) return false;
+        if (!db.InsertFile(file, profile)) return false;
         ++stored.files;
         stored.contentSize += member.size;
         folderSizes[L""] += member.size;
@@ -265,7 +273,7 @@ bool StoreArchive(const ParsedArchive& parsed, const std::wstring& physicalPath,
         }
     }
     for (const auto& item : folderIds) {
-        if (!db.UpdateFolderContentSize(item.second, folderSizes[item.first])) return false;
+        if (!db.UpdateFolderContentSize(item.second, folderSizes[item.first], profile)) return false;
     }
     return true;
 }
@@ -322,7 +330,8 @@ bool FileScanner::CountFiles(const std::wstring& rootPath, std::uint64_t& totalF
 
 bool FileScanner::ScanFolder(const std::wstring& rootPath, std::int64_t diskId, wit::storage::Database& db,
     const ProgressCallback& onProgress, Result& result, bool calculateCrc, bool manageTransaction,
-    std::stop_token stopToken, bool browseArchives, const DiagnosticCallback& onDiagnostic) {
+    std::stop_token stopToken, bool browseArchives, const DiagnosticCallback& onDiagnostic,
+    wit::infra::ScanProfile* profile) {
     const auto start = std::chrono::steady_clock::now();
     std::uint64_t fileCount = 0;
     std::uint64_t scannedFiles = 0;
@@ -352,11 +361,24 @@ bool FileScanner::ScanFolder(const std::wstring& rootPath, std::int64_t diskId, 
     rootData.ftCreationTime = rootAttrs.ftCreationTime;
     rootData.ftLastWriteTime = rootAttrs.ftLastWriteTime;
     rootData.ftLastAccessTime = rootAttrs.ftLastAccessTime;
-    auto root = FolderFromData(diskId, 0, false, rootPath, wit::platform::DisplayNameForPath(rootPath), rootData);
-    const auto rootId = db.InsertFolder(root);
+    FolderEntry root;
+    {
+        const auto timer = profile ? std::make_optional<wit::infra::ScopedScanTimer>(
+            profile->timingsNs.metadataBuild) : std::nullopt;
+        root = FolderFromData(diskId, 0, false, rootPath, wit::platform::DisplayNameForPath(rootPath), rootData);
+    }
+    const auto rootId = db.InsertFolder(root, profile);
     if (rootId == 0) return fail();
     ++folderCount;
-    if (onProgress) onProgress({scannedFiles, folderCount, rootPath});
+    if (profile) ++profile->counts.folders;
+    const auto reportProgress = [&](const Progress& progress) {
+        if (!onProgress) return;
+        if (profile) ++profile->counts.progressReports;
+        const auto timer = profile ? std::make_optional<wit::infra::ScopedScanTimer>(
+            profile->timingsNs.progressCallbacks) : std::nullopt;
+        onProgress(progress);
+    };
+    reportProgress({scannedFiles, folderCount, rootPath});
 
     struct FolderFrame {
         std::wstring path;
@@ -373,9 +395,24 @@ bool FileScanner::ScanFolder(const std::wstring& rootPath, std::int64_t diskId, 
         if (!frame.enumerated) {
             frame.enumerated = true;
             WIN32_FIND_DATAW findData{};
-            const auto query = WildcardFor(frame.path);
-            HANDLE findHandle = FindFirstFileW(query.c_str(), &findData);
+            std::wstring query;
+            {
+                const auto timer = profile ? std::make_optional<wit::infra::ScopedScanTimer>(
+                    profile->timingsNs.metadataBuild) : std::nullopt;
+                query = WildcardFor(frame.path);
+            }
+            HANDLE findHandle{};
+            {
+                const auto timer = profile ? std::make_optional<wit::infra::ScopedScanTimer>(
+                    profile->timingsNs.directoryEnumeration) : std::nullopt;
+                findHandle = FindFirstFileW(query.c_str(), &findData);
+            }
             if (findHandle != INVALID_HANDLE_VALUE) {
+                const auto nextEntry = [&]() {
+                    const auto timer = profile ? std::make_optional<wit::infra::ScopedScanTimer>(
+                        profile->timingsNs.directoryEnumeration) : std::nullopt;
+                    return FindNextFileW(findHandle, &findData) != FALSE;
+                };
                 do {
                     if (stopToken.stop_requested()) {
                         FindClose(findHandle);
@@ -384,16 +421,27 @@ bool FileScanner::ScanFolder(const std::wstring& rootPath, std::int64_t diskId, 
                     if (wcscmp(findData.cFileName, L".") == 0 || wcscmp(findData.cFileName, L"..") == 0) {
                         continue;
                     }
-                    const std::wstring fullPath = wit::platform::Join(frame.path, findData.cFileName);
+                    std::wstring fullPath;
+                    {
+                        const auto timer = profile ? std::make_optional<wit::infra::ScopedScanTimer>(
+                            profile->timingsNs.metadataBuild) : std::nullopt;
+                        fullPath = wit::platform::Join(frame.path, findData.cFileName);
+                    }
                     const bool isDirectory = (findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
                     if (isDirectory) {
-                        auto folder = FolderFromData(diskId, frame.id, true, fullPath, findData.cFileName, findData);
-                        const auto childId = db.InsertFolder(folder);
+                        FolderEntry folder;
+                        {
+                            const auto timer = profile ? std::make_optional<wit::infra::ScopedScanTimer>(
+                                profile->timingsNs.metadataBuild) : std::nullopt;
+                            folder = FolderFromData(diskId, frame.id, true, fullPath, findData.cFileName, findData);
+                        }
+                        const auto childId = db.InsertFolder(folder, profile);
                         if (childId == 0) {
                             FindClose(findHandle);
                             return fail();
                         }
                         ++folderCount;
+                        if (profile) ++profile->counts.folders;
                         if (!(findData.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)) {
                             frame.children.emplace_back(fullPath, childId);
                         }
@@ -404,24 +452,43 @@ bool FileScanner::ScanFolder(const std::wstring& rootPath, std::int64_t diskId, 
                                     std::chrono::microseconds{kScanFileDelayMicroseconds});
                             }
                         }
+                        if (profile) {
+                            profile->bytes.fileBytesSeen +=
+                                (static_cast<std::uint64_t>(findData.nFileSizeHigh) << 32) |
+                                findData.nFileSizeLow;
+                        }
                         bool storedAsArchive = false;
                         if (browseArchives) {
+                            if (profile) ++profile->counts.archiveProbeAttempts;
                             ParsedArchive parsed;
                             std::wstring failure;
-                            const auto read = ReadArchive(fullPath, calculateCrc, stopToken, parsed, failure);
+                            ArchiveReadResult read;
+                            {
+                                const auto timer = profile ? std::make_optional<wit::infra::ScopedScanTimer>(
+                                    profile->timingsNs.archiveProbe) : std::nullopt;
+                                read = ReadArchive(fullPath, calculateCrc, stopToken, parsed, failure, profile);
+                            }
                             if (read == ArchiveReadResult::Cancelled) {
                                 FindClose(findHandle);
                                 return fail();
                             }
                             if (read == ArchiveReadResult::Readable) {
                                 StoredArchive stored;
-                                if (!StoreArchive(parsed, fullPath, findData, diskId, frame.id, db, stored)) {
+                                if (!StoreArchive(parsed, fullPath, findData, diskId, frame.id, db, stored, profile)) {
                                     FindClose(findHandle);
                                     return fail();
                                 }
                                 ++archiveCount;
+                                if (profile) ++profile->counts.archivesRecognized;
                                 archiveFileCount += stored.files;
                                 archiveFolderCount += stored.folders;
+                                if (profile) {
+                                    profile->counts.archiveFiles += stored.files;
+                                    profile->counts.archiveFolders += stored.folders;
+                                    profile->counts.files += stored.files;
+                                    profile->counts.folders += 1 + stored.folders;
+                                    if (calculateCrc) profile->counts.crcFiles += stored.files;
+                                }
                                 fileCount += stored.files;
                                 folderCount += 1 + stored.folders;
                                 frame.contentSize += stored.contentSize;
@@ -432,36 +499,50 @@ bool FileScanner::ScanFolder(const std::wstring& rootPath, std::int64_t diskId, 
                         }
                         if (!storedAsArchive) {
                             FileEntry entry{};
-                            entry.catalogId = diskId;
-                            entry.folderId = frame.id;
-                            entry.name = findData.cFileName;
-                            entry.extension = wit::platform::FileExtension(entry.name);
-                            entry.size = (static_cast<std::uint64_t>(findData.nFileSizeHigh) << 32) |
-                                findData.nFileSizeLow;
-                            entry.createdAt = wit::platform::FileTimeToUnixSeconds(findData.ftCreationTime);
-                            entry.modifiedAt = wit::platform::FileTimeToUnixSeconds(findData.ftLastWriteTime);
-                            entry.accessedAt = wit::platform::FileTimeToUnixSeconds(findData.ftLastAccessTime);
-                            entry.attributes = findData.dwFileAttributes;
+                            {
+                                const auto timer = profile ? std::make_optional<wit::infra::ScopedScanTimer>(
+                                    profile->timingsNs.metadataBuild) : std::nullopt;
+                                entry.catalogId = diskId;
+                                entry.folderId = frame.id;
+                                entry.name = findData.cFileName;
+                                entry.extension = wit::platform::FileExtension(entry.name);
+                                entry.size = (static_cast<std::uint64_t>(findData.nFileSizeHigh) << 32) |
+                                    findData.nFileSizeLow;
+                                entry.createdAt = wit::platform::FileTimeToUnixSeconds(findData.ftCreationTime);
+                                entry.modifiedAt = wit::platform::FileTimeToUnixSeconds(findData.ftLastWriteTime);
+                                entry.accessedAt = wit::platform::FileTimeToUnixSeconds(findData.ftLastAccessTime);
+                                entry.attributes = findData.dwFileAttributes;
+                            }
                             bool crcCancelled{};
-                            if (calculateCrc) entry.crc = CalculateFileCrc32Text(fullPath, stopToken, &crcCancelled);
+                            if (calculateCrc) {
+                                std::uint64_t crcBytes{};
+                                const auto timer = profile ? std::make_optional<wit::infra::ScopedScanTimer>(
+                                    profile->timingsNs.crcReadAndCompute) : std::nullopt;
+                                entry.crc = CalculateFileCrc32Text(fullPath, stopToken, &crcCancelled, &crcBytes);
+                                if (profile) {
+                                    ++profile->counts.crcFiles;
+                                    profile->bytes.crcBytesRead += crcBytes;
+                                }
+                            }
                             if (crcCancelled || stopToken.stop_requested()) {
                                 FindClose(findHandle);
                                 return fail();
                             }
-                            if (!db.InsertFile(entry)) {
+                            if (!db.InsertFile(entry, profile)) {
                                 FindClose(findHandle);
                                 return fail();
                             }
                             frame.contentSize += entry.size;
                             ++fileCount;
+                            if (profile) ++profile->counts.files;
                         }
                         ++scannedFiles;
                     }
                     const auto total = scannedFiles + folderCount;
                     if (onProgress && (options_.enableScanFileDelay || total % kProgressReportItemInterval == 0)) {
-                        onProgress({scannedFiles, folderCount, fullPath});
+                        reportProgress({scannedFiles, folderCount, fullPath});
                     }
-                } while (FindNextFileW(findHandle, &findData));
+                } while (nextEntry());
                 FindClose(findHandle);
             }
         }
@@ -472,7 +553,7 @@ bool FileScanner::ScanFolder(const std::wstring& rootPath, std::int64_t diskId, 
         }
         const auto completedSize = frame.contentSize;
         const auto completedId = frame.id;
-        if (!db.UpdateFolderContentSize(completedId, completedSize)) return fail();
+        if (!db.UpdateFolderContentSize(completedId, completedSize, profile)) return fail();
         stack.pop_back();
         if (!stack.empty()) stack.back().contentSize += completedSize;
     }
@@ -485,7 +566,7 @@ bool FileScanner::ScanFolder(const std::wstring& rootPath, std::int64_t diskId, 
     result.archiveFolders = archiveFolderCount;
     result.elapsedMilliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now() - start).count();
-    if (onProgress) onProgress({scannedFiles, folderCount, rootPath});
+    reportProgress({scannedFiles, folderCount, rootPath});
     return true;
 }
 }

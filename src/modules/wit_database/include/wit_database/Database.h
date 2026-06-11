@@ -11,7 +11,13 @@
 #include <wit_types/FileEntry.h>
 #include "wit_types/FolderEntry.h"
 
+namespace wit::infra {
+struct ScanProfile;
+}
+
 namespace wit::storage {
+namespace infra = ::wit::infra;
+
 class Database {
 public:
     Database() = default;
@@ -49,9 +55,11 @@ public:
     int GetBrowserRootItemCount(const wit::core::BrowserLocation& location);
     std::vector<wit::core::BrowserItem> GetBrowserRootItemsPage(
         const wit::core::BrowserLocation& location, int offset, int limit);
-    [[nodiscard]] std::int64_t InsertFolder(const wit::core::FolderEntry& folder);
-    [[nodiscard]] bool UpdateFolderContentSize(std::int64_t folderId, std::uint64_t contentSize);
-    [[nodiscard]] bool InsertFile(const wit::core::FileEntry& file);
+    [[nodiscard]] std::int64_t InsertFolder(const wit::core::FolderEntry& folder,
+        infra::ScanProfile* profile = nullptr);
+    [[nodiscard]] bool UpdateFolderContentSize(std::int64_t folderId, std::uint64_t contentSize,
+        infra::ScanProfile* profile = nullptr);
+    [[nodiscard]] bool InsertFile(const wit::core::FileEntry& file, infra::ScanProfile* profile = nullptr);
     std::vector<wit::core::Catalog> GetCatalogs();
     int GetBrowserItemCount(const wit::core::BrowserLocation& location);
     std::vector<wit::core::FileEntry> GetBrowserItemsPage(const wit::core::BrowserLocation& location,

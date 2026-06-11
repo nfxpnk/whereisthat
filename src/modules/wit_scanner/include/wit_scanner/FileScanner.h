@@ -5,6 +5,10 @@
 #include <string>
 #include "wit_database/Database.h"
 
+namespace wit::infra {
+struct ScanProfile;
+}
+
 namespace wit::core {
 class FileScanner {
 public:
@@ -31,7 +35,7 @@ public:
     [[nodiscard]] bool ScanFolder(const std::wstring& rootPath, std::int64_t diskId, wit::storage::Database& db,
         const ProgressCallback& onProgress, Result& result, bool calculateCrc, bool manageTransaction = true,
         std::stop_token stopToken = {}, bool browseArchives = false,
-        const DiagnosticCallback& onDiagnostic = {});
+        const DiagnosticCallback& onDiagnostic = {}, wit::infra::ScanProfile* profile = nullptr);
 
 private:
     Options options_;

@@ -89,6 +89,9 @@
         <ClCompile Include="src\modules\wit_infra\src\Logging.cpp">
             <Filter>Production Sources</Filter>
         </ClCompile>
+        <ClCompile Include="src\modules\wit_infra\src\ScanProfiler.cpp">
+            <Filter>Production Sources</Filter>
+        </ClCompile>
         <ClCompile Include="src\modules\wit_infra\src\PathHelpers.cpp">
             <Filter>Production Sources</Filter>
         </ClCompile>

@@ -10,19 +10,13 @@
 
 namespace wit::ui {
 namespace {
-constexpr std::array<int, 6> kDriveControls{
-    IDC_MEDIA_DRIVE_1, IDC_MEDIA_DRIVE_2, IDC_MEDIA_DRIVE_3,
-    IDC_MEDIA_DRIVE_4, IDC_MEDIA_DRIVE_5, IDC_MEDIA_DRIVE_6
-};
 constexpr std::array<int, 3> kArchiveChildControls{
     IDC_MEDIA_ARCHIVE_DESCRIPTIONS_ONLY,
     IDC_MEDIA_SKIP_UNCHANGED_ARCHIVES,
     IDC_MEDIA_IMPORT_ARCHIVE_DESCRIPTIONS
 };
-constexpr int kSourceButtonSize = 42;
-constexpr int kSourceButtonGap = 6;
-constexpr int kSourceButtonLeft = 12;
-constexpr int kSourceButtonTop = 11;
+constexpr LPARAM kSourceIso = -1;
+constexpr LPARAM kSourceFolder = -2;
 constexpr COMDLG_FILTERSPEC kIsoFileTypes[] = {
     {L"ISO disk images (*.iso)", L"*.iso"},
     {L"All files (*.*)", L"*.*"}
@@ -57,7 +51,7 @@ bool IsDirectory(const std::wstring& path) {
 }
 
 bool IsSupportedDriveType(UINT type) {
-    return type == DRIVE_FIXED || type == DRIVE_REMOVABLE || type == DRIVE_CDROM;
+    return type == DRIVE_FIXED || type == DRIVE_REMOVABLE || type == DRIVE_CDROM || type == DRIVE_REMOTE;
 }
 
 std::wstring SourceName(const std::wstring& path) {
@@ -178,18 +172,18 @@ LRESULT AddNewDiskMediaDialog::OnInitDialog(UINT, WPARAM, LPARAM, BOOL&) {
     return TRUE;
 }
 
-LRESULT AddNewDiskMediaDialog::OnSelectDrive(WORD notifyCode, WORD id, HWND, BOOL&) {
-    if (notifyCode == BN_CLICKED) SelectDrive(id - IDC_MEDIA_DRIVE_1);
-    return 0;
-}
-
-LRESULT AddNewDiskMediaDialog::OnSelectFolder(WORD notifyCode, WORD, HWND, BOOL&) {
-    if (notifyCode == BN_CLICKED) SelectFolder();
-    return 0;
-}
-
-LRESULT AddNewDiskMediaDialog::OnSelectIso(WORD notifyCode, WORD, HWND, BOOL&) {
-    if (notifyCode == BN_CLICKED) SelectIso();
+LRESULT AddNewDiskMediaDialog::OnSourceChanged(WORD notifyCode, WORD, HWND, BOOL&) {
+    if (notifyCode == CBN_SELCHANGE) {
+        const auto selection = ::SendDlgItemMessageW(m_hWnd, IDC_MEDIA_SOURCE, CB_GETCURSEL, 0, 0);
+        if (selection == CB_ERR) {
+            ClearSelection();
+            return 0;
+        }
+        const auto source = ::SendDlgItemMessageW(m_hWnd, IDC_MEDIA_SOURCE, CB_GETITEMDATA, selection, 0);
+        if (source == kSourceIso) SelectIso();
+        else if (source == kSourceFolder) SelectFolder();
+        else SelectDrive(static_cast<int>(source));
+    }
     return 0;
 }
 
@@ -222,34 +216,37 @@ void AddNewDiskMediaDialog::Initialize() {
     ::CheckDlgButton(m_hWnd, IDC_MEDIA_SKIP_UNCHANGED_ARCHIVES, BST_CHECKED);
     ::EnableWindow(::GetDlgItem(m_hWnd, IDOK), FALSE);
     ::SetDlgItemTextW(m_hWnd, IDC_MEDIA_STATUS, L"No drive selected");
-    PopulateDriveButtons();
+    PopulateSourceChoices();
     PopulateCatalogChoices();
     PopulateDiskGroupChoices();
     UpdateArchiveOptions();
 }
 
-void AddNewDiskMediaDialog::PopulateDriveButtons() {
+void AddNewDiskMediaDialog::PopulateSourceChoices() {
     drives_.clear();
+    const auto combo = ::GetDlgItem(m_hWnd, IDC_MEDIA_SOURCE);
+    ::SendMessageW(combo, CB_RESETCONTENT, 0, 0);
     const auto available = GetLogicalDrives();
-    for (int index = 0; index < 26 && drives_.size() < kDriveControls.size(); ++index) {
+    for (int index = 0; index < 26; ++index) {
         if ((available & (1UL << index)) == 0) continue;
         std::wstring root{static_cast<wchar_t>(L'A' + index), L':', L'\\'};
         const auto type = GetDriveTypeW(root.c_str());
-        if (IsSupportedDriveType(type)) drives_.push_back(root);
-    }
-    for (std::size_t index = 0; index < kDriveControls.size(); ++index) {
-        const auto button = ::GetDlgItem(m_hWnd, kDriveControls[index]);
-        if (index < drives_.size()) {
-            const auto text = drives_[index].substr(0, 2);
-            ::SetWindowTextW(button, text.c_str());
-            ::ShowWindow(button, SW_SHOW);
-            ::EnableWindow(button, TRUE);
-        } else {
-            ::ShowWindow(button, SW_HIDE);
-            ::EnableWindow(button, FALSE);
+        if (!IsSupportedDriveType(type)) continue;
+        const auto driveIndex = drives_.size();
+        drives_.push_back(root);
+        const auto text = root.substr(0, 2);
+        const auto position = static_cast<int>(::SendMessageW(combo, CB_ADDSTRING, 0,
+            reinterpret_cast<LPARAM>(text.c_str())));
+        if (position >= 0) {
+            ::SendMessageW(combo, CB_SETITEMDATA, position, static_cast<LPARAM>(driveIndex));
         }
     }
-    LayoutSourceButtons();
+    const auto isoPosition = static_cast<int>(::SendMessageW(combo, CB_ADDSTRING, 0,
+        reinterpret_cast<LPARAM>(L"ISO image...")));
+    if (isoPosition >= 0) ::SendMessageW(combo, CB_SETITEMDATA, isoPosition, kSourceIso);
+    const auto folderPosition = static_cast<int>(::SendMessageW(combo, CB_ADDSTRING, 0,
+        reinterpret_cast<LPARAM>(L"Network/folder...")));
+    if (folderPosition >= 0) ::SendMessageW(combo, CB_SETITEMDATA, folderPosition, kSourceFolder);
 }
 
 void AddNewDiskMediaDialog::PopulateCatalogChoices() {
@@ -290,20 +287,6 @@ void AddNewDiskMediaDialog::PopulateDiskGroupChoices() {
     ::SendMessageW(combo, CB_SETCURSEL, 0, 0);
 }
 
-void AddNewDiskMediaDialog::LayoutSourceButtons() {
-    int left = kSourceButtonLeft;
-    for (std::size_t index = 0; index < drives_.size(); ++index) {
-        ::SetWindowPos(::GetDlgItem(m_hWnd, kDriveControls[index]), nullptr, left, kSourceButtonTop,
-            kSourceButtonSize, kSourceButtonSize, SWP_NOZORDER | SWP_NOACTIVATE);
-        left += kSourceButtonSize + kSourceButtonGap;
-    }
-    for (const int control : {IDC_MEDIA_ISO, IDC_MEDIA_NETWORK}) {
-        ::SetWindowPos(::GetDlgItem(m_hWnd, control), nullptr, left, kSourceButtonTop,
-            kSourceButtonSize, kSourceButtonSize, SWP_NOZORDER | SWP_NOACTIVATE);
-        left += kSourceButtonSize + kSourceButtonGap;
-    }
-}
-
 void AddNewDiskMediaDialog::UpdateArchiveOptions() {
     const auto enabled = ::IsDlgButtonChecked(m_hWnd, IDC_MEDIA_BROWSE_ARCHIVES) == BST_CHECKED;
     for (const auto control : kArchiveChildControls) {
@@ -313,7 +296,7 @@ void AddNewDiskMediaDialog::UpdateArchiveOptions() {
 
 void AddNewDiskMediaDialog::ClearSelection() {
     result_ = {};
-    ::CheckRadioButton(m_hWnd, IDC_MEDIA_DRIVE_1, IDC_MEDIA_NETWORK, 0);
+    ::SendDlgItemMessageW(m_hWnd, IDC_MEDIA_SOURCE, CB_SETCURSEL, static_cast<WPARAM>(-1), 0);
     ::SetDlgItemTextW(m_hWnd, IDC_MEDIA_NAME, L"");
     ::SetDlgItemTextW(m_hWnd, IDC_MEDIA_STATUS, L"No drive selected");
     UpdateConfirmEnabled();
@@ -344,7 +327,6 @@ bool AddNewDiskMediaDialog::ApplySource(MediaSourceKind kind, const std::wstring
 void AddNewDiskMediaDialog::SelectDrive(int index) {
     if (index < 0 || index >= static_cast<int>(drives_.size())) return;
     const auto& root = drives_[static_cast<std::size_t>(index)];
-    ::CheckRadioButton(m_hWnd, IDC_MEDIA_DRIVE_1, IDC_MEDIA_NETWORK, IDC_MEDIA_DRIVE_1 + index);
     if (!ApplySource(MediaSourceKind::Drive, root, root, L"Selected drive: " + root)) {
         ::MessageBoxW(m_hWnd, L"The selected drive is not accessible.", L"Add New Disk/Media",
             MB_OK | MB_ICONWARNING);
@@ -353,8 +335,10 @@ void AddNewDiskMediaDialog::SelectDrive(int index) {
 
 void AddNewDiskMediaDialog::SelectFolder() {
     std::wstring path;
-    if (!ChooseFolder(m_hWnd, path)) return;
-    ::CheckRadioButton(m_hWnd, IDC_MEDIA_DRIVE_1, IDC_MEDIA_NETWORK, IDC_MEDIA_NETWORK);
+    if (!ChooseFolder(m_hWnd, path)) {
+        ClearSelection();
+        return;
+    }
     if (!ApplySource(MediaSourceKind::Folder, path, path, L"Selected source: " + path)) {
         ::MessageBoxW(m_hWnd, L"The selected folder is not accessible.", L"Add New Disk/Media",
             MB_OK | MB_ICONWARNING);
@@ -363,9 +347,11 @@ void AddNewDiskMediaDialog::SelectFolder() {
 
 void AddNewDiskMediaDialog::SelectIso() {
     std::wstring path;
-    if (!ChooseIso(m_hWnd, path)) return;
-    ClearSelection();
-    ::CheckRadioButton(m_hWnd, IDC_MEDIA_DRIVE_1, IDC_MEDIA_NETWORK, IDC_MEDIA_ISO);
+    if (!ChooseIso(m_hWnd, path)) {
+        ClearSelection();
+        return;
+    }
+    result_ = {};
     ::SetDlgItemTextW(m_hWnd, IDC_MEDIA_STATUS, L"Mounting selected ISO image...");
     ::UpdateWindow(m_hWnd);
     std::wstring mountedRoot;

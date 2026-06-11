@@ -17,6 +17,8 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <optional>
+#include <regex>
 #include <string>
 #include <vector>
 
@@ -45,6 +47,49 @@ bool WaitForCompletion(wit::app::ScanId scanId) {
         Sleep(1);
     }
     return false;
+}
+
+std::filesystem::path ScanProfileDirectory() {
+    std::wstring modulePath(MAX_PATH, L'\0');
+    const auto length = GetModuleFileNameW(nullptr, modulePath.data(), static_cast<DWORD>(modulePath.size()));
+    modulePath.resize(length);
+    return std::filesystem::path(modulePath).parent_path() / L"scan-profiles";
+}
+
+std::optional<std::filesystem::path> FindScanProfile(wit::app::ScanId scanId) {
+    const auto directory = ScanProfileDirectory();
+    if (!std::filesystem::exists(directory)) return std::nullopt;
+    const auto suffix = L"-" + std::to_wstring(GetCurrentProcessId()) + L"-" +
+        std::to_wstring(static_cast<std::uint64_t>(scanId)) + L".json";
+    std::optional<std::filesystem::path> newest;
+    for (const auto& entry : std::filesystem::directory_iterator(directory)) {
+        if (!entry.is_regular_file()) continue;
+        const auto name = entry.path().filename().wstring();
+        if (name.size() < suffix.size() || name.compare(name.size() - suffix.size(), suffix.size(), suffix) != 0) {
+            continue;
+        }
+        if (!newest || std::filesystem::last_write_time(entry) > std::filesystem::last_write_time(*newest)) {
+            newest = entry.path();
+        }
+    }
+    return newest;
+}
+
+std::string ReadTextFile(const std::filesystem::path& path) {
+    std::ifstream input(path, std::ios::binary);
+    return {std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
+}
+
+std::uint64_t JsonUint(const std::string& json, const std::string& key) {
+    const std::regex pattern("\"" + key + "\"\\s*:\\s*([0-9]+)");
+    std::smatch match;
+    return std::regex_search(json, match, pattern) ? std::stoull(match[1].str()) : 0;
+}
+
+std::string JsonString(const std::string& json, const std::string& key) {
+    const std::regex pattern("\"" + key + "\"\\s*:\\s*\"([^\"]*)\"");
+    std::smatch match;
+    return std::regex_search(json, match, pattern) ? match[1].str() : std::string{};
 }
 
 class AppSettingsGuard {
@@ -351,6 +396,19 @@ TEST(StorageSmoke, CatalogDatabaseScannerAndCoordinatorIntegration) {
         EXPECT_TRUE(WaitForCompletion(completedId)) << "coordinator completed result notification";
         auto completed = coordinator.TakeResult(completedId);
         EXPECT_TRUE(completed && completed->outcome == wit::app::ScanOutcome::Completed && completed->pending) << "coordinator completed result owns staged database";
+        const auto completedProfilePath = FindScanProfile(completedId);
+        ASSERT_TRUE(completedProfilePath) << "completed scan writes profile";
+        const auto completedProfile = ReadTextFile(*completedProfilePath);
+        EXPECT_EQ(JsonUint(completedProfile, "schemaVersion"), 1u) << "profile schema version";
+        EXPECT_EQ(JsonString(completedProfile, "result"), "completed") << "completed profile result";
+        EXPECT_GT(JsonUint(completedProfile, "total"), 0u) << "profile total timing";
+        EXPECT_EQ(JsonUint(completedProfile, "files"), 1u) << "profile file count matches fixture";
+        EXPECT_EQ(JsonUint(completedProfile, "prepareInsertFile"), JsonUint(completedProfile, "dbInsertFileCalls"))
+            << "current scanner prepares one insert-file statement per file";
+        EXPECT_EQ(JsonUint(completedProfile, "stepInsertFile"), JsonUint(completedProfile, "dbInsertFileCalls"))
+            << "current scanner steps one insert-file statement per file";
+        EXPECT_EQ(JsonUint(completedProfile, "finalizeInsertFile"), JsonUint(completedProfile, "dbInsertFileCalls"))
+            << "current scanner finalizes one insert-file statement per file";
         EXPECT_TRUE(!coordinator.TakeResult(completedId)) << "coordinator result consumption is exactly once";
         coordinator.RetireWorker(completedId);
         EXPECT_TRUE(!coordinator.TakeResult(0)) << "invalid completion id has no consumable result";
@@ -368,6 +426,9 @@ TEST(StorageSmoke, CatalogDatabaseScannerAndCoordinatorIntegration) {
         EXPECT_TRUE(WaitForCompletion(cancelledId)) << "coordinator cancelled result notification";
         auto cancelled = coordinator.TakeResult(cancelledId);
         EXPECT_TRUE(cancelled && cancelled->outcome == wit::app::ScanOutcome::Cancelled && !cancelled->pending) << "coordinator cancellation does not publish pending state";
+        const auto cancelledProfilePath = FindScanProfile(cancelledId);
+        ASSERT_TRUE(cancelledProfilePath) << "cancelled scan writes profile";
+        EXPECT_EQ(JsonString(ReadTextFile(*cancelledProfilePath), "result"), "cancelled") << "cancelled profile result";
         coordinator.RetireWorker(cancelledId);
 
         wit::app::ScanId failedId{};
@@ -377,6 +438,9 @@ TEST(StorageSmoke, CatalogDatabaseScannerAndCoordinatorIntegration) {
         EXPECT_TRUE(WaitForCompletion(failedId)) << "coordinator failed result notification";
         auto failed = coordinator.TakeResult(failedId);
         EXPECT_TRUE(failed && failed->outcome == wit::app::ScanOutcome::Failed && !failed->pending) << "coordinator failure does not publish pending state";
+        const auto failedProfilePath = FindScanProfile(failedId);
+        ASSERT_TRUE(failedProfilePath) << "failed scan writes profile";
+        EXPECT_EQ(JsonString(ReadTextFile(*failedProfilePath), "result"), "failed") << "failed profile result";
         coordinator.RetireWorker(failedId);
 
         const auto deliveredBeforeDetach = completedScans.size();

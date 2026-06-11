@@ -47,14 +47,7 @@ public:
 
     BEGIN_MSG_MAP(AddNewDiskMediaDialog)
         MESSAGE_HANDLER(WM_INITDIALOG, OnInitDialog)
-        COMMAND_ID_HANDLER(IDC_MEDIA_DRIVE_1, OnSelectDrive)
-        COMMAND_ID_HANDLER(IDC_MEDIA_DRIVE_2, OnSelectDrive)
-        COMMAND_ID_HANDLER(IDC_MEDIA_DRIVE_3, OnSelectDrive)
-        COMMAND_ID_HANDLER(IDC_MEDIA_DRIVE_4, OnSelectDrive)
-        COMMAND_ID_HANDLER(IDC_MEDIA_DRIVE_5, OnSelectDrive)
-        COMMAND_ID_HANDLER(IDC_MEDIA_DRIVE_6, OnSelectDrive)
-        COMMAND_ID_HANDLER(IDC_MEDIA_NETWORK, OnSelectFolder)
-        COMMAND_ID_HANDLER(IDC_MEDIA_ISO, OnSelectIso)
+        COMMAND_ID_HANDLER(IDC_MEDIA_SOURCE, OnSourceChanged)
         COMMAND_ID_HANDLER(IDC_MEDIA_CATALOG, OnCatalogChanged)
         COMMAND_ID_HANDLER(IDC_MEDIA_BROWSE_ARCHIVES, OnToggleArchives)
         COMMAND_ID_HANDLER(IDOK, OnConfirm)
@@ -68,18 +61,15 @@ private:
     wit::core::CatalogId preferredCatalogId_{};
 
     LRESULT OnInitDialog(UINT message, WPARAM wparam, LPARAM lparam, BOOL& handled);
-    LRESULT OnSelectDrive(WORD notifyCode, WORD id, HWND control, BOOL& handled);
-    LRESULT OnSelectFolder(WORD notifyCode, WORD id, HWND control, BOOL& handled);
-    LRESULT OnSelectIso(WORD notifyCode, WORD id, HWND control, BOOL& handled);
+    LRESULT OnSourceChanged(WORD notifyCode, WORD id, HWND control, BOOL& handled);
     LRESULT OnCatalogChanged(WORD notifyCode, WORD id, HWND control, BOOL& handled);
     LRESULT OnToggleArchives(WORD notifyCode, WORD id, HWND control, BOOL& handled);
     LRESULT OnConfirm(WORD notifyCode, WORD id, HWND control, BOOL& handled);
     LRESULT OnCancel(WORD notifyCode, WORD id, HWND control, BOOL& handled);
     void Initialize();
-    void PopulateDriveButtons();
+    void PopulateSourceChoices();
     void PopulateCatalogChoices();
     void PopulateDiskGroupChoices();
-    void LayoutSourceButtons();
     void UpdateArchiveOptions();
     void UpdateConfirmEnabled();
     void SelectDrive(int index);

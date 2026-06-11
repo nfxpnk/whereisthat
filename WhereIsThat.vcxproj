@@ -66,6 +66,7 @@ copy /Y "$(ProjectDir)third_party\libarchive\bin\*.dll" "$(OutDir)"</Command>
         <ClCompile Include="src\app\wit_win32\src\DpiHelper.cpp"/>
         <ClCompile Include="src\modules\wit_infra\src\FileEntry.cpp"/>
         <ClCompile Include="src\modules\wit_infra\src\Logging.cpp"/>
+        <ClCompile Include="src\modules\wit_infra\src\ScanProfiler.cpp"/>
         <ClCompile Include="src\app\wit_gui\src\BrowserController.cpp"/>
         <ClCompile Include="src\modules\wit_catalog\src\Catalog.cpp"/>
         <ClCompile Include="src\modules\wit_catalog\src\CatalogSession.cpp"/>
@@ -126,6 +127,7 @@ copy /Y "$(ProjectDir)third_party\libarchive\bin\*.dll" "$(OutDir)"</Command>
         <ClInclude Include="src\modules\wit_extractors\include\wit_extractors\ExtractorRegistry.h"/>
         <ClInclude Include="src\modules\wit_infra\include\wit_infra\Result.h"/>
         <ClInclude Include="src\modules\wit_infra\include\wit_infra\Logging.h"/>
+        <ClInclude Include="src\modules\wit_infra\include\wit_infra\ScanProfiler.h"/>
         <ClInclude Include="src\modules\wit_infra\include\wit_infra\ScopeGuard.h"/>
         <ClInclude Include="src\modules\wit_infra\include\wit_infra\StringUtils.h"/>
         <ClInclude Include="src\modules\wit_scanner\include\wit_scanner\Crc32.h"/>

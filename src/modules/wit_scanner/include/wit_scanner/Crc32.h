@@ -23,11 +23,13 @@ private:
 [[nodiscard]] std::optional<std::uint32_t> CalculateFileCrc32(
     const std::filesystem::path& path,
     std::stop_token stopToken = {},
-    bool* cancelled = nullptr);
+    bool* cancelled = nullptr,
+    std::uint64_t* bytesRead = nullptr);
 
 [[nodiscard]] std::optional<std::wstring> CalculateFileCrc32Text(
     const std::filesystem::path& path,
     std::stop_token stopToken = {},
-    bool* cancelled = nullptr);
+    bool* cancelled = nullptr,
+    std::uint64_t* bytesRead = nullptr);
 
 }

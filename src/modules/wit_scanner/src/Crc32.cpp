@@ -83,8 +83,10 @@ std::wstring FormatCrc32(std::uint32_t crc) {
 std::optional<std::uint32_t> CalculateFileCrc32(
     const std::filesystem::path& path,
     std::stop_token stopToken,
-    bool* cancelled) {
+    bool* cancelled,
+    std::uint64_t* bytesRead) {
     if (cancelled) *cancelled = false;
+    if (bytesRead) *bytesRead = 0;
     const HANDLE file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
         kFileFlags, nullptr);
     if (file == INVALID_HANDLE_VALUE) return std::nullopt;
@@ -104,6 +106,7 @@ std::optional<std::uint32_t> CalculateFileCrc32(
             break;
         }
         if (count == 0) break;
+        if (bytesRead) *bytesRead += count;
         crc.Update(std::span<const std::byte>{buffer.data(), static_cast<std::size_t>(count)});
     }
     CloseHandle(file);
@@ -114,8 +117,9 @@ std::optional<std::uint32_t> CalculateFileCrc32(
 std::optional<std::wstring> CalculateFileCrc32Text(
     const std::filesystem::path& path,
     std::stop_token stopToken,
-    bool* cancelled) {
-    const auto crc = CalculateFileCrc32(path, stopToken, cancelled);
+    bool* cancelled,
+    std::uint64_t* bytesRead) {
+    const auto crc = CalculateFileCrc32(path, stopToken, cancelled, bytesRead);
     if (!crc) return std::nullopt;
     return FormatCrc32(*crc);
 }

@@ -79,6 +79,7 @@ copy /Y "$(ProjectDir)third_party\libarchive\bin\*.dll" "$(OutDir)"</Command>
         <ClCompile Include="src\modules\wit_infra\src\FileEntry.cpp" />
         <ClCompile Include="src\modules\wit_infra\src\AppSettings.cpp" />
         <ClCompile Include="src\modules\wit_infra\src\Logging.cpp" />
+        <ClCompile Include="src\modules\wit_infra\src\ScanProfiler.cpp" />
         <ClCompile Include="src\modules\wit_infra\src\PathHelpers.cpp" />
         <ClCompile Include="src\modules\wit_infra\src\StringUtils.cpp" />
         <ClCompile Include="src\modules\wit_infra\src\VolumeInfo.cpp" />

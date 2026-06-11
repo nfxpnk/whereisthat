@@ -2,6 +2,7 @@
 #include "wit_database/Database.h"
 #include "wit_database/SQLiteStatement.h"
 #include <wit_infra/Logging.h>
+#include <wit_infra/ScanProfiler.h>
 #include <wit_infra/VolumeInfo.h>
 #include <wit_infra/Win32Helpers.h>
 #include "third_party/sqlite/sqlite3.h"
@@ -11,6 +12,7 @@
 #include <chrono>
 #include <cstdint>
 #include <format>
+#include <optional>
 #include <string>
 #include <thread>
 #include <utility>
@@ -642,8 +644,12 @@ std::vector<wit::core::Disk> Database::GetDisksPage(int offset, int limit) {
     return disks;
 }
 
-std::int64_t Database::InsertFolder(const wit::core::FolderEntry& folder) {
+std::int64_t Database::InsertFolder(const wit::core::FolderEntry& folder, wit::infra::ScanProfile* profile) {
+    if (profile) ++profile->counts.dbInsertFolderCalls;
+    const auto timer = profile ? std::make_optional<wit::infra::ScopedScanTimer>(
+        profile->timingsNs.dbInsertFolder) : std::nullopt;
     if (!editable_) return 0;
+    if (profile) ++profile->sqlite.prepareInsertFolder;
     SQLiteStatement statement(connection_.Raw(),
         "INSERT INTO folders(disk_id,parent_folder_id,path,name,created_at,modified_at,accessed_at,attributes,content_size,entry_type)"
         " VALUES(?,?,?,?,?,?,?,?,?,?);");
@@ -657,19 +663,34 @@ std::int64_t Database::InsertFolder(const wit::core::FolderEntry& folder) {
     statement.BindInt64(8, folder.attributes);
     statement.BindInt64(9, static_cast<long long>(folder.contentSize));
     statement.BindText(10, wit::core::FolderEntryTypeValue(folder.entryType));
-    return sqlite3_step(statement.Raw()) == SQLITE_DONE ? sqlite3_last_insert_rowid(connection_.Raw()) : 0;
+    if (profile) ++profile->sqlite.stepInsertFolder;
+    const auto success = sqlite3_step(statement.Raw()) == SQLITE_DONE;
+    if (profile) ++profile->sqlite.finalizeInsertFolder;
+    return success ? sqlite3_last_insert_rowid(connection_.Raw()) : 0;
 }
 
-bool Database::UpdateFolderContentSize(std::int64_t folderId, std::uint64_t contentSize) {
+bool Database::UpdateFolderContentSize(std::int64_t folderId, std::uint64_t contentSize,
+    wit::infra::ScanProfile* profile) {
+    if (profile) ++profile->counts.dbUpdateFolderContentSizeCalls;
+    const auto timer = profile ? std::make_optional<wit::infra::ScopedScanTimer>(
+        profile->timingsNs.dbUpdateFolderContentSize) : std::nullopt;
     if (!editable_) return false;
+    if (profile) ++profile->sqlite.prepareUpdateFolderContentSize;
     SQLiteStatement statement(connection_.Raw(), "UPDATE folders SET content_size=? WHERE id=?;");
     statement.BindInt64(1, static_cast<long long>(contentSize));
     statement.BindInt64(2, folderId);
-    return sqlite3_step(statement.Raw()) == SQLITE_DONE && sqlite3_changes(connection_.Raw()) == 1;
+    if (profile) ++profile->sqlite.stepUpdateFolderContentSize;
+    const auto success = sqlite3_step(statement.Raw()) == SQLITE_DONE && sqlite3_changes(connection_.Raw()) == 1;
+    if (profile) ++profile->sqlite.finalizeUpdateFolderContentSize;
+    return success;
 }
 
-bool Database::InsertFile(const wit::core::FileEntry& file) {
+bool Database::InsertFile(const wit::core::FileEntry& file, wit::infra::ScanProfile* profile) {
+    if (profile) ++profile->counts.dbInsertFileCalls;
+    const auto timer = profile ? std::make_optional<wit::infra::ScopedScanTimer>(
+        profile->timingsNs.dbInsertFile) : std::nullopt;
     if (!editable_) return false;
+    if (profile) ++profile->sqlite.prepareInsertFile;
     SQLiteStatement statement(connection_.Raw(),
         "INSERT INTO files(disk_id,folder_id,name,description,extension,crc,size,created_at,modified_at,accessed_at,attributes)"
         " VALUES(?,?,?,?,?,?,?,?,?,?,?);");
@@ -684,7 +705,10 @@ bool Database::InsertFile(const wit::core::FileEntry& file) {
     statement.BindInt64(9, file.modifiedAt);
     statement.BindInt64(10, file.accessedAt);
     statement.BindInt64(11, file.attributes);
-    return sqlite3_step(statement.Raw()) == SQLITE_DONE;
+    if (profile) ++profile->sqlite.stepInsertFile;
+    const auto success = sqlite3_step(statement.Raw()) == SQLITE_DONE;
+    if (profile) ++profile->sqlite.finalizeInsertFile;
+    return success;
 }
 
 std::vector<wit::core::Catalog> Database::GetCatalogs() {

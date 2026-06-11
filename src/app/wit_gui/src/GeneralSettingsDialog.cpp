@@ -54,6 +54,7 @@ bool GeneralSettingsDialog::Show(HWND owner, const wit::platform::AppSettings& c
     initialPage_ = initialPage;
     applyHandler_ = std::move(applyHandler);
     if (m_hWnd) {
+        LoadSettingsIntoControls(current, true);
         SelectPage(initialPage);
         ShowWindow(IsIconic() ? SW_RESTORE : SW_SHOW);
         SetForegroundWindow(m_hWnd);
@@ -95,34 +96,16 @@ LRESULT GeneralSettingsDialog::OnInitDialog(UINT, WPARAM, LPARAM, BOOL&) {
     SetWindowTextW(L"Settings");
     CreatePages();
 
-    SendMessageW(Control(IDC_SHOW_STATUS_BAR), BM_SETCHECK,
-        settings_.showStatusBar ? BST_CHECKED : BST_UNCHECKED, 0);
-    SendMessageW(Control(IDC_SHOW_TOOLBAR), BM_SETCHECK,
-        settings_.showToolbar ? BST_CHECKED : BST_UNCHECKED, 0);
-    SendMessageW(Control(IDC_ENABLE_SCAN_FILE_DELAY), BM_SETCHECK,
-        settings_.enableScanFileDelay ? BST_CHECKED : BST_UNCHECKED, 0);
-
     const auto formatCombo = Control(IDC_DATE_TIME_FORMAT);
     SendMessageW(formatCombo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(kUseWindowsDefaultLabel));
     for (const auto* format : kCommonDateTimeFormats) {
         SendMessageW(formatCombo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(format));
     }
-    const auto* visibleFormat = settings_.dateTimeFormat.empty()
-        ? kUseWindowsDefaultLabel : settings_.dateTimeFormat.c_str();
-    if (SendMessageW(formatCombo, CB_SELECTSTRING, static_cast<WPARAM>(-1),
-        reinterpret_cast<LPARAM>(visibleFormat)) == CB_ERR) {
-        ::SetWindowTextW(Control(IDC_DATE_TIME_FORMAT), visibleFormat);
-    }
-    UpdateDateTimeFormatSample();
-
-    const auto splitterPosition = std::format(L"{}", settings_.mainSplitterPosition);
-    ::SetWindowTextW(Control(IDC_MAIN_SPLITTER_POSITION), splitterPosition.c_str());
-    ::SetWindowTextW(Control(IDC_LAST_OPENED_CATALOG), settings_.lastCatalogPath.c_str());
+    LoadSettingsIntoControls(settings_, false);
 
     PopulateTree();
     SelectPage(initialPage_);
     ::SetFocus(GetDlgItem(IDC_SETTINGS_TREE));
-    SetApplyEnabled(false);
     initializing_ = false;
     CenterWindow(launchOwner_);
     return FALSE;
@@ -264,6 +247,50 @@ void GeneralSettingsDialog::ShowPage(Page page) {
     SetDlgItemTextW(IDC_SETTINGS_HEADER_TITLE, PageTitle(page));
     ::ShowWindow(generalPage_.m_hWnd, showGeneral ? SW_SHOW : SW_HIDE);
     ::ShowWindow(userInterfacePage_.m_hWnd, showUserInterface ? SW_SHOW : SW_HIDE);
+}
+
+void GeneralSettingsDialog::LoadSettingsIntoControls(
+    const wit::platform::AppSettings& settings, bool preservePendingEdits) {
+    initializing_ = true;
+
+    wit::platform::AppSettings currentControls;
+    const bool haveControlSettings = preservePendingEdits;
+    if (haveControlSettings) (void)TryReadControls(currentControls, false);
+
+    if (!preservePendingEdits || !haveControlSettings || currentControls.showStatusBar == settings_.showStatusBar) {
+        SendMessageW(Control(IDC_SHOW_STATUS_BAR), BM_SETCHECK,
+            settings.showStatusBar ? BST_CHECKED : BST_UNCHECKED, 0);
+    }
+    if (!preservePendingEdits || !haveControlSettings || currentControls.showToolbar == settings_.showToolbar) {
+        SendMessageW(Control(IDC_SHOW_TOOLBAR), BM_SETCHECK,
+            settings.showToolbar ? BST_CHECKED : BST_UNCHECKED, 0);
+    }
+    if (!preservePendingEdits || !haveControlSettings ||
+        currentControls.enableScanFileDelay == settings_.enableScanFileDelay) {
+        SendMessageW(Control(IDC_ENABLE_SCAN_FILE_DELAY), BM_SETCHECK,
+            settings.enableScanFileDelay ? BST_CHECKED : BST_UNCHECKED, 0);
+    }
+    if (!preservePendingEdits || !haveControlSettings || currentControls.dateTimeFormat == settings_.dateTimeFormat) {
+        SetDateTimeFormatControl(settings.dateTimeFormat);
+    }
+
+    const auto splitterPosition = std::format(L"{}", settings.mainSplitterPosition);
+    ::SetWindowTextW(Control(IDC_MAIN_SPLITTER_POSITION), splitterPosition.c_str());
+    ::SetWindowTextW(Control(IDC_LAST_OPENED_CATALOG), settings.lastCatalogPath.c_str());
+
+    settings_ = settings;
+    UpdateDateTimeFormatSample();
+    initializing_ = false;
+    MarkDirtyIfChanged();
+}
+
+void GeneralSettingsDialog::SetDateTimeFormatControl(const std::wstring& format) {
+    const auto formatCombo = Control(IDC_DATE_TIME_FORMAT);
+    const auto* visibleFormat = format.empty() ? kUseWindowsDefaultLabel : format.c_str();
+    if (SendMessageW(formatCombo, CB_SELECTSTRING, static_cast<WPARAM>(-1),
+        reinterpret_cast<LPARAM>(visibleFormat)) == CB_ERR) {
+        ::SetWindowTextW(formatCombo, visibleFormat);
+    }
 }
 
 bool GeneralSettingsDialog::TryReadControls(wit::platform::AppSettings& settings, bool showValidation) {

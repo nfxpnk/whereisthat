@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <format>
 #include <fstream>
+#include <iterator>
 #include <string>
 #include <vector>
 #include "resource.h"
@@ -88,6 +89,12 @@ HWND WaitForWindow(DWORD processId, const wchar_t* className, const wchar_t* tit
     return nullptr;
 }
 
+HWND WaitForMainWindow(DWORD processId) {
+    if (const HWND window = WaitForWindow(processId, L"WhereIsThatMainFrame", L"Where Is That?")) return window;
+    if (const HWND window = WaitForWindow(processId, nullptr, L"Where Is That?")) return window;
+    return WaitForWindow(processId, L"WhereIsThatMainFrame", nullptr);
+}
+
 std::filesystem::path TestExecutableDirectory() {
     std::wstring path(MAX_PATH, L'\0');
     const DWORD length = GetModuleFileNameW(nullptr, path.data(), static_cast<DWORD>(path.size()));
@@ -97,6 +104,20 @@ std::filesystem::path TestExecutableDirectory() {
 
 std::filesystem::path AppExecutablePath() {
     return TestExecutableDirectory() / L"WhereIsThat.exe";
+}
+
+std::filesystem::path StartupCatalogPath() {
+    std::vector<std::filesystem::path> starts{std::filesystem::current_path(), TestExecutableDirectory()};
+    for (auto start : starts) {
+        start = std::filesystem::absolute(start);
+        while (!start.empty()) {
+            const auto path = start / L"tools" / L"catalog-test" / L"fake-search-catalog.sqlite";
+            if (std::filesystem::exists(path)) return path;
+            if (start == start.root_path()) break;
+            start = start.parent_path();
+        }
+    }
+    return {};
 }
 
 std::filesystem::path ArtifactPath(const wchar_t* fileName) {
@@ -263,6 +284,45 @@ private:
     HANDLE handle_{};
 };
 
+class SettingsFileGuard {
+public:
+    SettingsFileGuard() : path_(TestExecutableDirectory() / L"settings.ini") {
+        if (std::filesystem::exists(path_)) {
+            hadOriginal_ = true;
+            std::ifstream input(path_, std::ios::binary);
+            original_ = std::vector<char>(std::istreambuf_iterator<char>(input), {});
+        }
+
+        std::ofstream output(path_, std::ios::binary | std::ios::trunc);
+        output << "[General]\r\n"
+            << "ShowStatusBar=1\r\n"
+            << "ShowToolbar=1\r\n"
+            << "EnableScanFileDelay=0\r\n"
+            << "MainSplitterPosition=360\r\n"
+            << "DateTimeFormat=\r\n"
+            << "LastCatalogPath=\r\n";
+    }
+
+    ~SettingsFileGuard() {
+        if (!hadOriginal_) {
+            std::error_code ignored;
+            std::filesystem::remove(path_, ignored);
+            return;
+        }
+
+        std::ofstream output(path_, std::ios::binary | std::ios::trunc);
+        output.write(original_.data(), static_cast<std::streamsize>(original_.size()));
+    }
+
+    SettingsFileGuard(const SettingsFileGuard&) = delete;
+    SettingsFileGuard& operator=(const SettingsFileGuard&) = delete;
+
+private:
+    std::filesystem::path path_;
+    std::vector<char> original_;
+    bool hadOriginal_{};
+};
+
 class AppProcessGuard {
 public:
     explicit AppProcessGuard(HANDLE process) : process_(process) {}
@@ -281,13 +341,17 @@ private:
 
 }
 
-TEST(DISABLED_SettingsVisual, OpensAppSettingsAndCapturesScreenshots) {
+TEST(SettingsVisual, OpensAppSettingsAndCapturesScreenshots) {
     const auto appPath = AppExecutablePath();
     if (!std::filesystem::exists(appPath)) {
         GTEST_SKIP() << "Build WhereIsThat.exe before running this visual smoke test";
     }
 
-    std::wstring commandLine = std::format(L"\"{}\"", appPath.wstring());
+    const auto startupCatalogPath = StartupCatalogPath();
+    SettingsFileGuard settingsFile;
+    std::wstring commandLine = startupCatalogPath.empty()
+        ? std::format(L"\"{}\"", appPath.wstring())
+        : std::format(L"\"{}\" \"{}\"", appPath.wstring(), startupCatalogPath.wstring());
     STARTUPINFOW startupInfo{};
     startupInfo.cb = sizeof(startupInfo);
     PROCESS_INFORMATION processInfo{};
@@ -297,7 +361,7 @@ TEST(DISABLED_SettingsVisual, OpensAppSettingsAndCapturesScreenshots) {
     ProcessHandle thread(processInfo.hThread);
     AppProcessGuard appGuard(processInfo.hProcess);
 
-    HWND mainWindow = WaitForWindow(processInfo.dwProcessId, L"WhereIsThatMainFrame", L"Where Is That?");
+    HWND mainWindow = WaitForMainWindow(processInfo.dwProcessId);
     ASSERT_NE(mainWindow, nullptr);
     ShowWindow(mainWindow, SW_RESTORE);
     SetForegroundWindow(mainWindow);
@@ -419,4 +483,5 @@ TEST(DISABLED_SettingsVisual, OpensAppSettingsAndCapturesScreenshots) {
 
     PostMessageW(settingsWindow, WM_CLOSE, 0, 0);
     PostMessageW(mainWindow, WM_CLOSE, 0, 0);
+    EXPECT_EQ(WaitForSingleObject(processInfo.hProcess, 10000), WAIT_OBJECT_0);
 }

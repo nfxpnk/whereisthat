@@ -5,7 +5,9 @@
 #include <atlbase.h>
 #include <atlapp.h>
 #include <chrono>
+#include <deque>
 #include <future>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -17,6 +19,8 @@
 extern WTL::CAppModule _Module;
 
 namespace {
+
+constexpr UINT kRunDialogActionMessage = WM_APP + 31;
 
 class WtlModuleGuard {
 public:
@@ -47,17 +51,19 @@ public:
         finishedFuture_ = finished_.get_future();
         thread_ = std::thread([this]() {
             threadId = GetCurrentThreadId();
+            MSG probe{};
+            PeekMessageW(&probe, nullptr, WM_USER, WM_USER, PM_NOREMOVE);
             started_.set_value();
             wit::ui::GeneralSettingsDialog dialog;
             if (dialog.Show(nullptr, initial_, wit::ui::GeneralSettingsDialog::Page::General,
-                [this](const wit::platform::AppSettings& settings) {
-                    std::lock_guard lock(mutex);
-                    appliedSettings.push_back(settings);
-                    return wit::ui::GeneralSettingsDialog::ApplyResult::Applied;
-                })) {
+                [this](const wit::platform::AppSettings& settings) { return Apply(settings); })) {
                 const HWND dialogWindow = dialog.WindowHandle();
                 MSG message{};
                 while (IsWindow(dialogWindow) && GetMessageW(&message, nullptr, 0, 0) > 0) {
+                    if (message.message == kRunDialogActionMessage) {
+                        RunNextAction(dialog);
+                        continue;
+                    }
                     if (!dialog.PreTranslateMessage(&message)) {
                         TranslateMessage(&message);
                         DispatchMessageW(&message);
@@ -80,6 +86,28 @@ public:
         return finishedFuture_.wait_for(timeout);
     }
 
+    template <typename Action>
+    void Invoke(Action action) {
+        auto complete = std::make_shared<std::promise<void>>();
+        auto finished = complete->get_future();
+        {
+            std::lock_guard lock(actionsMutex_);
+            actions_.emplace_back([action = std::move(action), complete](wit::ui::GeneralSettingsDialog& dialog) {
+                action(dialog);
+                complete->set_value();
+            });
+        }
+        PostThreadMessageW(threadId, kRunDialogActionMessage, 0, 0);
+        EXPECT_EQ(finished.wait_for(std::chrono::seconds(5)), std::future_status::ready);
+    }
+
+    void ShowAgain(const wit::platform::AppSettings& settings, wit::ui::GeneralSettingsDialog::Page page) {
+        Invoke([this, settings, page](wit::ui::GeneralSettingsDialog& dialog) {
+            EXPECT_TRUE(dialog.Show(nullptr, settings, page,
+                [this](const wit::platform::AppSettings& applied) { return Apply(applied); }));
+        });
+    }
+
     void Join() {
         if (thread_.joinable()) thread_.join();
     }
@@ -93,12 +121,31 @@ public:
     DWORD threadId{};
 
 private:
+    wit::ui::GeneralSettingsDialog::ApplyResult Apply(const wit::platform::AppSettings& settings) {
+        std::lock_guard lock(mutex);
+        appliedSettings.push_back(settings);
+        return wit::ui::GeneralSettingsDialog::ApplyResult::Applied;
+    }
+
+    void RunNextAction(wit::ui::GeneralSettingsDialog& dialog) {
+        std::function<void(wit::ui::GeneralSettingsDialog&)> action;
+        {
+            std::lock_guard lock(actionsMutex_);
+            if (actions_.empty()) return;
+            action = std::move(actions_.front());
+            actions_.pop_front();
+        }
+        action(dialog);
+    }
+
     wit::platform::AppSettings initial_;
     std::promise<void> started_;
     std::promise<void> finished_;
     std::future<void> startedFuture_;
     std::future<void> finishedFuture_;
     std::thread thread_;
+    std::mutex actionsMutex_;
+    std::deque<std::function<void(wit::ui::GeneralSettingsDialog&)>> actions_;
 };
 
 BOOL CALLBACK FindThreadWindow(HWND window, LPARAM context) {
@@ -331,5 +378,53 @@ TEST(GeneralSettingsDialog, OkAppliesPendingEditableChangesOnce) {
         EXPECT_EQ(run.appliedSettings.back().mainSplitterPosition, initial.mainSplitterPosition);
         EXPECT_EQ(run.appliedSettings.back().lastCatalogPath, initial.lastCatalogPath);
     }
+    run.Join();
+}
+
+TEST(GeneralSettingsDialog, ReopeningModelessDialogRefreshesUntouchedExternalSettings) {
+    WtlModuleGuard module;
+    ASSERT_TRUE(module.Initialized());
+
+    const auto initial = TestSettings();
+    DialogRun run(initial);
+    run.Start();
+
+    ASSERT_EQ(run.WaitStarted(std::chrono::seconds(5)), std::future_status::ready);
+    HWND dialog = WaitForSettingsWindow(run.threadId);
+    ASSERT_NE(dialog, nullptr);
+
+    ClickButton(dialog, IDC_ENABLE_SCAN_FILE_DELAY);
+    EXPECT_TRUE(IsApplyEnabled(dialog));
+
+    auto externallyUpdated = initial;
+    externallyUpdated.showStatusBar = false;
+    externallyUpdated.showToolbar = true;
+    run.ShowAgain(externallyUpdated, wit::ui::GeneralSettingsDialog::Page::UserInterface);
+
+    EXPECT_EQ(SendMessageW(Control(dialog, IDC_ENABLE_SCAN_FILE_DELAY), BM_GETCHECK, 0, 0), BST_CHECKED);
+    EXPECT_EQ(SendMessageW(Control(dialog, IDC_SHOW_STATUS_BAR), BM_GETCHECK, 0, 0), BST_UNCHECKED);
+    EXPECT_EQ(SendMessageW(Control(dialog, IDC_SHOW_TOOLBAR), BM_GETCHECK, 0, 0), BST_CHECKED);
+
+    const HWND dateFormat = Control(dialog, IDC_DATE_TIME_FORMAT);
+    ASSERT_NE(dateFormat, nullptr);
+    SendMessageW(dateFormat, CB_SETCURSEL, 1, 0);
+    SendMessageW(GetParent(dateFormat), WM_COMMAND, MAKEWPARAM(IDC_DATE_TIME_FORMAT, CBN_SELCHANGE),
+        reinterpret_cast<LPARAM>(dateFormat));
+
+    ClickButton(dialog, IDC_SETTINGS_APPLY);
+
+    {
+        std::lock_guard lock(run.mutex);
+        ASSERT_EQ(run.appliedSettings.size(), 1u);
+        const auto& applied = run.appliedSettings.back();
+        EXPECT_FALSE(applied.showStatusBar);
+        EXPECT_TRUE(applied.showToolbar);
+        EXPECT_TRUE(applied.enableScanFileDelay);
+        EXPECT_EQ(applied.dateTimeFormat, L"YYYY-MM-DD HH:mm:ss");
+    }
+
+    SendMessageW(dialog, WM_CLOSE, 0, 0);
+    run.WakeMessageLoop();
+    ASSERT_EQ(run.WaitFinished(std::chrono::seconds(5)), std::future_status::ready);
     run.Join();
 }

@@ -105,6 +105,8 @@ private:
     void PopulateTree();
     void SelectPage(Page page);
     void ShowPage(Page page);
+    void LoadSettingsIntoControls(const wit::platform::AppSettings& settings, bool preservePendingEdits);
+    void SetDateTimeFormatControl(const std::wstring& format);
     bool TryReadControls(wit::platform::AppSettings& settings, bool showValidation);
     bool ApplyChanges(bool closeAfterApply);
     void MarkDirtyIfChanged();

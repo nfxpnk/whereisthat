@@ -97,7 +97,7 @@ LRESULT GeneralSettingsDialog::OnInitDialog(UINT, WPARAM, LPARAM, BOOL&) {
     SetWindowTextW(L"Settings");
     CreatePages();
 
-    const auto formatCombo = Control(IDC_DATE_TIME_FORMAT);
+    const auto formatCombo = GeneralControl(IDC_DATE_TIME_FORMAT);
     SendMessageW(formatCombo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(kUseWindowsDefaultLabel));
     for (const auto* format : kCommonDateTimeFormats) {
         SendMessageW(formatCombo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(format));
@@ -106,7 +106,7 @@ LRESULT GeneralSettingsDialog::OnInitDialog(UINT, WPARAM, LPARAM, BOOL&) {
 
     PopulateTree();
     SelectPage(initialPage_);
-    ::SetFocus(GetDlgItem(IDC_SETTINGS_TREE));
+    ::SetFocus(MainControl(IDC_SETTINGS_TREE));
     CenterWindow(launchOwner_);
     return FALSE;
 }
@@ -156,7 +156,7 @@ LRESULT GeneralSettingsDialog::OnHelp(WORD, WORD, HWND, BOOL&) {
 
 LRESULT GeneralSettingsDialog::OnDateTimeFormatChanged(WORD notifyCode, WORD, HWND, BOOL&) {
     if (notifyCode == CBN_SELCHANGE) {
-        const auto formatCombo = Control(IDC_DATE_TIME_FORMAT);
+        const auto formatCombo = GeneralControl(IDC_DATE_TIME_FORMAT);
         const auto selection = SendMessageW(formatCombo, CB_GETCURSEL, 0, 0);
         if (selection != CB_ERR) {
             const auto length = SendMessageW(formatCombo, CB_GETLBTEXTLEN, selection, 0);
@@ -164,7 +164,7 @@ LRESULT GeneralSettingsDialog::OnDateTimeFormatChanged(WORD notifyCode, WORD, HW
                 std::wstring value(static_cast<std::size_t>(length) + 1, L'\0');
                 SendMessageW(formatCombo, CB_GETLBTEXT, selection, reinterpret_cast<LPARAM>(value.data()));
                 value.resize(static_cast<std::size_t>(length));
-                ::SetWindowTextW(Control(IDC_DATE_TIME_FORMAT), value.c_str());
+                ::SetWindowTextW(formatCombo, value.c_str());
             }
         }
     }
@@ -178,15 +178,16 @@ LRESULT GeneralSettingsDialog::OnSettingChanged(WORD, WORD, HWND, BOOL&) {
     return 0;
 }
 
-HWND GeneralSettingsDialog::Control(int id) const {
-    if (const auto control = GetDlgItem(id)) return control;
-    if (generalPage_.m_hWnd) {
-        if (const auto control = generalPage_.GetDlgItem(id)) return control;
-    }
-    if (userInterfacePage_.m_hWnd) {
-        if (const auto control = userInterfacePage_.GetDlgItem(id)) return control;
-    }
-    return nullptr;
+HWND GeneralSettingsDialog::MainControl(int id) const {
+    return GetDlgItem(id);
+}
+
+HWND GeneralSettingsDialog::GeneralControl(int id) const {
+    return generalPage_.m_hWnd ? generalPage_.GetDlgItem(id) : nullptr;
+}
+
+HWND GeneralSettingsDialog::UserInterfaceControl(int id) const {
+    return userInterfacePage_.m_hWnd ? userInterfacePage_.GetDlgItem(id) : nullptr;
 }
 
 void GeneralSettingsDialog::CreatePages() {
@@ -200,11 +201,11 @@ void GeneralSettingsDialog::CreatePages() {
 
 void GeneralSettingsDialog::PositionPage(HWND page) {
     RECT header{};
-    ::GetWindowRect(GetDlgItem(IDC_SETTINGS_HEADER), &header);
+    ::GetWindowRect(MainControl(IDC_SETTINGS_HEADER), &header);
     ::MapWindowPoints(nullptr, m_hWnd, reinterpret_cast<POINT*>(&header), 2);
 
     RECT panel{};
-    ::GetWindowRect(GetDlgItem(IDC_SETTINGS_PANEL), &panel);
+    ::GetWindowRect(MainControl(IDC_SETTINGS_PANEL), &panel);
     ::MapWindowPoints(nullptr, m_hWnd, reinterpret_cast<POINT*>(&panel), 2);
 
     const int x = panel.left + 1;
@@ -215,7 +216,7 @@ void GeneralSettingsDialog::PositionPage(HWND page) {
 }
 
 void GeneralSettingsDialog::PopulateTree() {
-    const auto tree = GetDlgItem(IDC_SETTINGS_TREE);
+    const auto tree = MainControl(IDC_SETTINGS_TREE);
     TreeView_DeleteAllItems(tree);
     InsertTreeItem(tree, PageTitle(Page::General), Page::General);
     InsertTreeItem(tree, PageTitle(Page::UserInterface), Page::UserInterface);
@@ -225,7 +226,7 @@ void GeneralSettingsDialog::PopulateTree() {
 }
 
 void GeneralSettingsDialog::SelectPage(Page page) {
-    const auto tree = GetDlgItem(IDC_SETTINGS_TREE);
+    const auto tree = MainControl(IDC_SETTINGS_TREE);
     for (auto item = TreeView_GetRoot(tree); item; item = TreeView_GetNextSibling(tree, item)) {
         TVITEMW treeItem{};
         treeItem.mask = TVIF_PARAM;
@@ -258,16 +259,16 @@ void GeneralSettingsDialog::LoadSettingsIntoControls(
     if (haveControlSettings) (void)TryReadControls(currentControls, false);
 
     if (!preservePendingEdits || !haveControlSettings || currentControls.showStatusBar == settings_.showStatusBar) {
-        SendMessageW(Control(IDC_SHOW_STATUS_BAR), BM_SETCHECK,
+        SendMessageW(UserInterfaceControl(IDC_SHOW_STATUS_BAR), BM_SETCHECK,
             settings.showStatusBar ? BST_CHECKED : BST_UNCHECKED, 0);
     }
     if (!preservePendingEdits || !haveControlSettings || currentControls.showToolbar == settings_.showToolbar) {
-        SendMessageW(Control(IDC_SHOW_TOOLBAR), BM_SETCHECK,
+        SendMessageW(UserInterfaceControl(IDC_SHOW_TOOLBAR), BM_SETCHECK,
             settings.showToolbar ? BST_CHECKED : BST_UNCHECKED, 0);
     }
     if (!preservePendingEdits || !haveControlSettings ||
         currentControls.enableScanFileDelay == settings_.enableScanFileDelay) {
-        SendMessageW(Control(IDC_ENABLE_SCAN_FILE_DELAY), BM_SETCHECK,
+        SendMessageW(GeneralControl(IDC_ENABLE_SCAN_FILE_DELAY), BM_SETCHECK,
             settings.enableScanFileDelay ? BST_CHECKED : BST_UNCHECKED, 0);
     }
     if (!preservePendingEdits || !haveControlSettings || currentControls.dateTimeFormat == settings_.dateTimeFormat) {
@@ -275,8 +276,8 @@ void GeneralSettingsDialog::LoadSettingsIntoControls(
     }
 
     const auto splitterPosition = std::format(L"{}", settings.mainSplitterPosition);
-    ::SetWindowTextW(Control(IDC_MAIN_SPLITTER_POSITION), splitterPosition.c_str());
-    ::SetWindowTextW(Control(IDC_LAST_OPENED_CATALOG), settings.lastCatalogPath.c_str());
+    ::SetWindowTextW(UserInterfaceControl(IDC_MAIN_SPLITTER_POSITION), splitterPosition.c_str());
+    ::SetWindowTextW(GeneralControl(IDC_LAST_OPENED_CATALOG), settings.lastCatalogPath.c_str());
 
     settings_ = settings;
     UpdateDateTimeFormatSample();
@@ -284,7 +285,7 @@ void GeneralSettingsDialog::LoadSettingsIntoControls(
 }
 
 void GeneralSettingsDialog::SetDateTimeFormatControl(const std::wstring& format) {
-    const auto formatCombo = Control(IDC_DATE_TIME_FORMAT);
+    const auto formatCombo = GeneralControl(IDC_DATE_TIME_FORMAT);
     const auto* visibleFormat = format.empty() ? kUseWindowsDefaultLabel : format.c_str();
     if (SendMessageW(formatCombo, CB_SELECTSTRING, static_cast<WPARAM>(-1),
         reinterpret_cast<LPARAM>(visibleFormat)) == CB_ERR) {
@@ -294,16 +295,16 @@ void GeneralSettingsDialog::SetDateTimeFormatControl(const std::wstring& format)
 
 bool GeneralSettingsDialog::TryReadControls(wit::platform::AppSettings& settings, bool showValidation) {
     settings = settings_;
-    settings.showStatusBar = SendMessageW(Control(IDC_SHOW_STATUS_BAR), BM_GETCHECK, 0, 0) == BST_CHECKED;
-    settings.showToolbar = SendMessageW(Control(IDC_SHOW_TOOLBAR), BM_GETCHECK, 0, 0) == BST_CHECKED;
-    settings.enableScanFileDelay = SendMessageW(Control(IDC_ENABLE_SCAN_FILE_DELAY), BM_GETCHECK, 0, 0) == BST_CHECKED;
+    settings.showStatusBar = SendMessageW(UserInterfaceControl(IDC_SHOW_STATUS_BAR), BM_GETCHECK, 0, 0) == BST_CHECKED;
+    settings.showToolbar = SendMessageW(UserInterfaceControl(IDC_SHOW_TOOLBAR), BM_GETCHECK, 0, 0) == BST_CHECKED;
+    settings.enableScanFileDelay = SendMessageW(GeneralControl(IDC_ENABLE_SCAN_FILE_DELAY), BM_GETCHECK, 0, 0) == BST_CHECKED;
     settings.dateTimeFormat = SelectedDateTimeFormat();
 
     if (!wit::platform::IsValidDateTimeFormat(settings.dateTimeFormat)) {
         if (showValidation) {
             MessageBoxW(L"Use tokens like YYYY, MM, DD, HH, mm, and ss. Example: YYYY-MM-DD HH:mm:ss.",
                 L"Date and Time Format", MB_OK | MB_ICONWARNING);
-            ::SetFocus(Control(IDC_DATE_TIME_FORMAT));
+            ::SetFocus(GeneralControl(IDC_DATE_TIME_FORMAT));
         }
         return false;
     }
@@ -318,7 +319,7 @@ bool GeneralSettingsDialog::ApplyChanges(bool closeAfterApply) {
         settings_ = std::move(updated);
     }
     SetApplyEnabled(false);
-    if (!closeAfterApply) ::SetFocus(GetDlgItem(IDC_SETTINGS_APPLY));
+    if (!closeAfterApply) ::SetFocus(MainControl(IDC_SETTINGS_APPLY));
     return true;
 }
 
@@ -330,17 +331,16 @@ void GeneralSettingsDialog::MarkDirtyIfChanged() {
 }
 
 void GeneralSettingsDialog::SetApplyEnabled(bool enabled) {
-    ::EnableWindow(GetDlgItem(IDC_SETTINGS_APPLY), enabled ? TRUE : FALSE);
+    ::EnableWindow(MainControl(IDC_SETTINGS_APPLY), enabled ? TRUE : FALSE);
 }
 
 std::wstring GeneralSettingsDialog::SelectedDateTimeFormat() const {
-    auto value = ControlText(IDC_DATE_TIME_FORMAT);
+    auto value = ControlText(GeneralControl(IDC_DATE_TIME_FORMAT));
     if (value == kUseWindowsDefaultLabel) return {};
     return value;
 }
 
-std::wstring GeneralSettingsDialog::ControlText(int id) const {
-    const auto control = Control(id);
+std::wstring GeneralSettingsDialog::ControlText(HWND control) const {
     const auto length = ::GetWindowTextLengthW(control);
     std::wstring value(static_cast<std::size_t>(length) + 1, L'\0');
     ::GetWindowTextW(control, value.data(), length + 1);
@@ -352,7 +352,7 @@ void GeneralSettingsDialog::UpdateDateTimeFormatSample() {
     const auto pattern = SelectedDateTimeFormat();
     const auto sample = wit::platform::IsValidDateTimeFormat(pattern)
         ? wit::platform::FormatDateTimeSample(pattern) : std::wstring(L"Invalid format");
-    ::SetWindowTextW(Control(IDC_DATE_TIME_FORMAT_SAMPLE), sample.c_str());
+    ::SetWindowTextW(GeneralControl(IDC_DATE_TIME_FORMAT_SAMPLE), sample.c_str());
 }
 
 }

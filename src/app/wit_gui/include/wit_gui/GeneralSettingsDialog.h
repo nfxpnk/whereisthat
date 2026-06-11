@@ -100,7 +100,9 @@ private:
     LRESULT OnHelp(WORD notifyCode, WORD id, HWND control, BOOL& handled);
     LRESULT OnDateTimeFormatChanged(WORD notifyCode, WORD id, HWND control, BOOL& handled);
     LRESULT OnSettingChanged(WORD notifyCode, WORD id, HWND control, BOOL& handled);
-    HWND Control(int id) const;
+    HWND MainControl(int id) const;
+    HWND GeneralControl(int id) const;
+    HWND UserInterfaceControl(int id) const;
     void CreatePages();
     void PositionPage(HWND page);
     void PopulateTree();
@@ -113,7 +115,7 @@ private:
     void MarkDirtyIfChanged();
     void SetApplyEnabled(bool enabled);
     std::wstring SelectedDateTimeFormat() const;
-    std::wstring ControlText(int id) const;
+    std::wstring ControlText(HWND control) const;
     void UpdateDateTimeFormatSample();
 };
 

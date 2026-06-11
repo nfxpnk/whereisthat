@@ -103,6 +103,15 @@ private:
     HWND MainControl(int id) const;
     HWND GeneralControl(int id) const;
     HWND UserInterfaceControl(int id) const;
+    WTL::CTreeViewCtrl SettingsTree() const;
+    WTL::CButton ApplyButton() const;
+    WTL::CComboBox DateTimeFormatCombo() const;
+    WTL::CStatic DateTimeFormatSample() const;
+    WTL::CEdit LastOpenedCatalogEdit() const;
+    WTL::CButton EnableScanFileDelayCheck() const;
+    WTL::CButton ShowStatusBarCheck() const;
+    WTL::CButton ShowToolbarCheck() const;
+    WTL::CEdit MainSplitterPositionEdit() const;
     void CreatePages();
     void PositionPage(HWND page);
     void PopulateTree();

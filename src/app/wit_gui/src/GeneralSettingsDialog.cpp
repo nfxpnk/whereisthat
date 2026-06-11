@@ -18,6 +18,17 @@ constexpr std::array<const wchar_t*, 4> kCommonDateTimeFormats{
     L"DD/MM/YYYY HH:mm:ss",
 };
 
+struct BoolGuard {
+    explicit BoolGuard(bool& flag) : flag_(flag), previous_(flag) { flag_ = true; }
+    ~BoolGuard() { flag_ = previous_; }
+    BoolGuard(const BoolGuard&) = delete;
+    BoolGuard& operator=(const BoolGuard&) = delete;
+
+private:
+    bool& flag_;
+    bool previous_;
+};
+
 bool SameEditableSettings(const wit::platform::AppSettings& left, const wit::platform::AppSettings& right) {
     return left.showStatusBar == right.showStatusBar &&
         left.showToolbar == right.showToolbar &&
@@ -92,7 +103,7 @@ LRESULT GeneralSettingsDialog::UserInterfacePageDialog::OnSettingChanged(
 }
 
 LRESULT GeneralSettingsDialog::OnInitDialog(UINT, WPARAM, LPARAM, BOOL&) {
-    initializing_ = true;
+    BoolGuard initGuard(initializing_);
     SetWindowTextW(L"Settings");
     CreatePages();
 
@@ -106,7 +117,6 @@ LRESULT GeneralSettingsDialog::OnInitDialog(UINT, WPARAM, LPARAM, BOOL&) {
     PopulateTree();
     SelectPage(initialPage_);
     ::SetFocus(GetDlgItem(IDC_SETTINGS_TREE));
-    initializing_ = false;
     CenterWindow(launchOwner_);
     return FALSE;
 }
@@ -251,7 +261,7 @@ void GeneralSettingsDialog::ShowPage(Page page) {
 
 void GeneralSettingsDialog::LoadSettingsIntoControls(
     const wit::platform::AppSettings& settings, bool preservePendingEdits) {
-    initializing_ = true;
+    BoolGuard initGuard(initializing_);
 
     wit::platform::AppSettings currentControls;
     const bool haveControlSettings = preservePendingEdits;
@@ -280,7 +290,6 @@ void GeneralSettingsDialog::LoadSettingsIntoControls(
 
     settings_ = settings;
     UpdateDateTimeFormatSample();
-    initializing_ = false;
     MarkDirtyIfChanged();
 }
 

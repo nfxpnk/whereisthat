@@ -13,6 +13,9 @@
 #include <vector>
 #include "resource.h"
 
+// These tests require an interactive desktop session.
+// In CI they are skipped automatically via IsWindowVisible(GetDesktopWindow()) guard.
+
 namespace {
 
 struct WindowSearch {
@@ -342,6 +345,10 @@ private:
 }
 
 TEST(SettingsVisual, OpensAppSettingsAndCapturesScreenshots) {
+    if (!IsWindowVisible(GetDesktopWindow())) {
+        GTEST_SKIP() << "Skipped: no interactive desktop (headless CI)";
+    }
+
     const auto appPath = AppExecutablePath();
     if (!std::filesystem::exists(appPath)) {
         GTEST_SKIP() << "Build WhereIsThat.exe before running this visual smoke test";

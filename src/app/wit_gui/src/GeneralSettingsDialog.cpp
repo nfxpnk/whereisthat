@@ -89,17 +89,7 @@ BOOL GeneralSettingsDialog::PreTranslateMessage(MSG* message) {
 
 LRESULT GeneralSettingsDialog::GeneralPageDialog::OnDateTimeFormatChanged(
     WORD notifyCode, WORD id, HWND control, BOOL& handled) {
-    return owner_ ? owner_->OnDateTimeFormatChanged(notifyCode, id, control, handled) : 0;
-}
-
-LRESULT GeneralSettingsDialog::GeneralPageDialog::OnSettingChanged(
-    WORD notifyCode, WORD id, HWND control, BOOL& handled) {
-    return owner_ ? owner_->OnSettingChanged(notifyCode, id, control, handled) : 0;
-}
-
-LRESULT GeneralSettingsDialog::UserInterfacePageDialog::OnSettingChanged(
-    WORD notifyCode, WORD id, HWND control, BOOL& handled) {
-    return owner_ ? owner_->OnSettingChanged(notifyCode, id, control, handled) : 0;
+    return Owner() ? Owner()->OnDateTimeFormatChanged(notifyCode, id, control, handled) : 0;
 }
 
 LRESULT GeneralSettingsDialog::OnInitDialog(UINT, WPARAM, LPARAM, BOOL&) {

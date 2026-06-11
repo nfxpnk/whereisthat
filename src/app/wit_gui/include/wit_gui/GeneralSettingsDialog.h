@@ -45,12 +45,25 @@ public:
     END_MSG_MAP()
 
 private:
-    class GeneralPageDialog : public ATL::CDialogImpl<GeneralPageDialog> {
+    template <typename T, UINT DialogId>
+    class SettingsPageDialog : public ATL::CDialogImpl<T> {
     public:
-        enum { IDD = IDD_SETTINGS_GENERAL_PAGE };
+        enum { IDD = DialogId };
 
         void SetOwner(GeneralSettingsDialog* owner) noexcept { owner_ = owner; }
 
+    protected:
+        GeneralSettingsDialog* Owner() const noexcept { return owner_; }
+        LRESULT OnSettingChanged(WORD notifyCode, WORD id, HWND control, BOOL& handled) {
+            return owner_ ? owner_->OnSettingChanged(notifyCode, id, control, handled) : 0;
+        }
+
+    private:
+        GeneralSettingsDialog* owner_{};
+    };
+
+    class GeneralPageDialog : public SettingsPageDialog<GeneralPageDialog, IDD_SETTINGS_GENERAL_PAGE> {
+    public:
         BEGIN_MSG_MAP(GeneralPageDialog)
             COMMAND_HANDLER(IDC_DATE_TIME_FORMAT, CBN_SELCHANGE, OnDateTimeFormatChanged)
             COMMAND_HANDLER(IDC_DATE_TIME_FORMAT, CBN_EDITCHANGE, OnDateTimeFormatChanged)
@@ -58,27 +71,15 @@ private:
         END_MSG_MAP()
 
     private:
-        GeneralSettingsDialog* owner_{};
-
         LRESULT OnDateTimeFormatChanged(WORD notifyCode, WORD id, HWND control, BOOL& handled);
-        LRESULT OnSettingChanged(WORD notifyCode, WORD id, HWND control, BOOL& handled);
     };
 
-    class UserInterfacePageDialog : public ATL::CDialogImpl<UserInterfacePageDialog> {
+    class UserInterfacePageDialog : public SettingsPageDialog<UserInterfacePageDialog, IDD_SETTINGS_USER_INTERFACE_PAGE> {
     public:
-        enum { IDD = IDD_SETTINGS_USER_INTERFACE_PAGE };
-
-        void SetOwner(GeneralSettingsDialog* owner) noexcept { owner_ = owner; }
-
         BEGIN_MSG_MAP(UserInterfacePageDialog)
             COMMAND_HANDLER(IDC_SHOW_STATUS_BAR, BN_CLICKED, OnSettingChanged)
             COMMAND_HANDLER(IDC_SHOW_TOOLBAR, BN_CLICKED, OnSettingChanged)
         END_MSG_MAP()
-
-    private:
-        GeneralSettingsDialog* owner_{};
-
-        LRESULT OnSettingChanged(WORD notifyCode, WORD id, HWND control, BOOL& handled);
     };
 
     wit::platform::AppSettings settings_;

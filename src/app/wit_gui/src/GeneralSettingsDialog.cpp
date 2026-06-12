@@ -32,6 +32,7 @@ private:
 bool SameEditableSettings(const wit::platform::AppSettings& left, const wit::platform::AppSettings& right) {
     return left.showStatusBar == right.showStatusBar &&
         left.showToolbar == right.showToolbar &&
+        left.doNotShowAlphaWarning == right.doNotShowAlphaWarning &&
         left.enableScanFileDelay == right.enableScanFileDelay &&
         left.dateTimeFormat == right.dateTimeFormat;
 }
@@ -222,6 +223,10 @@ WTL::CButton GeneralSettingsDialog::ShowToolbarCheck() const {
     return WTL::CButton(UserInterfaceControl(IDC_SHOW_TOOLBAR));
 }
 
+WTL::CButton GeneralSettingsDialog::DoNotShowAlphaWarningCheck() const {
+    return WTL::CButton(UserInterfaceControl(IDC_DO_NOT_SHOW_ALPHA_WARNING));
+}
+
 WTL::CEdit GeneralSettingsDialog::MainSplitterPositionEdit() const {
     return WTL::CEdit(UserInterfaceControl(IDC_MAIN_SPLITTER_POSITION));
 }
@@ -301,6 +306,10 @@ void GeneralSettingsDialog::LoadSettingsIntoControls(
         ShowToolbarCheck().SetCheck(settings.showToolbar ? BST_CHECKED : BST_UNCHECKED);
     }
     if (!preservePendingEdits || !haveControlSettings ||
+        currentControls.doNotShowAlphaWarning == settings_.doNotShowAlphaWarning) {
+        DoNotShowAlphaWarningCheck().SetCheck(settings.doNotShowAlphaWarning ? BST_CHECKED : BST_UNCHECKED);
+    }
+    if (!preservePendingEdits || !haveControlSettings ||
         currentControls.enableScanFileDelay == settings_.enableScanFileDelay) {
         EnableScanFileDelayCheck().SetCheck(settings.enableScanFileDelay ? BST_CHECKED : BST_UNCHECKED);
     }
@@ -329,6 +338,7 @@ bool GeneralSettingsDialog::TryReadControls(wit::platform::AppSettings& settings
     settings = settings_;
     settings.showStatusBar = ShowStatusBarCheck().GetCheck() == BST_CHECKED;
     settings.showToolbar = ShowToolbarCheck().GetCheck() == BST_CHECKED;
+    settings.doNotShowAlphaWarning = DoNotShowAlphaWarningCheck().GetCheck() == BST_CHECKED;
     settings.enableScanFileDelay = EnableScanFileDelayCheck().GetCheck() == BST_CHECKED;
     settings.dateTimeFormat = SelectedDateTimeFormat();
 

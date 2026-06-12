@@ -48,6 +48,8 @@ AppSettings LoadAppSettings() {
         GetPrivateProfileIntW(L"General", L"ShowStatusBar", 1, path.c_str()) != 0;
     settings.showToolbar =
         GetPrivateProfileIntW(L"General", L"ShowToolbar", 1, path.c_str()) != 0;
+    settings.doNotShowAlphaWarning =
+        GetPrivateProfileIntW(L"General", L"DoNotShowAlphaWarning", 0, path.c_str()) != 0;
     settings.enableScanFileDelay =
         GetPrivateProfileIntW(L"General", L"EnableScanFileDelay", 0, path.c_str()) != 0;
     settings.mainSplitterPosition = GetPrivateProfileIntW(
@@ -74,6 +76,8 @@ bool SaveAppSettings(const AppSettings& settings) {
         settings.showStatusBar ? L"1" : L"0", path.c_str()) != FALSE &&
         WritePrivateProfileStringW(L"General", L"ShowToolbar",
             settings.showToolbar ? L"1" : L"0", path.c_str()) != FALSE &&
+        WritePrivateProfileStringW(L"General", L"DoNotShowAlphaWarning",
+            settings.doNotShowAlphaWarning ? L"1" : L"0", path.c_str()) != FALSE &&
         WritePrivateProfileStringW(L"General", L"EnableScanFileDelay",
             settings.enableScanFileDelay ? L"1" : L"0", path.c_str()) != FALSE &&
         WritePrivateProfileStringW(L"General", L"MainSplitterPosition",

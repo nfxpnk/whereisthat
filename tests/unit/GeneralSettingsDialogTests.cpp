@@ -221,6 +221,7 @@ wit::platform::AppSettings TestSettings() {
     wit::platform::AppSettings settings;
     settings.showStatusBar = true;
     settings.showToolbar = false;
+    settings.doNotShowAlphaWarning = false;
     settings.enableScanFileDelay = false;
     settings.mainSplitterPosition = 360;
     settings.lastCatalogPath = L"H:\\github\\whereisthat\\tools\\import\\d-import-test.db";
@@ -291,10 +292,12 @@ TEST(GeneralSettingsDialog, NativeSettingsUiExposesOnlyRequestedPagesAndEditable
     EXPECT_FALSE(IsWindowVisible(Control(dialog, IDC_DATE_TIME_FORMAT)));
     EXPECT_TRUE(IsWindowVisible(Control(dialog, IDC_SHOW_STATUS_BAR)));
     EXPECT_TRUE(IsWindowVisible(Control(dialog, IDC_SHOW_TOOLBAR)));
+    EXPECT_TRUE(IsWindowVisible(Control(dialog, IDC_DO_NOT_SHOW_ALPHA_WARNING)));
     EXPECT_TRUE(IsWindowVisible(Control(dialog, IDC_MAIN_SPLITTER_POSITION)));
 
     ClickButton(dialog, IDC_SHOW_STATUS_BAR);
     ClickButton(dialog, IDC_SHOW_TOOLBAR);
+    ClickButton(dialog, IDC_DO_NOT_SHOW_ALPHA_WARNING);
     EXPECT_TRUE(IsApplyEnabled(dialog));
 
     ClickButton(dialog, IDC_SETTINGS_APPLY);
@@ -306,6 +309,7 @@ TEST(GeneralSettingsDialog, NativeSettingsUiExposesOnlyRequestedPagesAndEditable
         const auto& applied = run.appliedSettings.back();
         EXPECT_FALSE(applied.showStatusBar);
         EXPECT_TRUE(applied.showToolbar);
+        EXPECT_TRUE(applied.doNotShowAlphaWarning);
         EXPECT_TRUE(applied.enableScanFileDelay);
         EXPECT_EQ(applied.dateTimeFormat, L"YYYY-MM-DD HH:mm:ss");
         EXPECT_EQ(applied.mainSplitterPosition, 360);
@@ -375,6 +379,7 @@ TEST(GeneralSettingsDialog, OkAppliesPendingEditableChangesOnce) {
         std::lock_guard lock(run.mutex);
         ASSERT_EQ(run.appliedSettings.size(), 1u);
         EXPECT_TRUE(run.appliedSettings.back().enableScanFileDelay);
+        EXPECT_FALSE(run.appliedSettings.back().doNotShowAlphaWarning);
         EXPECT_EQ(run.appliedSettings.back().mainSplitterPosition, initial.mainSplitterPosition);
         EXPECT_EQ(run.appliedSettings.back().lastCatalogPath, initial.lastCatalogPath);
     }
@@ -399,11 +404,13 @@ TEST(GeneralSettingsDialog, ReopeningModelessDialogRefreshesUntouchedExternalSet
     auto externallyUpdated = initial;
     externallyUpdated.showStatusBar = false;
     externallyUpdated.showToolbar = true;
+    externallyUpdated.doNotShowAlphaWarning = true;
     run.ShowAgain(externallyUpdated, wit::ui::GeneralSettingsDialog::Page::UserInterface);
 
     EXPECT_EQ(SendMessageW(Control(dialog, IDC_ENABLE_SCAN_FILE_DELAY), BM_GETCHECK, 0, 0), BST_CHECKED);
     EXPECT_EQ(SendMessageW(Control(dialog, IDC_SHOW_STATUS_BAR), BM_GETCHECK, 0, 0), BST_UNCHECKED);
     EXPECT_EQ(SendMessageW(Control(dialog, IDC_SHOW_TOOLBAR), BM_GETCHECK, 0, 0), BST_CHECKED);
+    EXPECT_EQ(SendMessageW(Control(dialog, IDC_DO_NOT_SHOW_ALPHA_WARNING), BM_GETCHECK, 0, 0), BST_CHECKED);
 
     const HWND dateFormat = Control(dialog, IDC_DATE_TIME_FORMAT);
     ASSERT_NE(dateFormat, nullptr);
@@ -419,6 +426,7 @@ TEST(GeneralSettingsDialog, ReopeningModelessDialogRefreshesUntouchedExternalSet
         const auto& applied = run.appliedSettings.back();
         EXPECT_FALSE(applied.showStatusBar);
         EXPECT_TRUE(applied.showToolbar);
+        EXPECT_TRUE(applied.doNotShowAlphaWarning);
         EXPECT_TRUE(applied.enableScanFileDelay);
         EXPECT_EQ(applied.dateTimeFormat, L"YYYY-MM-DD HH:mm:ss");
     }

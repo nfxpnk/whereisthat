@@ -79,6 +79,7 @@ private:
         BEGIN_MSG_MAP(UserInterfacePageDialog)
             COMMAND_HANDLER(IDC_SHOW_STATUS_BAR, BN_CLICKED, OnSettingChanged)
             COMMAND_HANDLER(IDC_SHOW_TOOLBAR, BN_CLICKED, OnSettingChanged)
+            COMMAND_HANDLER(IDC_DO_NOT_SHOW_ALPHA_WARNING, BN_CLICKED, OnSettingChanged)
         END_MSG_MAP()
     };
 
@@ -111,6 +112,7 @@ private:
     WTL::CButton EnableScanFileDelayCheck() const;
     WTL::CButton ShowStatusBarCheck() const;
     WTL::CButton ShowToolbarCheck() const;
+    WTL::CButton DoNotShowAlphaWarningCheck() const;
     WTL::CEdit MainSplitterPositionEdit() const;
     void CreatePages();
     void PositionPage(HWND page);

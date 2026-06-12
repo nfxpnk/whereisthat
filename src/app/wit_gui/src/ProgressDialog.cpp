@@ -9,7 +9,7 @@ bool ProgressDialog::Show(HWND owner, std::function<void()> onCancel) {
     onCancel_ = std::move(onCancel);
     if (!m_hWnd && Create(owner) == nullptr) return false;
     GetDlgItem(IDCANCEL).EnableWindow(TRUE);
-    Update(0, 0, 0, 0, false, true);
+    Update(0, 0, 0, 0, false, false);
     ShowWindow(SW_SHOW);
     return true;
 }

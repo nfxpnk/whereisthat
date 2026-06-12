@@ -10,7 +10,7 @@ SQLite is accessed in native C++ through the SQLite C API. Catalog storage behav
 
 Application preferences are separate from catalog data and must not be added to SQLite merely to support UI configuration.
 
-- General Settings persists implemented preferences in `settings.ini` beside `WhereIsThat.exe`, including `General/ShowToolbar` defaulting to enabled and `General/MainSplitterPosition` with a default of `360` when the key is missing.
+- General Settings persists implemented preferences in `settings.ini` beside `WhereIsThat.exe`, including `General/ShowToolbar` defaulting to enabled, `General/DoNotShowAlphaWarning` defaulting to disabled, and `General/MainSplitterPosition` with a default of `360` when the key is missing.
 - `[General] LastCatalogPath` and `[RecentCatalogs] Path1` through `Path10` record activated catalog file paths, not catalog content.
 - UI preference reads and writes use `src/modules/wit_infra`; `src/modules/wit_database` remains responsible only for SQLite catalog persistence and must not own window behavior.
 

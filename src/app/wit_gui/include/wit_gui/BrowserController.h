@@ -37,6 +37,7 @@ public:
     void NavigateBack();
     void NavigateForward();
     void RefreshDisplay();
+    bool LocateFile(wit::core::CatalogId catalogId, const wit::core::FileEntry& entry);
 
     wit::core::CatalogId OnTreeSelectionChanged(LPNMHDR header);
     LRESULT OnTreeExpanding(LPNMHDR header);

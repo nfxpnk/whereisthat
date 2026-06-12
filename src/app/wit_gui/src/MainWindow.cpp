@@ -577,7 +577,12 @@ void MainFrame::PerformRequest(const wit::app::RequestEffect& request) {
         break;
     case wit::app::RequestKind::ShowSearch: {
         auto* search = request.database ? &request.database->SearchRepository() : nullptr;
-        if (!searchDialog_.Show(m_hWnd, search, [this]() {
+        const auto catalogId = request.preferredCatalogId;
+        if (!searchDialog_.Show(m_hWnd, search, [this, catalogId](const wit::core::FileEntry& entry) {
+            const bool located = browser_.LocateFile(catalogId, entry);
+            if (located) UpdateBrowserStatus();
+            return located;
+        }, [this]() {
             ApplyControllerResult(controller_.SearchClosed());
         })) {
             ApplyControllerResult(controller_.SearchClosed());

@@ -295,6 +295,19 @@ const wit::core::BrowserItem* FileListView::BrowserItemAt(int row) {
     return index >= 0 && index < static_cast<int>(browserPage.size()) ? &browserPage[index] : nullptr;
 }
 
+bool FileListView::SelectEntry(std::int64_t id, bool isDirectory) {
+    if (!hwnd || ShowsBrowserItems()) return false;
+    for (int row = 0; row < total; ++row) {
+        const auto* entry = EntryAt(row);
+        if (!entry || entry->id != id || entry->isDirectory != isDirectory) continue;
+        ListView_SetItemState(hwnd, -1, 0, LVIS_SELECTED | LVIS_FOCUSED);
+        ListView_SetItemState(hwnd, row, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
+        ListView_EnsureVisible(hwnd, row, FALSE);
+        return true;
+    }
+    return false;
+}
+
 int FileListView::ImageFor(int row) {
     if (ShowsBrowserItems()) {
         const auto* item = BrowserItemAt(row);

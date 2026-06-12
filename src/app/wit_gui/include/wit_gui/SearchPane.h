@@ -13,17 +13,22 @@ class SearchDialog : public ATL::CDialogImpl<SearchDialog>, public WTL::CDialogR
 public:
     enum { IDD = IDD_SEARCH_ITEMS };
 
-    bool Show(HWND owner, wit::search::ISearchRepository* search, std::function<void()> onClose);
+    using LocateResultHandler = std::function<bool(const wit::core::FileEntry&)>;
+
+    bool Show(HWND owner, wit::search::ISearchRepository* search, LocateResultHandler onLocate,
+        std::function<void()> onClose);
     void Close();
     void RefreshDisplay();
     BOOL PreTranslateMessage(MSG* message);
 
     BEGIN_MSG_MAP(SearchDialog)
         MESSAGE_HANDLER(WM_INITDIALOG, OnInitDialog)
+        MESSAGE_HANDLER(WM_CONTEXTMENU, OnContextMenu)
         MESSAGE_HANDLER(WM_CLOSE, OnWindowClose)
         MESSAGE_HANDLER(WM_DESTROY, OnDestroy)
         COMMAND_ID_HANDLER(IDC_SEARCH_EXECUTE, OnExecuteSearch)
         COMMAND_ID_HANDLER(IDCANCEL, OnCloseCommand)
+        COMMAND_ID_HANDLER(ID_SEARCH_RESULTS_LOCATE_IN_CATALOG, OnLocateInCatalog)
         NOTIFY_HANDLER(IDC_SEARCH_RESULTS, LVN_GETDISPINFOW, OnGetDisplayInfo)
         NOTIFY_HANDLER(IDC_SEARCH_RESULTS, LVN_ODCACHEHINT, OnCacheHint)
         CHAIN_MSG_MAP(WTL::CDialogResize<SearchDialog>)
@@ -50,6 +55,7 @@ private:
     HWND results_{};
     HWND launchOwner_{};
     wit::search::ISearchRepository* search_{};
+    LocateResultHandler onLocate_;
     std::function<void()> onClose_;
     std::wstring nameTerm_;
     int total_{};
@@ -57,7 +63,9 @@ private:
     std::vector<CachedPage> cachedPages_;
 
     LRESULT OnInitDialog(UINT message, WPARAM wparam, LPARAM lparam, BOOL& handled);
+    LRESULT OnContextMenu(UINT message, WPARAM wparam, LPARAM lparam, BOOL& handled);
     LRESULT OnExecuteSearch(WORD notifyCode, WORD id, HWND control, BOOL& handled);
+    LRESULT OnLocateInCatalog(WORD notifyCode, WORD id, HWND control, BOOL& handled);
     LRESULT OnWindowClose(UINT message, WPARAM wparam, LPARAM lparam, BOOL& handled);
     LRESULT OnDestroy(UINT message, WPARAM wparam, LPARAM lparam, BOOL& handled);
     LRESULT OnCloseCommand(WORD notifyCode, WORD id, HWND control, BOOL& handled);
@@ -70,6 +78,9 @@ private:
     void CachePage(int pageStart);
     void PreloadRange(int firstRow, int lastRow);
     const wit::core::FileEntry* EntryAt(int row);
+    const wit::core::FileEntry* FocusedEntry();
+    bool PrepareContextMenuSelection(LPARAM lparam, POINT& screenPoint);
+    void ShowResultsContextMenu(POINT screenPoint);
     void TextFor(int row, int column, wchar_t* buffer, std::size_t bufferSize);
 };
 }

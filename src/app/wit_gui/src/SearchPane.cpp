@@ -8,6 +8,7 @@
 #include <strsafe.h>
 #include <string_view>
 #include <utility>
+#include <windowsx.h>
 
 namespace wit::ui {
 namespace {
@@ -17,10 +18,12 @@ void CopyText(std::wstring_view text, wchar_t* buffer, std::size_t bufferSize) {
 }
 }
 
-bool SearchDialog::Show(HWND owner, wit::search::ISearchRepository* search, std::function<void()> onClose) {
+bool SearchDialog::Show(HWND owner, wit::search::ISearchRepository* search, LocateResultHandler onLocate,
+    std::function<void()> onClose) {
     if (!search) return false;
     launchOwner_ = owner;
     search_ = search;
+    onLocate_ = std::move(onLocate);
     onClose_ = std::move(onClose);
     if (!m_hWnd && Create(nullptr) == nullptr) return false;
     ShowWindow(IsIconic() ? SW_RESTORE : SW_SHOW);
@@ -56,6 +59,27 @@ LRESULT SearchDialog::OnExecuteSearch(WORD, WORD, HWND, BOOL&) {
     return 0;
 }
 
+LRESULT SearchDialog::OnContextMenu(UINT, WPARAM wparam, LPARAM lparam, BOOL& handled) {
+    if (reinterpret_cast<HWND>(wparam) != results_) {
+        handled = FALSE;
+        return 0;
+    }
+    POINT screenPoint{};
+    if (!PrepareContextMenuSelection(lparam, screenPoint)) return 0;
+    ShowResultsContextMenu(screenPoint);
+    return 0;
+}
+
+LRESULT SearchDialog::OnLocateInCatalog(WORD, WORD, HWND, BOOL&) {
+    const auto* entry = FocusedEntry();
+    const auto located = entry && onLocate_ ? onLocate_(wit::core::FileEntry(*entry)) : false;
+    if (!located) {
+        ::MessageBoxW(m_hWnd, L"The selected file could not be located in the catalog.",
+            L"Locate in Catalog", MB_OK | MB_ICONINFORMATION);
+    }
+    return 0;
+}
+
 LRESULT SearchDialog::OnWindowClose(UINT, WPARAM, LPARAM, BOOL&) {
     DestroyWindow();
     return 0;
@@ -65,6 +89,7 @@ LRESULT SearchDialog::OnDestroy(UINT, WPARAM, LPARAM, BOOL&) {
     results_ = nullptr;
     launchOwner_ = nullptr;
     search_ = nullptr;
+    onLocate_ = {};
     nameTerm_.clear();
     total_ = 0;
     ClearCache();
@@ -208,6 +233,95 @@ const wit::core::FileEntry* SearchDialog::EntryAt(int row) {
     found->lastUsed = ++cacheClock_;
     const int index = row - found->start;
     return index >= 0 && index < static_cast<int>(found->items.size()) ? &found->items[index] : nullptr;
+}
+
+const wit::core::FileEntry* SearchDialog::FocusedEntry() {
+    const int row = ListView_GetNextItem(results_, -1, LVNI_FOCUSED);
+    return row >= 0 ? EntryAt(row) : nullptr;
+}
+
+bool SearchDialog::PrepareContextMenuSelection(LPARAM lparam, POINT& screenPoint) {
+    if (!results_ || total_ <= 0) return false;
+    const bool keyboardInvocation = lparam == -1;
+    if (keyboardInvocation) {
+        int row = ListView_GetNextItem(results_, -1, LVNI_FOCUSED);
+        if (row < 0) row = ListView_GetNextItem(results_, -1, LVNI_SELECTED);
+        if (row < 0 || !EntryAt(row)) return false;
+        ListView_SetItemState(results_, row, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
+        RECT itemRect{};
+        itemRect.left = LVIR_BOUNDS;
+        if (ListView_GetItemRect(results_, row, &itemRect, LVIR_BOUNDS)) {
+            screenPoint.x = itemRect.left + 16;
+            screenPoint.y = itemRect.top + ((itemRect.bottom - itemRect.top) / 2);
+            ::ClientToScreen(results_, &screenPoint);
+        } else {
+            ::GetWindowRect(results_, &itemRect);
+            screenPoint.x = itemRect.left + 16;
+            screenPoint.y = itemRect.top + 16;
+        }
+        return true;
+    }
+
+    screenPoint.x = GET_X_LPARAM(lparam);
+    screenPoint.y = GET_Y_LPARAM(lparam);
+    POINT clientPoint = screenPoint;
+    ::ScreenToClient(results_, &clientPoint);
+    LVHITTESTINFO hitTest{};
+    hitTest.pt = clientPoint;
+    const int row = ListView_HitTest(results_, &hitTest);
+    if (row < 0 || (hitTest.flags & LVHT_ONITEM) == 0 || !EntryAt(row)) return false;
+    ListView_SetItemState(results_, -1, 0, LVIS_SELECTED | LVIS_FOCUSED);
+    ListView_SetItemState(results_, row, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
+    return true;
+}
+
+void SearchDialog::ShowResultsContextMenu(POINT screenPoint) {
+    const auto menu = ::CreatePopupMenu();
+    if (!menu) return;
+
+    const auto fileManagement = ::CreatePopupMenu();
+    const auto userList = ::CreatePopupMenu();
+    const auto plugins = ::CreatePopupMenu();
+    if (!fileManagement || !userList || !plugins) {
+        if (fileManagement) ::DestroyMenu(fileManagement);
+        if (userList) ::DestroyMenu(userList);
+        if (plugins) ::DestroyMenu(plugins);
+        ::DestroyMenu(menu);
+        return;
+    }
+
+    constexpr UINT disabled = MF_STRING | MF_GRAYED;
+    ::AppendMenuW(menu, MF_STRING, ID_SEARCH_RESULTS_LOCATE_IN_CATALOG, L"Locate in Catalog");
+    ::AppendMenuW(menu, disabled, ID_SEARCH_RESULTS_VIEW_FILE_PLACEHOLDER, L"View File");
+    ::AppendMenuW(menu, disabled, ID_SEARCH_RESULTS_LAUNCH_FILE_PLACEHOLDER, L"Launch File");
+    ::AppendMenuW(menu, disabled, ID_SEARCH_RESULTS_OPEN_EXPLORER_PLACEHOLDER, L"Open in Explorer");
+    ::AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+
+    ::AppendMenuW(fileManagement, disabled, ID_SEARCH_RESULTS_COPY_TO_PLACEHOLDER, L"Copy To...");
+    ::AppendMenuW(fileManagement, disabled, ID_SEARCH_RESULTS_MOVE_TO_PLACEHOLDER, L"Move To...");
+    ::AppendMenuW(fileManagement, disabled, ID_SEARCH_RESULTS_RENAME_PLACEHOLDER, L"Rename");
+    ::AppendMenuW(fileManagement, disabled, ID_SEARCH_RESULTS_DELETE_PLACEHOLDER, L"Delete");
+    ::AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(fileManagement), L"File Management");
+
+    ::AppendMenuW(menu, disabled, ID_SEARCH_RESULTS_REMOVE_FROM_LIST_PLACEHOLDER, L"Remove from List");
+    ::AppendMenuW(menu, disabled, ID_SEARCH_RESULTS_REMOVE_FROM_CATALOG_PLACEHOLDER, L"Remove from Catalog");
+    ::AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+
+    ::AppendMenuW(userList, disabled, ID_SEARCH_RESULTS_ADD_TO_USER_LIST_PLACEHOLDER, L"Add to User List");
+    ::AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(userList), L"User List");
+    ::AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+
+    ::AppendMenuW(menu, disabled, ID_SEARCH_RESULTS_EDIT_DESCRIPTION_PLACEHOLDER, L"Edit Description");
+    ::AppendMenuW(plugins, disabled, ID_SEARCH_RESULTS_NO_PLUGINS_PLACEHOLDER, L"(No plugins)");
+    ::AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(plugins), L"Plugins");
+    ::AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+    ::AppendMenuW(menu, disabled, ID_SEARCH_RESULTS_PROPERTIES_PLACEHOLDER, L"Properties");
+
+    ::SetForegroundWindow(m_hWnd);
+    ::TrackPopupMenuEx(menu, TPM_LEFTALIGN | TPM_TOPALIGN | TPM_RIGHTBUTTON,
+        screenPoint.x, screenPoint.y, m_hWnd, nullptr);
+    ::PostMessageW(m_hWnd, WM_NULL, 0, 0);
+    ::DestroyMenu(menu);
 }
 
 void SearchDialog::TextFor(int row, int column, wchar_t* buffer, std::size_t bufferSize) {

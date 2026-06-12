@@ -367,6 +367,7 @@ ControllerResult CatalogWorkflowController::RequestSearch() {
     } else {
         result.request.kind = RequestKind::ShowSearch;
         result.request.database = database;
+        result.request.preferredCatalogId = catalog->id;
         result.presentation.updateAppStatus = true;
         result.presentation.appStatus = AppStatus::Searching;
     }

@@ -1,6 +1,7 @@
 #include "wit_gui/BrowserController.h"
 #include <algorithm>
 #include <format>
+#include <wit_infra/ScopeGuard.h>
 #include <wit_infra/Logging.h>
 #include <wit_infra/PathHelpers.h>
 #include "wit_infra/StringUtils.h"
@@ -205,6 +206,34 @@ void BrowserController::RefreshDisplay() {
         files_.ResetCachedItems();
         RedrawWindow(filesHandle_, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
     }
+}
+
+bool BrowserController::LocateFile(wit::core::CatalogId catalogId, const wit::core::FileEntry& entry) {
+    if (!treeHandle_ || !filesHandle_ || catalogId == 0 || entry.catalogId == 0) return false;
+    const auto sourceId = entry.catalogId;
+    const auto entryId = entry.id;
+    const bool isDirectory = entry.isDirectory;
+    const auto parentPath = entry.parentPath;
+    const auto name = entry.name;
+
+    wit::core::BrowserTarget target;
+    target.catalogId = catalogId;
+    target.location.isRoot = false;
+    target.location.sourceId = sourceId;
+    target.location.path = isDirectory ? wit::platform::Join(parentPath, name) : parentPath;
+
+    selectingTree_ = true;
+    const wit::infra::ScopeGuard resetSelectingTree([this]() { selectingTree_ = false; });
+    const bool treeSelected = tree_.SelectLocation(target);
+    if (!treeSelected) return false;
+
+    const auto selectedTarget = SelectedTreeTarget();
+    if (!selectedTarget) return false;
+    NavigateTo(*selectedTarget, true, false);
+
+    if (!isDirectory && !files_.SelectEntry(entryId, false)) return false;
+    ::SetFocus(isDirectory ? treeHandle_ : filesHandle_);
+    return true;
 }
 
 wit::core::CatalogId BrowserController::OnTreeSelectionChanged(LPNMHDR header) {

@@ -27,6 +27,7 @@ public:
     const wit::core::FileEntry* EntryAt(int row);
     const wit::core::BrowserItem* BrowserItemAt(int row);
     const wit::core::Disk* DiskAt(int row);
+    bool SelectEntry(std::int64_t id, bool isDirectory);
     int ImageFor(int row);
     void TextFor(int row, int column, wchar_t* buffer, std::size_t bufferSize);
 

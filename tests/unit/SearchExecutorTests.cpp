@@ -69,3 +69,20 @@ TEST(SearchExecutor, PageByNameCachesFolderCountPerSearchTermAndDatabase) {
     EXPECT_EQ(executor.PageByName(L"beta", 0, 10).size(), 1u);
     EXPECT_EQ(secondFolderCountQueries, 1);
 }
+
+TEST(SearchExecutor, AdvancedSearchFiltersWithBoundCriteria) {
+    MemoryDatabase database;
+    wit::search::SqliteSearchExecutor executor(database.Raw());
+
+    const auto parsed = wit::search::ParseAdvancedSearchQuery(L"filename = \"alpha-file.txt\" and filesize >= \"40 bytes\"");
+    ASSERT_TRUE(parsed.success);
+
+    EXPECT_EQ(executor.CountAdvanced(parsed.expression), 1);
+    const auto page = executor.PageAdvanced(parsed.expression, 0, 10);
+    ASSERT_EQ(page.size(), 1u);
+    EXPECT_EQ(page[0].name, L"alpha-file.txt");
+
+    const auto folderParsed = wit::search::ParseAdvancedSearchQuery(L"filename = \"alpha-folder\" or filesize = \"43 bytes\"");
+    ASSERT_TRUE(folderParsed.success);
+    EXPECT_EQ(executor.CountAdvanced(folderParsed.expression), 2);
+}

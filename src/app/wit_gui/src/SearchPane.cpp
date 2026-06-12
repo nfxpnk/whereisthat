@@ -31,13 +31,23 @@ bool SearchDialog::Show(HWND owner, wit::search::ISearchRepository* search, Loca
     return true;
 }
 
+bool SearchDialog::Show(HWND owner, wit::search::ISearchRepository* search, std::function<void()> onClose) {
+    return Show(owner, search, {}, std::move(onClose));
+}
+
 void SearchDialog::Close() {
     if (m_hWnd) DestroyWindow();
 }
 
 void SearchDialog::RefreshDisplay() {
     if (!m_hWnd || !results_) return;
-    if (search_ && !nameTerm_.empty()) total_ = search_->CountByName(nameTerm_);
+    if (search_) {
+        if (resultMode_ == ResultMode::Quick && !nameTerm_.empty()) {
+            total_ = search_->CountByName(nameTerm_);
+        } else if (resultMode_ == ResultMode::Advanced && !advancedExpression_.criteria.empty()) {
+            total_ = search_->CountAdvanced(advancedExpression_);
+        }
+    }
     ClearCache();
     ResetResultItemCache();
     ::RedrawWindow(results_, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
@@ -56,6 +66,17 @@ LRESULT SearchDialog::OnInitDialog(UINT, WPARAM, LPARAM, BOOL&) {
 
 LRESULT SearchDialog::OnExecuteSearch(WORD, WORD, HWND, BOOL&) {
     Search();
+    return 0;
+}
+
+LRESULT SearchDialog::OnExecuteAdvancedSearch(WORD, WORD, HWND, BOOL&) {
+    AdvancedSearch();
+    return 0;
+}
+
+LRESULT SearchDialog::OnClearAdvancedSearch(WORD, WORD, HWND, BOOL&) {
+    SetDlgItemTextW(IDC_ADVANCED_SEARCH_QUERY, L"");
+    SetDlgItemTextW(IDC_SEARCH_SUMMARY, L"Enter advanced search criteria.");
     return 0;
 }
 
@@ -91,6 +112,8 @@ LRESULT SearchDialog::OnDestroy(UINT, WPARAM, LPARAM, BOOL&) {
     search_ = nullptr;
     onLocate_ = {};
     nameTerm_.clear();
+    advancedExpression_ = {};
+    resultMode_ = ResultMode::Quick;
     total_ = 0;
     ClearCache();
     auto onClose = std::move(onClose_);
@@ -120,7 +143,20 @@ LRESULT SearchDialog::OnCacheHint(int, LPNMHDR header, BOOL&) {
     return 0;
 }
 
+LRESULT SearchDialog::OnTabChanged(int, LPNMHDR, BOOL&) {
+    ShowTabPage(TabCtrl_GetCurSel(GetDlgItem(IDC_SEARCH_TABS)));
+    return 0;
+}
+
 void SearchDialog::Initialize() {
+    HWND tabs = GetDlgItem(IDC_SEARCH_TABS);
+    TCITEMW item{TCIF_TEXT};
+    item.pszText = const_cast<LPWSTR>(L"Quick Search");
+    TabCtrl_InsertItem(tabs, 0, &item);
+    item.pszText = const_cast<LPWSTR>(L"Advanced Search");
+    TabCtrl_InsertItem(tabs, 1, &item);
+    ShowTabPage(0);
+
     results_ = GetDlgItem(IDC_SEARCH_RESULTS);
     ListView_SetExtendedListViewStyle(results_, LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER);
 
@@ -147,13 +183,37 @@ void SearchDialog::Initialize() {
     SetDlgItemTextW(IDC_SEARCH_SUMMARY, L"Enter part of a file or folder name to search.");
 }
 
+std::wstring SearchDialog::DialogText(int controlId) const {
+    const HWND control = GetDlgItem(controlId);
+    const int length = ::GetWindowTextLengthW(control);
+    std::wstring text(static_cast<std::size_t>(length) + 1, L'\0');
+    GetDlgItemTextW(controlId, text.data(), length + 1);
+    text.resize(static_cast<std::size_t>(length));
+    return text;
+}
+
+void SearchDialog::ShowTabPage(int index) {
+    const bool advanced = index == 1;
+    const int quickControls[] = {IDC_SEARCH_LABEL_NAME, IDC_SEARCH_NAME, IDC_SEARCH_EXECUTE};
+    const int advancedControls[] = {
+        IDC_ADVANCED_SEARCH_LABEL_CRITERIA,
+        IDC_ADVANCED_SEARCH_QUERY,
+        IDC_ADVANCED_SEARCH_EXECUTE,
+        IDC_ADVANCED_SEARCH_CLEAR,
+        IDC_ADVANCED_SEARCH_HELP
+    };
+    for (int control : quickControls) ::ShowWindow(GetDlgItem(control), advanced ? SW_HIDE : SW_SHOW);
+    for (int control : advancedControls) ::ShowWindow(GetDlgItem(control), advanced ? SW_SHOW : SW_HIDE);
+    SetDlgItemTextW(IDC_SEARCH_SUMMARY,
+        advanced ? L"Enter advanced search criteria." : L"Enter part of a file or folder name to search.");
+}
+
 void SearchDialog::Search() {
-    const int length = ::GetWindowTextLengthW(GetDlgItem(IDC_SEARCH_NAME));
-    std::wstring term(static_cast<std::size_t>(length) + 1, L'\0');
-    GetDlgItemTextW(IDC_SEARCH_NAME, term.data(), length + 1);
-    term.resize(static_cast<std::size_t>(length));
+    const auto term = DialogText(IDC_SEARCH_NAME);
     if (term.find_first_not_of(L" \t\r\n") == std::wstring::npos) {
         nameTerm_.clear();
+        advancedExpression_ = {};
+        resultMode_ = ResultMode::Quick;
         total_ = 0;
         ClearCache();
         ListView_SetItemCountEx(results_, 0, LVSICF_NOINVALIDATEALL);
@@ -162,8 +222,37 @@ void SearchDialog::Search() {
     }
 
     nameTerm_ = term;
+    advancedExpression_ = {};
+    resultMode_ = ResultMode::Quick;
     if (!search_) return;
     total_ = search_->CountByName(nameTerm_);
+    ClearCache();
+    ResetResultItemCache();
+    if (total_ > 0) PreloadRange(0, (std::min)(total_ - 1, PageSize - 1));
+    ::InvalidateRect(results_, nullptr, TRUE);
+    const auto summary = total_ == 0 ? std::wstring(L"No matching items found.") :
+        std::format(L"{} matching item{}.", total_, total_ == 1 ? L"" : L"s");
+    SetDlgItemTextW(IDC_SEARCH_SUMMARY, summary.c_str());
+}
+
+void SearchDialog::AdvancedSearch() {
+    const auto query = DialogText(IDC_ADVANCED_SEARCH_QUERY);
+    const auto parsed = wit::search::ParseAdvancedSearchQuery(query);
+    if (!parsed.success) {
+        advancedExpression_ = {};
+        resultMode_ = ResultMode::Advanced;
+        total_ = 0;
+        ClearCache();
+        ListView_SetItemCountEx(results_, 0, LVSICF_NOINVALIDATEALL);
+        SetDlgItemTextW(IDC_SEARCH_SUMMARY, parsed.error.c_str());
+        return;
+    }
+
+    nameTerm_.clear();
+    advancedExpression_ = parsed.expression;
+    resultMode_ = ResultMode::Advanced;
+    if (!search_) return;
+    total_ = search_->CountAdvanced(advancedExpression_);
     ClearCache();
     ResetResultItemCache();
     if (total_ > 0) PreloadRange(0, (std::min)(total_ - 1, PageSize - 1));
@@ -185,7 +274,9 @@ void SearchDialog::ResetResultItemCache() {
 }
 
 void SearchDialog::CachePage(int pageStart) {
-    if (!search_ || nameTerm_.empty() || pageStart < 0 || pageStart >= total_) return;
+    if (!search_ || pageStart < 0 || pageStart >= total_) return;
+    if (resultMode_ == ResultMode::Quick && nameTerm_.empty()) return;
+    if (resultMode_ == ResultMode::Advanced && advancedExpression_.criteria.empty()) return;
 
     const int normalizedStart = (pageStart / PageSize) * PageSize;
     const auto found = std::ranges::find_if(cachedPages_,
@@ -197,7 +288,9 @@ void SearchDialog::CachePage(int pageStart) {
 
     CachedPage page;
     page.start = normalizedStart;
-    page.items = search_->PageByName(nameTerm_, normalizedStart, PageSize);
+    page.items = resultMode_ == ResultMode::Quick
+        ? search_->PageByName(nameTerm_, normalizedStart, PageSize)
+        : search_->PageAdvanced(advancedExpression_, normalizedStart, PageSize);
     page.lastUsed = ++cacheClock_;
     cachedPages_.push_back(std::move(page));
 

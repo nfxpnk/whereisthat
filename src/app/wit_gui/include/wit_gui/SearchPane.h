@@ -2,6 +2,7 @@
 #include "wit_win32/BaseWindow.h"
 #include "resource.h"
 #include <wit_types/FileEntry.h>
+#include "wit_search/AdvancedSearchParser.h"
 #include "wit_search/ISearchRepository.h"
 #include <CommCtrl.h>
 #include <functional>
@@ -16,7 +17,8 @@ public:
     using LocateResultHandler = std::function<bool(const wit::core::FileEntry&)>;
 
     bool Show(HWND owner, wit::search::ISearchRepository* search, LocateResultHandler onLocate,
-        std::function<void()> onClose);
+        std::function<void()> onClose = {});
+    bool Show(HWND owner, wit::search::ISearchRepository* search, std::function<void()> onClose);
     void Close();
     void RefreshDisplay();
     BOOL PreTranslateMessage(MSG* message);
@@ -27,8 +29,11 @@ public:
         MESSAGE_HANDLER(WM_CLOSE, OnWindowClose)
         MESSAGE_HANDLER(WM_DESTROY, OnDestroy)
         COMMAND_ID_HANDLER(IDC_SEARCH_EXECUTE, OnExecuteSearch)
+        COMMAND_ID_HANDLER(IDC_ADVANCED_SEARCH_EXECUTE, OnExecuteAdvancedSearch)
+        COMMAND_ID_HANDLER(IDC_ADVANCED_SEARCH_CLEAR, OnClearAdvancedSearch)
         COMMAND_ID_HANDLER(IDCANCEL, OnCloseCommand)
         COMMAND_ID_HANDLER(ID_SEARCH_RESULTS_LOCATE_IN_CATALOG, OnLocateInCatalog)
+        NOTIFY_HANDLER(IDC_SEARCH_TABS, TCN_SELCHANGE, OnTabChanged)
         NOTIFY_HANDLER(IDC_SEARCH_RESULTS, LVN_GETDISPINFOW, OnGetDisplayInfo)
         NOTIFY_HANDLER(IDC_SEARCH_RESULTS, LVN_ODCACHEHINT, OnCacheHint)
         CHAIN_MSG_MAP(WTL::CDialogResize<SearchDialog>)
@@ -37,6 +42,11 @@ public:
     BEGIN_DLGRESIZE_MAP(SearchDialog)
         DLGRESIZE_CONTROL(IDC_SEARCH_NAME, DLSZ_SIZE_X)
         DLGRESIZE_CONTROL(IDC_SEARCH_EXECUTE, DLSZ_MOVE_X)
+        DLGRESIZE_CONTROL(IDC_SEARCH_TABS, DLSZ_SIZE_X)
+        DLGRESIZE_CONTROL(IDC_ADVANCED_SEARCH_QUERY, DLSZ_SIZE_X)
+        DLGRESIZE_CONTROL(IDC_ADVANCED_SEARCH_EXECUTE, DLSZ_MOVE_X)
+        DLGRESIZE_CONTROL(IDC_ADVANCED_SEARCH_CLEAR, DLSZ_MOVE_X)
+        DLGRESIZE_CONTROL(IDC_ADVANCED_SEARCH_HELP, DLSZ_SIZE_X)
         DLGRESIZE_CONTROL(IDC_SEARCH_SUMMARY, DLSZ_SIZE_X)
         DLGRESIZE_CONTROL(IDC_SEARCH_RESULTS, DLSZ_SIZE_X | DLSZ_SIZE_Y)
         DLGRESIZE_CONTROL(IDCANCEL, DLSZ_MOVE_X | DLSZ_MOVE_Y)
@@ -49,6 +59,11 @@ private:
         unsigned long long lastUsed{};
     };
 
+    enum class ResultMode {
+        Quick,
+        Advanced
+    };
+
     static constexpr int PageSize = 512;
     static constexpr std::size_t MaxCachedPages = 16;
 
@@ -58,6 +73,8 @@ private:
     LocateResultHandler onLocate_;
     std::function<void()> onClose_;
     std::wstring nameTerm_;
+    wit::search::AdvancedSearchExpression advancedExpression_;
+    ResultMode resultMode_{ResultMode::Quick};
     int total_{};
     unsigned long long cacheClock_{};
     std::vector<CachedPage> cachedPages_;
@@ -65,14 +82,20 @@ private:
     LRESULT OnInitDialog(UINT message, WPARAM wparam, LPARAM lparam, BOOL& handled);
     LRESULT OnContextMenu(UINT message, WPARAM wparam, LPARAM lparam, BOOL& handled);
     LRESULT OnExecuteSearch(WORD notifyCode, WORD id, HWND control, BOOL& handled);
+    LRESULT OnExecuteAdvancedSearch(WORD notifyCode, WORD id, HWND control, BOOL& handled);
+    LRESULT OnClearAdvancedSearch(WORD notifyCode, WORD id, HWND control, BOOL& handled);
     LRESULT OnLocateInCatalog(WORD notifyCode, WORD id, HWND control, BOOL& handled);
     LRESULT OnWindowClose(UINT message, WPARAM wparam, LPARAM lparam, BOOL& handled);
     LRESULT OnDestroy(UINT message, WPARAM wparam, LPARAM lparam, BOOL& handled);
     LRESULT OnCloseCommand(WORD notifyCode, WORD id, HWND control, BOOL& handled);
     LRESULT OnGetDisplayInfo(int id, LPNMHDR header, BOOL& handled);
     LRESULT OnCacheHint(int id, LPNMHDR header, BOOL& handled);
+    LRESULT OnTabChanged(int id, LPNMHDR header, BOOL& handled);
     void Initialize();
     void Search();
+    void AdvancedSearch();
+    void ShowTabPage(int index);
+    std::wstring DialogText(int controlId) const;
     void ClearCache();
     void ResetResultItemCache();
     void CachePage(int pageStart);

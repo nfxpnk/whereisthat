@@ -56,6 +56,7 @@ copy /Y "$(ProjectDir)third_party\libarchive\bin\*.dll" "$(OutDir)"</Command>
         <ClCompile Include="tests\unit\PathHelpersTests.cpp" />
         <ClCompile Include="tests\unit\Crc32Tests.cpp" />
         <ClCompile Include="tests\unit\SearchExecutorTests.cpp" />
+        <ClCompile Include="tests\unit\AdvancedSearchParserTests.cpp" />
         <ClCompile Include="tests\unit\SearchPaneUiPerformanceTests.cpp" />
         <ClCompile Include="tests\unit\GeneralSettingsDialogTests.cpp" />
         <ClCompile Include="tests\unit\SettingsVisualTests.cpp" />
@@ -85,6 +86,7 @@ copy /Y "$(ProjectDir)third_party\libarchive\bin\*.dll" "$(OutDir)"</Command>
         <ClCompile Include="src\modules\wit_infra\src\VolumeInfo.cpp" />
         <ClCompile Include="src\modules\wit_infra\src\Win32Helpers.cpp" />
         <ClCompile Include="src\modules\wit_search\src\QueryBuilder.cpp" />
+        <ClCompile Include="src\modules\wit_search\src\AdvancedSearchParser.cpp" />
         <ClCompile Include="src\modules\wit_search\src\SearchExecutor.cpp" />
         <ClCompile Include="src\modules\wit_search\src\SqliteSearchExecutor.cpp" />
     </ItemGroup>

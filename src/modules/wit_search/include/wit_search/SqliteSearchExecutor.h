@@ -15,6 +15,11 @@ public:
 
     int CountByName(const std::wstring& nameTerm) override;
     std::vector<wit::core::FileEntry> PageByName(const std::wstring& nameTerm, int offset, int limit) override;
+    int CountAdvanced(const AdvancedSearchExpression& expression) override;
+    std::vector<wit::core::FileEntry> PageAdvanced(
+        const AdvancedSearchExpression& expression,
+        int offset,
+        int limit) override;
 
 private:
     sqlite3* db_{};

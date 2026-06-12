@@ -307,6 +307,10 @@ bool BrowserController::FileItemStateChanged(LPNMHDR header) const {
         ((changed->uOldState ^ changed->uNewState) & (LVIS_FOCUSED | LVIS_SELECTED));
 }
 
+bool BrowserController::PersistFileListColumnWidths() const {
+    return files_.PersistColumnWidths();
+}
+
 void BrowserController::SelectAll() {
     if (GetFocus() != filesHandle_ || files_.ShowsDisks()) return;
     const int focused = ListView_GetNextItem(filesHandle_, -1, LVNI_FOCUSED);

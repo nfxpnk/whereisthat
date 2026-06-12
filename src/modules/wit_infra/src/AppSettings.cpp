@@ -1,7 +1,9 @@
 #include <wit_infra/AppSettings.h>
 
 #include <Windows.h>
+#include <cwchar>
 #include <format>
+#include <string_view>
 #include <vector>
 #include <wit_infra/PathHelpers.h>
 #include <wit_infra/Win32Helpers.h>
@@ -10,6 +12,7 @@ namespace wit::platform {
 namespace {
 constexpr std::size_t kMaximumRecentCatalogs = 10;
 constexpr int kDefaultMainSplitterPosition = 360;
+constexpr const wchar_t* kFileListColumnWidthsSection = L"FileListColumnWidths";
 
 std::wstring ExecutableDirectory() {
     DWORD capacity = MAX_PATH;
@@ -31,6 +34,45 @@ std::wstring ReadProfileString(const wchar_t* section, const wchar_t* key, const
         const DWORD length = GetPrivateProfileStringW(section, key, L"", buffer.data(), capacity, filePath.c_str());
         if (length < capacity - 1) return std::wstring(buffer.data(), length);
         capacity *= 2;
+    }
+}
+
+std::vector<std::wstring> ReadProfileSection(const wchar_t* section, const std::wstring& filePath) {
+    DWORD capacity = 1024;
+    for (;;) {
+        std::vector<wchar_t> buffer(capacity);
+        const DWORD length = GetPrivateProfileSectionW(section, buffer.data(), capacity, filePath.c_str());
+        if (length < capacity - 2) {
+            std::vector<std::wstring> entries;
+            const wchar_t* cursor = buffer.data();
+            while (*cursor != L'\0') {
+                const std::wstring entry(cursor);
+                entries.push_back(entry);
+                cursor += entry.size() + 1;
+            }
+            return entries;
+        }
+        capacity *= 2;
+    }
+}
+
+bool TryParseInt(std::wstring_view text, int& value) {
+    if (text.empty()) return false;
+    std::wstring nullTerminated(text);
+    wchar_t* end{};
+    const long parsed = std::wcstol(nullTerminated.c_str(), &end, 10);
+    if (end == nullTerminated.c_str() || *end != L'\0') return false;
+    value = static_cast<int>(parsed);
+    return static_cast<long>(value) == parsed;
+}
+
+void LoadFileListColumnWidths(AppSettings& settings, const std::wstring& path) {
+    for (const auto& entry : ReadProfileSection(kFileListColumnWidthsSection, path)) {
+        const auto separator = entry.find(L'=');
+        if (separator == std::wstring::npos || separator == 0) continue;
+        int width{};
+        if (!TryParseInt(std::wstring_view(entry).substr(separator + 1), width)) continue;
+        settings.fileListColumnWidths.emplace(entry.substr(0, separator), width);
     }
 }
 
@@ -65,6 +107,7 @@ AppSettings LoadAppSettings() {
         if (!recentPath.empty()) RememberRecentCatalog(settings, recentPath);
     }
     if (!settings.lastCatalogPath.empty()) RememberRecentCatalog(settings, settings.lastCatalogPath);
+    LoadFileListColumnWidths(settings, path);
     wit::platform::SetDateTimeFormatOverride(settings.dateTimeFormat);
     return settings;
 }
@@ -92,6 +135,11 @@ bool SaveAppSettings(const AppSettings& settings) {
             ? settings.recentCatalogPaths[index].c_str() : nullptr;
         success = WritePrivateProfileStringW(L"RecentCatalogs", key.c_str(), value, path.c_str()) != FALSE &&
             success;
+    }
+    for (const auto& [key, value] : settings.fileListColumnWidths) {
+        const auto formatted = std::format(L"{}", value);
+        success = WritePrivateProfileStringW(kFileListColumnWidthsSection, key.c_str(), formatted.c_str(),
+            path.c_str()) != FALSE && success;
     }
     if (success) wit::platform::SetDateTimeFormatOverride(settings.dateTimeFormat);
     return success;

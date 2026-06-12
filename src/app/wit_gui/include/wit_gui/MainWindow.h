@@ -16,6 +16,7 @@
 class MainFrame : public WTL::CFrameWindowImpl<MainFrame>, public WTL::CMessageFilter {
 public:
     DECLARE_FRAME_WND_CLASS(L"WhereIsThatMainFrame", IDI_APPICON)
+    static constexpr UINT kPersistFileColumnWidthsMessage = WM_APP + 43;
 
     explicit MainFrame(std::wstring startupCatalogPath = {});
     bool Create();
@@ -38,6 +39,7 @@ public:
         MESSAGE_HANDLER(WM_SETCURSOR, OnSetCursor)
         MESSAGE_HANDLER(WM_COMMAND, OnCommandMessage)
         MESSAGE_HANDLER(WM_DRAWITEM, OnDrawItem)
+        MESSAGE_HANDLER(kPersistFileColumnWidthsMessage, OnPersistFileColumnWidths)
         NOTIFY_HANDLER(IDC_BROWSER_TREE, TVN_SELCHANGEDW, OnTreeSelectionChanged)
         NOTIFY_HANDLER(IDC_BROWSER_TREE, TVN_ITEMEXPANDINGW, OnTreeExpanding)
         NOTIFY_HANDLER(IDC_BROWSER_TREE, NM_RCLICK, OnTreeRightClick)
@@ -45,6 +47,8 @@ public:
         NOTIFY_HANDLER(IDC_FILES, LVN_ODCACHEHINT, OnFileCacheHint)
         NOTIFY_HANDLER(IDC_FILES, LVN_ITEMACTIVATE, OnFileActivate)
         NOTIFY_HANDLER(IDC_FILES, LVN_ITEMCHANGED, OnFileItemChanged)
+        NOTIFY_CODE_HANDLER(HDN_ENDTRACKW, OnFileHeaderWidthChanged)
+        NOTIFY_CODE_HANDLER(HDN_DIVIDERDBLCLICKW, OnFileHeaderWidthChanged)
         NOTIFY_HANDLER(IDC_TOOLBAR, TBN_DROPDOWN, OnToolbarDropDown)
         NOTIFY_HANDLER(IDC_TOOLBAR, TBN_GETINFOTIPW, OnToolbarGetInfoTip)
         MESSAGE_HANDLER(wit::app::WM_SCAN_PROGRESS, OnScanProgress)
@@ -74,6 +78,7 @@ private:
     LRESULT OnSetCursor(UINT message, WPARAM wparam, LPARAM lparam, BOOL& handled);
     LRESULT OnCommandMessage(UINT message, WPARAM wparam, LPARAM lparam, BOOL& handled);
     LRESULT OnDrawItem(UINT message, WPARAM wparam, LPARAM lparam, BOOL& handled);
+    LRESULT OnPersistFileColumnWidths(UINT message, WPARAM wparam, LPARAM lparam, BOOL& handled);
     LRESULT OnScanProgress(UINT message, WPARAM wparam, LPARAM lparam, BOOL& handled);
     LRESULT OnScanComplete(UINT message, WPARAM wparam, LPARAM lparam, BOOL& handled);
     LRESULT OnDestroy(UINT message, WPARAM wparam, LPARAM lparam, BOOL& handled);
@@ -84,6 +89,7 @@ private:
     LRESULT OnFileCacheHint(int id, LPNMHDR header, BOOL& handled);
     LRESULT OnFileActivate(int id, LPNMHDR header, BOOL& handled);
     LRESULT OnFileItemChanged(int id, LPNMHDR header, BOOL& handled);
+    LRESULT OnFileHeaderWidthChanged(int id, LPNMHDR header, BOOL& handled);
     LRESULT OnToolbarDropDown(int id, LPNMHDR header, BOOL& handled);
     LRESULT OnToolbarGetInfoTip(int id, LPNMHDR header, BOOL& handled);
     bool InitializeFrame();

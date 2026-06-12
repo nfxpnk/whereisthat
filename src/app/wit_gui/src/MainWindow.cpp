@@ -260,6 +260,12 @@ LRESULT MainFrame::OnDrawItem(UINT, WPARAM, LPARAM lparam, BOOL& handled) {
     return 0;
 }
 
+LRESULT MainFrame::OnPersistFileColumnWidths(UINT, WPARAM, LPARAM, BOOL&) {
+    // Best-effort preference save after the ListView has applied the user's resize.
+    (void)browser_.PersistFileListColumnWidths();
+    return 0;
+}
+
 LRESULT MainFrame::OnScanProgress(UINT, WPARAM wparam, LPARAM, BOOL&) {
     ApplyControllerResult(controller_.OnScanProgress(static_cast<wit::app::ScanId>(wparam)));
     return 0;
@@ -306,6 +312,15 @@ MainFrame::MainFrame(std::wstring startupCatalogPath) : startupCatalogPath_(std:
 
 LRESULT MainFrame::OnFileItemChanged(int, LPNMHDR header, BOOL&) {
     if (browser_.FileItemStateChanged(header)) UpdateBrowserStatus();
+    return 0;
+}
+
+LRESULT MainFrame::OnFileHeaderWidthChanged(int, LPNMHDR header, BOOL& handled) {
+    if (!header || header->hwndFrom != ListView_GetHeader(chrome_.FilesHandle())) {
+        handled = FALSE;
+        return 0;
+    }
+    PostMessageW(kPersistFileColumnWidthsMessage, 0, 0);
     return 0;
 }
 

@@ -1,6 +1,7 @@
 #include "wit_gui/FileListPane.h"
 #include "wit_gui/BrowserItemIcons.h"
 #include "wit_infra/StringUtils.h"
+#include <wit_infra/AppSettings.h>
 #include <wit_infra/Win32Helpers.h>
 #include <CommCtrl.h>
 #include <algorithm>
@@ -18,6 +19,36 @@ struct FileExtensionImage {
     const wchar_t* extension;
     int image;
 };
+
+struct ColumnDefinition {
+    const wchar_t* key;
+    const wchar_t* name;
+    int defaultWidth;
+    int format;
+};
+
+constexpr int kMinimumColumnWidth = 20;
+constexpr int kMaximumColumnWidth = 4000;
+
+constexpr std::array<ColumnDefinition, 9> kBrowserRootColumns{{
+    { L"BrowserRoot.Name", L"Name", 180, LVCFMT_LEFT },
+    { L"BrowserRoot.MediaType", L"Media Type", 100, LVCFMT_LEFT },
+    { L"BrowserRoot.Capacity", L"Capacity", 100, LVCFMT_RIGHT },
+    { L"BrowserRoot.FreeSpace", L"Free Space", 100, LVCFMT_RIGHT },
+    { L"BrowserRoot.LastUpdated", L"Last Updated", 165, LVCFMT_LEFT },
+    { L"BrowserRoot.DiskNumber", L"Disk # / Count", 95, LVCFMT_RIGHT },
+    { L"BrowserRoot.Description", L"Description", 180, LVCFMT_LEFT },
+    { L"BrowserRoot.Category", L"Category", 120, LVCFMT_LEFT },
+    { L"BrowserRoot.DiskLocation", L"Disk Location", 240, LVCFMT_LEFT },
+}};
+
+constexpr std::array<ColumnDefinition, 5> kBrowserContentColumns{{
+    { L"BrowserContent.Name", L"Name", 200, LVCFMT_LEFT },
+    { L"BrowserContent.Type", L"Type", 80, LVCFMT_LEFT },
+    { L"BrowserContent.Size", L"Size", 100, LVCFMT_RIGHT },
+    { L"BrowserContent.Path", L"Path", 320, LVCFMT_LEFT },
+    { L"BrowserContent.Modified", L"Modified", 180, LVCFMT_LEFT },
+}};
 
 const wchar_t* DiskTypeLabel(wit::core::DiskType type) {
     switch (type) {
@@ -38,6 +69,27 @@ void InsertColumn(HWND hwnd, int index, const wchar_t* name, int width, int form
     column.cx = width;
     column.pszText = const_cast<LPWSTR>(name);
     ListView_InsertColumn(hwnd, index, &column);
+}
+
+bool IsValidColumnWidth(int width) {
+    return width >= kMinimumColumnWidth && width <= kMaximumColumnWidth;
+}
+
+int WidthForColumn(const wit::platform::AppSettings& settings, const ColumnDefinition& column) {
+    const auto saved = settings.fileListColumnWidths.find(column.key);
+    if (saved == settings.fileListColumnWidths.end() || !IsValidColumnWidth(saved->second)) {
+        return column.defaultWidth;
+    }
+    return saved->second;
+}
+
+template <std::size_t Size>
+void InsertColumns(HWND hwnd, const std::array<ColumnDefinition, Size>& columns,
+    const wit::platform::AppSettings& settings) {
+    for (std::size_t index = 0; index < columns.size(); ++index) {
+        const auto& column = columns[index];
+        InsertColumn(hwnd, static_cast<int>(index), column.name, WidthForColumn(settings, column), column.format);
+    }
 }
 
 bool FileExtensionEquals(std::wstring_view extension, std::wstring_view candidate) {
@@ -181,23 +233,30 @@ void CopyText(std::wstring_view text, wchar_t* buffer, std::size_t bufferSize) {
 
 void FileListView::ConfigureColumns() {
     while (ListView_DeleteColumn(hwnd, 0)) {}
+    const auto settings = wit::platform::LoadAppSettings();
     if (ShowsBrowserItems()) {
-        InsertColumn(hwnd, 0, L"Name", 180);
-        InsertColumn(hwnd, 1, L"Media Type", 100);
-        InsertColumn(hwnd, 2, L"Capacity", 100, LVCFMT_RIGHT);
-        InsertColumn(hwnd, 3, L"Free Space", 100, LVCFMT_RIGHT);
-        InsertColumn(hwnd, 4, L"Last Updated", 165);
-        InsertColumn(hwnd, 5, L"Disk # / Count", 95, LVCFMT_RIGHT);
-        InsertColumn(hwnd, 6, L"Description", 180);
-        InsertColumn(hwnd, 7, L"Category", 120);
-        InsertColumn(hwnd, 8, L"Disk Location", 240);
+        InsertColumns(hwnd, kBrowserRootColumns, settings);
         return;
     }
-    InsertColumn(hwnd, 0, L"Name", 200);
-    InsertColumn(hwnd, 1, L"Type", 80);
-    InsertColumn(hwnd, 2, L"Size", 100, LVCFMT_RIGHT);
-    InsertColumn(hwnd, 3, L"Path", 320);
-    InsertColumn(hwnd, 4, L"Modified", 180);
+    InsertColumns(hwnd, kBrowserContentColumns, settings);
+}
+
+bool FileListView::PersistColumnWidths() const {
+    if (!hwnd) return false;
+
+    auto settings = wit::platform::LoadAppSettings();
+    const auto persist = [&](const auto& columns) {
+        for (std::size_t index = 0; index < columns.size(); ++index) {
+            const int width = ListView_GetColumnWidth(hwnd, static_cast<int>(index));
+            if (IsValidColumnWidth(width)) settings.fileListColumnWidths[columns[index].key] = width;
+        }
+    };
+    if (ShowsBrowserItems()) {
+        persist(kBrowserRootColumns);
+    } else {
+        persist(kBrowserContentColumns);
+    }
+    return wit::platform::SaveAppSettings(settings);
 }
 
 void FileListView::SetLocation(

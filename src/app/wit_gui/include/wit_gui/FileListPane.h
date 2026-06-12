@@ -22,6 +22,7 @@ public:
     void SetLocation(const wit::core::BrowserLocation& newLocation, wit::storage::IBrowserRepository* repository);
     void ResetCachedItems();
     void PreloadRange(int firstRow, int lastRow);
+    [[nodiscard]] bool PersistColumnWidths() const;
     bool ShowsBrowserItems() const { return browser && (location.isRoot || location.isDiskGroup); }
     bool ShowsDisks() const { return ShowsBrowserItems(); }
     const wit::core::FileEntry* EntryAt(int row);

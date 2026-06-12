@@ -92,7 +92,7 @@ private:
     void HandleCommand(int id);
     void OnExit();
     void OnAbout();
-    void OnMoveSelectedItemToGroup();
+    void OnMoveSelectedItemToGroup(std::optional<wit::core::BrowserTarget> target = std::nullopt);
     LRESULT ShowTreeContextMenu();
     void ApplyControllerResult(wit::app::ControllerResult result);
     void PerformRequest(const wit::app::RequestEffect& request);

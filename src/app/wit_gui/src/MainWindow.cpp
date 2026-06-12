@@ -421,8 +421,8 @@ void MainFrame::HandleCommand(int id) {
     else if (id == ID_HELP_ABOUT) OnAbout();
 }
 
-void MainFrame::OnMoveSelectedItemToGroup() {
-    const auto target = browser_.SelectedTreeTarget();
+void MainFrame::OnMoveSelectedItemToGroup(std::optional<wit::core::BrowserTarget> target) {
+    if (!target) target = browser_.SelectedTreeTarget();
     if (!target || (!IsDiskMediaTarget(*target) && !IsDiskGroupTarget(*target))) return;
     WIT_LOG_INFO(std::format(L"move selected item command catalogId={} sourceId={} diskGroupId={} isGroup={}",
         target->catalogId, target->location.sourceId, target->location.diskGroupId,
@@ -466,7 +466,6 @@ LRESULT MainFrame::ShowTreeContextMenu() {
     hitTest.pt = treePoint;
     const auto item = TreeView_HitTest(chrome_.TreeHandle(), &hitTest);
     if (!item) return 0;
-    TreeView_SelectItem(chrome_.TreeHandle(), item);
     const auto target = browser_.TargetForTreeItem(item);
     const auto menu = CreatePopupMenu();
     if (!menu) return 0;
@@ -494,7 +493,8 @@ LRESULT MainFrame::ShowTreeContextMenu() {
     const auto command = TrackPopupMenuEx(menu, TPM_RETURNCMD | TPM_LEFTALIGN | TPM_TOPALIGN,
         screenPoint.x, screenPoint.y, m_hWnd, nullptr);
     DestroyMenu(menu);
-    if (command) HandleCommand(command);
+    if (command == ID_TREE_CONTEXT_MOVE_TO_GROUP) OnMoveSelectedItemToGroup(target);
+    else if (command) HandleCommand(command);
     return 0;
 }
 

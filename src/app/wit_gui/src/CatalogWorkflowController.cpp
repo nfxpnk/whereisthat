@@ -26,8 +26,9 @@ void CatalogWorkflowController::DetachTarget() {
 
 ControllerResult CatalogWorkflowController::Initialize() {
     session_.LoadSettings();
+    const auto startupSettings = session_.Settings();
     ControllerResult result;
-    if (!session_.SaveSettings(session_.Settings())) {
+    if (!session_.SaveSettings(startupSettings)) {
         result.messages.push_back(Message(L"Unable to save settings.ini.", L"Application Settings",
             MB_OK | MB_ICONWARNING));
     }
@@ -37,9 +38,44 @@ ControllerResult CatalogWorkflowController::Initialize() {
     result.presentation.toolbarVisible = session_.Settings().showToolbar;
     result.presentation.mainSplitterPosition = session_.Settings().mainSplitterPosition;
     PopulatePresentation(result, true);
-    if (!session_.Settings().lastCatalogPath.empty()) {
-        Append(result, ActivateCatalog(session_.Settings().lastCatalogPath, false, false,
-            L"Open Catalog", L"The last used catalog is unavailable.", MB_OK | MB_ICONINFORMATION));
+
+    const bool useMultiCatalogSettings = startupSettings.hasMultiCatalogSettings;
+    const bool migrateLegacyCatalog = !useMultiCatalogSettings && !startupSettings.lastCatalogPath.empty();
+    std::vector<std::wstring> startupPaths = useMultiCatalogSettings
+        ? startupSettings.openCatalogPaths : std::vector<std::wstring>{};
+    if (migrateLegacyCatalog) {
+        // Migrate the legacy single-catalog startup setting into the new [Catalogs] format after it opens.
+        startupPaths.push_back(startupSettings.lastCatalogPath);
+    }
+
+    std::vector<wit::core::CatalogId> restoredCatalogIds(startupPaths.size());
+    for (std::size_t index = 0; index < startupPaths.size(); ++index) {
+        if (startupPaths[index].empty()) continue;
+        auto openResult = ActivateCatalog(startupPaths[index], false, false,
+            L"Open Catalog", L"A catalog from the previous session could not be opened.",
+            MB_OK | MB_ICONINFORMATION);
+        for (const auto& effect : openResult.browserEffects) {
+            if (effect.kind == BrowserEffectKind::AddCatalog || effect.kind == BrowserEffectKind::SelectCatalog) {
+                restoredCatalogIds[index] = effect.catalogId;
+                break;
+            }
+        }
+        Append(result, std::move(openResult));
+    }
+
+    if (useMultiCatalogSettings && startupSettings.lastActiveCatalog >= 0 &&
+        static_cast<std::size_t>(startupSettings.lastActiveCatalog) < restoredCatalogIds.size()) {
+        const auto activeId = restoredCatalogIds[static_cast<std::size_t>(startupSettings.lastActiveCatalog)];
+        if (activeId != 0) Append(result, SelectCatalog(activeId));
+    }
+
+    if (migrateLegacyCatalog && !session_.OpenCatalogs().empty()) {
+        if (!session_.SaveOpenCatalogSettings()) {
+            result.messages.push_back(Message(L"Unable to migrate the startup catalog setting to settings.ini.",
+                L"Application Settings", MB_OK | MB_ICONWARNING));
+        } else {
+            PopulatePresentation(result, true);
+        }
     }
     return result;
 }
@@ -352,6 +388,11 @@ ControllerResult CatalogWorkflowController::ContinueWindowClose() {
         }
     }
     closePending_ = false;
+    if (!session_.SaveOpenCatalogSettings()) {
+        result.messages.push_back(Message(
+            L"The open catalog list could not be saved in settings.ini.",
+            L"Catalog Settings", MB_OK | MB_ICONWARNING));
+    }
     result.destroyWindow = true;
     PopulatePresentation(result);
     return result;

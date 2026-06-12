@@ -49,7 +49,7 @@ OpenCatalog* CatalogSession::Open(const std::wstring& path, bool createNew, bool
             if (persistPath) {
                 settings_.lastCatalogPath = catalog->path;
                 wit::platform::RememberRecentCatalog(settings_, catalog->path);
-                settingsSaved = wit::platform::SaveAppSettings(settings_);
+                settingsSaved = SaveOpenCatalogSettings();
             }
             WIT_LOG_INFO(std::format(L"session reused open catalog id={} path='{}'",
                 catalog->id, catalog->path));
@@ -78,9 +78,23 @@ OpenCatalog* CatalogSession::Open(const std::wstring& path, bool createNew, bool
     if (persistPath) {
         settings_.lastCatalogPath = normalizedPath;
         wit::platform::RememberRecentCatalog(settings_, normalizedPath);
-        settingsSaved = wit::platform::SaveAppSettings(settings_);
+        settingsSaved = SaveOpenCatalogSettings();
     }
     return result;
+}
+
+bool CatalogSession::SaveOpenCatalogSettings() {
+    AssertOwnerThread();
+    settings_.openCatalogPaths.clear();
+    settings_.openCatalogPaths.reserve(catalogs_.size());
+    for (const auto& catalog : catalogs_) {
+        if (!catalog->path.empty()) settings_.openCatalogPaths.push_back(catalog->path);
+    }
+    settings_.lastActiveCatalog = LastActiveCatalogIndex();
+    settings_.hasMultiCatalogSettings = true;
+    const auto* active = ActiveCatalog();
+    settings_.lastCatalogPath = active ? active->path : L"";
+    return wit::platform::SaveAppSettings(settings_);
 }
 
 bool CatalogSession::IsPathOpen(const std::wstring& path) const {
@@ -186,11 +200,17 @@ bool CatalogSession::Remove(wit::core::CatalogId id, bool* settingsSaved) {
     if (activeCatalogId_ == id) {
         activeCatalogId_ = catalogs_.empty() ? 0 : catalogs_.front()->id;
     }
-    const auto* active = ActiveCatalog();
-    settings_.lastCatalogPath = active ? active->path : L"";
-    const bool saved = wit::platform::SaveAppSettings(settings_);
+    const bool saved = SaveOpenCatalogSettings();
     if (settingsSaved) *settingsSaved = saved;
     return true;
+}
+
+int CatalogSession::LastActiveCatalogIndex() const {
+    if (activeCatalogId_ == 0) return 0;
+    for (std::size_t index = 0; index < catalogs_.size(); ++index) {
+        if (catalogs_[index]->id == activeCatalogId_) return static_cast<int>(index);
+    }
+    return 0;
 }
 
 }

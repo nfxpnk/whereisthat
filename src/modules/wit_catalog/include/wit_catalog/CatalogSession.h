@@ -34,6 +34,7 @@ public:
 
     [[nodiscard]] OpenCatalog* Open(const std::wstring& path, bool createNew, bool persistPath,
         bool& settingsSaved, bool& alreadyOpen);
+    [[nodiscard]] bool SaveOpenCatalogSettings();
     bool IsPathOpen(const std::wstring& path) const;
     [[nodiscard]] OpenCatalog* Find(wit::core::CatalogId id);
     [[nodiscard]] const OpenCatalog* Find(wit::core::CatalogId id) const;
@@ -50,6 +51,7 @@ public:
 
 private:
     void AssertOwnerThread() const;
+    [[nodiscard]] int LastActiveCatalogIndex() const;
 
     std::vector<std::unique_ptr<OpenCatalog>> catalogs_;
     wit::core::CatalogId activeCatalogId_{};

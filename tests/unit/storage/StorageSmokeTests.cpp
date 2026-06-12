@@ -163,6 +163,13 @@ bool ExecRaw(const std::filesystem::path& path, const char* sql) {
     return success;
 }
 
+std::wstring ReadProfileValue(const wchar_t* section, const wchar_t* key) {
+    wchar_t buffer[MAX_PATH]{};
+    const auto length = GetPrivateProfileStringW(section, key, L"", buffer,
+        static_cast<DWORD>(std::size(buffer)), wit::platform::SettingsFilePath().c_str());
+    return std::wstring(buffer, length);
+}
+
 struct ZipMember {
     const wchar_t* path;
     std::string contents;
@@ -766,7 +773,9 @@ TEST(StorageSmoke, ClosingLastCatalogClearsStartupRestorePath) {
     std::filesystem::remove_all(testRoot);
     std::filesystem::create_directories(testRoot);
     const auto catalogPath = testRoot / L"startup-restore.db";
+    const auto secondCatalogPath = testRoot / L"startup-restore-second.db";
     const auto normalizedCatalogPath = std::filesystem::absolute(catalogPath).wstring();
+    const auto normalizedSecondCatalogPath = std::filesystem::absolute(secondCatalogPath).wstring();
 
     {
         wit::app::CatalogWorkflowController controller;
@@ -776,24 +785,104 @@ TEST(StorageSmoke, ClosingLastCatalogClearsStartupRestorePath) {
 
         auto savedAfterCreate = wit::platform::LoadAppSettings();
         ASSERT_EQ(savedAfterCreate.lastCatalogPath, normalizedCatalogPath);
+        ASSERT_EQ(savedAfterCreate.openCatalogPaths.size(), 1u);
+        EXPECT_EQ(savedAfterCreate.openCatalogPaths[0], normalizedCatalogPath);
+        EXPECT_EQ(savedAfterCreate.lastActiveCatalog, 0);
         ASSERT_FALSE(savedAfterCreate.recentCatalogPaths.empty());
         ASSERT_EQ(savedAfterCreate.recentCatalogPaths.front(), normalizedCatalogPath);
 
+        auto secondCreateResult = controller.CreateCatalogPathSelected(secondCatalogPath.wstring());
+        ASSERT_TRUE(secondCreateResult.messages.empty()) << "second catalog creates through app controller";
+        auto savedAfterSecondCreate = wit::platform::LoadAppSettings();
+        ASSERT_EQ(savedAfterSecondCreate.openCatalogPaths.size(), 2u);
+        EXPECT_EQ(savedAfterSecondCreate.openCatalogPaths[0], normalizedCatalogPath);
+        EXPECT_EQ(savedAfterSecondCreate.openCatalogPaths[1], normalizedSecondCatalogPath);
+        EXPECT_EQ(savedAfterSecondCreate.lastActiveCatalog, 1);
+
         auto requestClose = controller.RequestCloseCatalog();
         ASSERT_EQ(requestClose.request.kind, wit::app::RequestKind::ConfirmCloseCatalog);
+        ASSERT_TRUE(WritePrivateProfileStringW(L"Catalogs", L"OpenCatalog2", L"stale.db",
+            wit::platform::SettingsFilePath().c_str()) != FALSE);
 
         auto closeResult = controller.AnswerCloseCatalog(IDYES);
         ASSERT_TRUE(closeResult.messages.empty()) << "closing catalog saves startup settings";
         ASSERT_TRUE(closeResult.presentation.refreshBrowserStatus);
 
         auto savedAfterClose = wit::platform::LoadAppSettings();
-        EXPECT_TRUE(savedAfterClose.lastCatalogPath.empty());
+        EXPECT_EQ(savedAfterClose.lastCatalogPath, normalizedCatalogPath);
+        ASSERT_EQ(savedAfterClose.openCatalogPaths.size(), 1u);
+        EXPECT_EQ(savedAfterClose.openCatalogPaths[0], normalizedCatalogPath);
+        EXPECT_TRUE(ReadProfileValue(L"Catalogs", L"OpenCatalog1").empty()) << "closed catalog key is removed";
+        EXPECT_TRUE(ReadProfileValue(L"Catalogs", L"OpenCatalog2").empty()) << "stale catalog key is removed";
         ASSERT_FALSE(savedAfterClose.recentCatalogPaths.empty());
-        EXPECT_EQ(savedAfterClose.recentCatalogPaths.front(), normalizedCatalogPath);
+        EXPECT_EQ(savedAfterClose.recentCatalogPaths.front(), normalizedSecondCatalogPath);
 
         auto appCloseResult = controller.RequestWindowClose();
         EXPECT_TRUE(appCloseResult.destroyWindow);
+        auto savedAfterWindowClose = wit::platform::LoadAppSettings();
+        ASSERT_EQ(savedAfterWindowClose.openCatalogPaths.size(), 1u);
+        EXPECT_EQ(savedAfterWindowClose.openCatalogPaths[0], normalizedCatalogPath);
     }
+
+    std::filesystem::remove_all(testRoot);
+}
+
+TEST(StorageSmoke, StartupRestoreUsesMultiCatalogSettingsAndContinuesAfterFailures) {
+    AppSettingsGuard settingsGuard;
+
+    const auto testRoot = std::filesystem::temp_directory_path() /
+        (L"whereisthat-startup-multi-catalog-settings-" + std::to_wstring(GetCurrentProcessId()));
+    std::filesystem::remove_all(testRoot);
+    std::filesystem::create_directories(testRoot);
+    const auto firstCatalogPath = testRoot / L"first.db";
+    const auto missingCatalogPath = testRoot / L"missing.db";
+    const auto secondCatalogPath = testRoot / L"second.db";
+    const auto normalizedFirstCatalogPath = std::filesystem::absolute(firstCatalogPath).wstring();
+    const auto normalizedSecondCatalogPath = std::filesystem::absolute(secondCatalogPath).wstring();
+
+    wit::storage::Database firstCatalog;
+    ASSERT_TRUE(firstCatalog.CreateNew(firstCatalogPath.wstring(), true));
+    firstCatalog.Close();
+    wit::storage::Database secondCatalog;
+    ASSERT_TRUE(secondCatalog.CreateNew(secondCatalogPath.wstring(), true));
+    secondCatalog.Close();
+
+    auto settings = wit::platform::AppSettings{};
+    settings.openCatalogPaths = {
+        firstCatalogPath.wstring(),
+        missingCatalogPath.wstring(),
+        firstCatalogPath.wstring(),
+        secondCatalogPath.wstring()
+    };
+    settings.lastActiveCatalog = 3;
+    settings.hasMultiCatalogSettings = true;
+    settings.lastCatalogPath = L"C:\\legacy-should-not-open.db";
+    ASSERT_TRUE(wit::platform::SaveAppSettings(settings));
+
+    {
+        wit::app::CatalogWorkflowController controller;
+        auto result = controller.Initialize();
+        EXPECT_FALSE(result.messages.empty()) << "failed startup catalog is reported";
+        std::vector<wit::core::CatalogId> openedIds;
+        wit::core::CatalogId selectedId{};
+        for (const auto& effect : result.browserEffects) {
+            if (effect.kind == wit::app::BrowserEffectKind::AddCatalog) openedIds.push_back(effect.catalogId);
+            if (effect.kind == wit::app::BrowserEffectKind::SelectCatalog) selectedId = effect.catalogId;
+        }
+        ASSERT_EQ(openedIds.size(), 2u) << "duplicate startup catalog is not opened twice";
+        ASSERT_EQ(selectedId, openedIds.back()) << "valid LastActiveCatalog is restored";
+        ASSERT_NE(controller.WorkingDatabase(openedIds[0]), nullptr);
+        ASSERT_NE(controller.WorkingDatabase(openedIds[1]), nullptr);
+
+        auto closeResult = controller.RequestWindowClose();
+        ASSERT_TRUE(closeResult.destroyWindow);
+    }
+
+    auto saved = wit::platform::LoadAppSettings();
+    ASSERT_EQ(saved.openCatalogPaths.size(), 2u);
+    EXPECT_EQ(saved.openCatalogPaths[0], normalizedFirstCatalogPath);
+    EXPECT_EQ(saved.openCatalogPaths[1], normalizedSecondCatalogPath);
+    EXPECT_EQ(saved.lastActiveCatalog, 1);
 
     std::filesystem::remove_all(testRoot);
 }

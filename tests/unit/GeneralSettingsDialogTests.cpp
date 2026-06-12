@@ -274,7 +274,9 @@ TEST(GeneralSettingsDialog, NativeSettingsUiExposesOnlyRequestedPagesAndEditable
     EXPECT_FALSE(IsApplyEnabled(dialog));
     EXPECT_TRUE(IsWindowVisible(GetDlgItem(dialog, IDC_SETTINGS_PANEL)));
     EXPECT_TRUE(IsWindowVisible(GetDlgItem(dialog, IDC_SETTINGS_HEADER)));
-    EXPECT_NE(GetWindowLongPtrW(Control(dialog, IDC_LAST_OPENED_CATALOG), GWL_STYLE) & ES_READONLY, 0);
+    EXPECT_EQ(Control(dialog, IDC_LAST_OPENED_CATALOG), nullptr);
+    EXPECT_EQ(Control(dialog, IDC_SETTINGS_LABEL_LAST_CATALOG), nullptr);
+    EXPECT_EQ(Control(dialog, IDC_SETTINGS_GROUP_CATALOG), nullptr);
     EXPECT_NE(GetWindowLongPtrW(Control(dialog, IDC_MAIN_SPLITTER_POSITION), GWL_STYLE) & ES_READONLY, 0);
 
     const HWND dateFormat = Control(dialog, IDC_DATE_TIME_FORMAT);
@@ -334,10 +336,6 @@ TEST(GeneralSettingsDialog, ReadOnlyInformationalFieldsDoNotDirtyOrApply) {
     HWND dialog = WaitForSettingsWindow(run.threadId);
     ASSERT_NE(dialog, nullptr);
 
-    SetWindowTextW(Control(dialog, IDC_LAST_OPENED_CATALOG), L"changed.db");
-    SendMessageW(GetParent(Control(dialog, IDC_LAST_OPENED_CATALOG)), WM_COMMAND,
-        MAKEWPARAM(IDC_LAST_OPENED_CATALOG, EN_CHANGE),
-        reinterpret_cast<LPARAM>(Control(dialog, IDC_LAST_OPENED_CATALOG)));
     SetWindowTextW(Control(dialog, IDC_MAIN_SPLITTER_POSITION), L"not an integer");
     SendMessageW(GetParent(Control(dialog, IDC_MAIN_SPLITTER_POSITION)), WM_COMMAND,
         MAKEWPARAM(IDC_MAIN_SPLITTER_POSITION, EN_CHANGE),

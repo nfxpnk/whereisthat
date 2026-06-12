@@ -404,9 +404,6 @@ TEST(SettingsVisual, OpensAppSettingsAndCapturesScreenshots) {
         IDC_SETTINGS_LABEL_DATE_TIME,
         IDC_DATE_TIME_FORMAT,
         IDC_DATE_TIME_FORMAT_SAMPLE,
-        IDC_SETTINGS_GROUP_CATALOG,
-        IDC_SETTINGS_LABEL_LAST_CATALOG,
-        IDC_LAST_OPENED_CATALOG,
         IDC_SETTINGS_GROUP_DEBUG,
         IDC_ENABLE_SCAN_FILE_DELAY,
         IDOK,
@@ -435,9 +432,7 @@ TEST(SettingsVisual, OpensAppSettingsAndCapturesScreenshots) {
     constexpr std::array textMustFitControls{
         IDC_SETTINGS_HEADER_TITLE,
         IDC_SETTINGS_LABEL_DATE_TIME,
-        IDC_SETTINGS_LABEL_LAST_CATALOG,
         IDC_SETTINGS_GROUP_DATE_TIME,
-        IDC_SETTINGS_GROUP_CATALOG,
         IDC_SETTINGS_GROUP_DEBUG,
         IDC_ENABLE_SCAN_FILE_DELAY,
     };

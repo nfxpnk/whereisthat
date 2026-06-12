@@ -379,6 +379,7 @@ bool FileScanner::ScanFolder(const std::wstring& rootPath, std::int64_t diskId, 
         onProgress(progress);
     };
     reportProgress({scannedFiles, folderCount, rootPath});
+    std::uint64_t progressReportCountdown = kProgressReportItemInterval;
 
     struct FolderFrame {
         std::wstring path;
@@ -405,7 +406,12 @@ bool FileScanner::ScanFolder(const std::wstring& rootPath, std::int64_t diskId, 
             {
                 const auto timer = profile ? std::make_optional<wit::infra::ScopedScanTimer>(
                     profile->timingsNs.directoryEnumeration) : std::nullopt;
-                findHandle = FindFirstFileW(query.c_str(), &findData);
+                findHandle = FindFirstFileExW(query.c_str(), FindExInfoBasic, &findData, FindExSearchNameMatch,
+                    nullptr, FIND_FIRST_EX_LARGE_FETCH);
+                if (findHandle == INVALID_HANDLE_VALUE && GetLastError() == ERROR_INVALID_PARAMETER) {
+                    findHandle = FindFirstFileExW(query.c_str(), FindExInfoBasic, &findData, FindExSearchNameMatch,
+                        nullptr, 0);
+                }
             }
             if (findHandle != INVALID_HANDLE_VALUE) {
                 const auto nextEntry = [&]() {
@@ -458,7 +464,8 @@ bool FileScanner::ScanFolder(const std::wstring& rootPath, std::int64_t diskId, 
                                 findData.nFileSizeLow;
                         }
                         bool storedAsArchive = false;
-                        if (browseArchives) {
+                        const bool archiveCandidate = browseArchives && LooksLikeArchiveName(findData.cFileName);
+                        if (archiveCandidate) {
                             if (profile) ++profile->counts.archiveProbeAttempts;
                             ParsedArchive parsed;
                             std::wstring failure;
@@ -493,7 +500,7 @@ bool FileScanner::ScanFolder(const std::wstring& rootPath, std::int64_t diskId, 
                                 folderCount += 1 + stored.folders;
                                 frame.contentSize += stored.contentSize;
                                 storedAsArchive = true;
-                            } else if (parsed.recognized || LooksLikeArchiveName(findData.cFileName)) {
+                            } else if (parsed.recognized || archiveCandidate) {
                                 ReportArchiveFailure(onDiagnostic, fullPath, failure);
                             }
                         }
@@ -538,8 +545,16 @@ bool FileScanner::ScanFolder(const std::wstring& rootPath, std::int64_t diskId, 
                         }
                         ++scannedFiles;
                     }
-                    const auto total = scannedFiles + folderCount;
-                    if (onProgress && (options_.enableScanFileDelay || total % kProgressReportItemInterval == 0)) {
+                    const auto shouldReportProgress = [&]() {
+                        if (options_.enableScanFileDelay) return true;
+                        if (progressReportCountdown > 1) {
+                            --progressReportCountdown;
+                            return false;
+                        }
+                        progressReportCountdown = kProgressReportItemInterval;
+                        return true;
+                    }();
+                    if (onProgress && shouldReportProgress) {
                         reportProgress({scannedFiles, folderCount, fullPath});
                     }
                 } while (nextEntry());

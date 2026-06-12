@@ -62,6 +62,23 @@ To run only the storage smoke tests:
 .\x64\Debug\UnitTests.exe --gtest_filter=StorageSmoke.*
 ```
 
+To run the scan/CRC profiling workloads used for manual comparison:
+
+```powershell
+.\x64\Debug\UnitTests.exe --gtest_filter=StorageSmoke.CatalogDatabaseScannerAndCoordinatorIntegration
+.\x64\Debug\UnitTests.exe --gtest_also_run_disabled_tests --gtest_filter=Crc32Benchmark.DISABLED_FileScanWorkloads
+```
+
+Scan profile JSON is emitted under the executable's `scan-profiles` directory.
+Compare a Step 1 baseline profile with an optimized profile by checking
+structural counters first: `options.countFilesBeforeScan=false`,
+`timingsNs.countFiles=0`, SQLite scan-statement prepares/finalizes no longer
+scale with file count, `sqlite.step*` still matches the DB call counters, and
+`counts.archiveProbeAttempts` scales with archive-looking filenames rather than
+all files. Timings such as `dbInsertFile`, `archiveProbe`, and
+`crcReadAndCompute` are useful secondary signals once those counters prove the
+optimized path ran.
+
 For a fresh command-line build and run, use the same direct project/executable
 flow:
 

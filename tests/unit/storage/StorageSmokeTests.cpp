@@ -5,6 +5,7 @@
 #include <wit_gui/ScanCoordinator.h>
 #include <wit_infra/PathHelpers.h>
 #include <wit_infra/AppSettings.h>
+#include <wit_infra/ScanProfiler.h>
 #include <wit_infra/VolumeInfo.h>
 #include <wit_infra/Win32Helpers.h>
 #include <wit_scanner/FileScanner.h>
@@ -90,6 +91,12 @@ std::string JsonString(const std::string& json, const std::string& key) {
     const std::regex pattern("\"" + key + "\"\\s*:\\s*\"([^\"]*)\"");
     std::smatch match;
     return std::regex_search(json, match, pattern) ? match[1].str() : std::string{};
+}
+
+bool JsonBool(const std::string& json, const std::string& key) {
+    const std::regex pattern("\"" + key + "\"\\s*:\\s*(true|false)");
+    std::smatch match;
+    return std::regex_search(json, match, pattern) && match[1].str() == "true";
 }
 
 class AppSettingsGuard {
@@ -402,13 +409,26 @@ TEST(StorageSmoke, CatalogDatabaseScannerAndCoordinatorIntegration) {
         EXPECT_EQ(JsonUint(completedProfile, "schemaVersion"), 1u) << "profile schema version";
         EXPECT_EQ(JsonString(completedProfile, "result"), "completed") << "completed profile result";
         EXPECT_GT(JsonUint(completedProfile, "total"), 0u) << "profile total timing";
+        EXPECT_FALSE(JsonBool(completedProfile, "countFilesBeforeScan")) << "coordinator skips pre-count traversal";
+        EXPECT_EQ(JsonUint(completedProfile, "countFiles"), 0u) << "pre-count timing remains zero";
         EXPECT_EQ(JsonUint(completedProfile, "files"), 1u) << "profile file count matches fixture";
-        EXPECT_EQ(JsonUint(completedProfile, "prepareInsertFile"), JsonUint(completedProfile, "dbInsertFileCalls"))
-            << "current scanner prepares one insert-file statement per file";
+        EXPECT_LE(JsonUint(completedProfile, "prepareInsertFile"), 1u)
+            << "scan hot path reuses cached insert-file statement";
+        EXPECT_LE(JsonUint(completedProfile, "prepareInsertFolder"), 1u)
+            << "scan hot path reuses cached insert-folder statement";
+        EXPECT_LE(JsonUint(completedProfile, "prepareUpdateFolderContentSize"), 1u)
+            << "scan hot path reuses cached folder-size update statement";
         EXPECT_EQ(JsonUint(completedProfile, "stepInsertFile"), JsonUint(completedProfile, "dbInsertFileCalls"))
             << "current scanner steps one insert-file statement per file";
-        EXPECT_EQ(JsonUint(completedProfile, "finalizeInsertFile"), JsonUint(completedProfile, "dbInsertFileCalls"))
-            << "current scanner finalizes one insert-file statement per file";
+        EXPECT_EQ(JsonUint(completedProfile, "stepInsertFolder"), JsonUint(completedProfile, "dbInsertFolderCalls"))
+            << "current scanner steps one insert-folder statement per folder";
+        EXPECT_EQ(JsonUint(completedProfile, "stepUpdateFolderContentSize"),
+            JsonUint(completedProfile, "dbUpdateFolderContentSizeCalls"))
+            << "current scanner steps one folder-size update statement per folder";
+        EXPECT_EQ(JsonUint(completedProfile, "resetInsertFile"), JsonUint(completedProfile, "dbInsertFileCalls"))
+            << "scan hot path resets insert-file statement after every step";
+        EXPECT_LE(JsonUint(completedProfile, "finalizeInsertFile"), 1u)
+            << "cached insert-file statement is not finalized per file";
         EXPECT_TRUE(!coordinator.TakeResult(completedId)) << "coordinator result consumption is exactly once";
         coordinator.RetireWorker(completedId);
         EXPECT_TRUE(!coordinator.TakeResult(0)) << "invalid completion id has no consumable result";
@@ -574,6 +594,35 @@ TEST(StorageSmoke, CatalogDatabaseScannerAndCoordinatorIntegration) {
     EXPECT_TRUE(disabledResult.scannedArchives == 0 && disabledResult.archiveFiles == 0 &&
         ScalarInt(archiveCatalogPath, "SELECT COUNT(*) FROM folders WHERE disk_id=2 AND entry_type='archive';") == 0)
         << "archive-disabled scan keeps archive as ordinary file";
+    const auto archiveProbeRoot = testRoot / L"archive-probe-mostly-text";
+    std::filesystem::create_directories(archiveProbeRoot);
+    for (int index = 0; index < 1000; ++index) {
+        std::ofstream(archiveProbeRoot / (L"probe-" + std::to_wstring(index) + L".txt"), std::ios::binary)
+            << "plain text";
+    }
+    EXPECT_TRUE(WriteZip(archiveProbeRoot / L"one.zip", {{L"inside.txt", "z"}}))
+        << "single archive-looking probe fixture creation";
+    wit::core::Disk archiveProbeDisk{};
+    archiveProbeDisk.diskName = L"Archive Probe";
+    archiveProbeDisk.sourcePath = archiveProbeRoot.wstring();
+    archiveProbeDisk.id = archiveDb.AddDisk(archiveProbeDisk);
+    EXPECT_TRUE(archiveProbeDisk.id != 0) << "archive probe disk insert";
+    wit::infra::ScanProfile archiveProbeProfile;
+    wit::core::FileScanner::Result archiveProbeResult{};
+    EXPECT_TRUE(scanner.ScanFolder(archiveProbeDisk.sourcePath, archiveProbeDisk.id, archiveDb,
+        {}, archiveProbeResult, false, true, {}, true, {}, &archiveProbeProfile))
+        << "mostly non-archive scan";
+    EXPECT_EQ(archiveProbeProfile.counts.archiveProbeAttempts, 1u)
+        << "archive probing only opens archive-looking files";
+    EXPECT_EQ(ScalarInt(archiveCatalogPath, "SELECT COUNT(*) FROM files WHERE name LIKE 'probe-%.txt';"), 1000)
+        << "non-archive-looking files are still cataloged normally";
+    EXPECT_LE(archiveProbeProfile.sqlite.prepareInsertFile, 1u);
+    EXPECT_LE(archiveProbeProfile.sqlite.prepareInsertFolder, 1u);
+    EXPECT_LE(archiveProbeProfile.sqlite.prepareUpdateFolderContentSize, 1u);
+    EXPECT_EQ(archiveProbeProfile.sqlite.stepInsertFile, archiveProbeProfile.counts.dbInsertFileCalls);
+    EXPECT_EQ(archiveProbeProfile.sqlite.stepInsertFolder, archiveProbeProfile.counts.dbInsertFolderCalls);
+    EXPECT_EQ(archiveProbeProfile.sqlite.stepUpdateFolderContentSize,
+        archiveProbeProfile.counts.dbUpdateFolderContentSizeCalls);
     archiveDb.Close();
 
     EXPECT_TRUE(ExecRaw(oldPath, "CREATE TABLE catalogs(id INTEGER PRIMARY KEY);"

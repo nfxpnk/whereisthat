@@ -12,6 +12,7 @@
 #include <chrono>
 #include <cstdint>
 #include <format>
+#include <memory>
 #include <optional>
 #include <string>
 #include <thread>
@@ -217,7 +218,11 @@ Database::~Database() {
 }
 
 Database::Database(Database&& other) noexcept
-    : connection_(std::move(other.connection_)), editable_(std::exchange(other.editable_, false)) {
+    : connection_(std::move(other.connection_)),
+      insertFolderStatement_(std::move(other.insertFolderStatement_)),
+      updateFolderContentSizeStatement_(std::move(other.updateFolderContentSizeStatement_)),
+      insertFileStatement_(std::move(other.insertFileStatement_)),
+      editable_(std::exchange(other.editable_, false)) {
     RebindRepositories();
     other.RebindRepositories();
 }
@@ -226,6 +231,9 @@ Database& Database::operator=(Database&& other) noexcept {
     if (this != &other) {
         Close();
         connection_ = std::move(other.connection_);
+        insertFolderStatement_ = std::move(other.insertFolderStatement_);
+        updateFolderContentSizeStatement_ = std::move(other.updateFolderContentSizeStatement_);
+        insertFileStatement_ = std::move(other.insertFileStatement_);
         editable_ = std::exchange(other.editable_, false);
         RebindRepositories();
         other.RebindRepositories();
@@ -234,6 +242,7 @@ Database& Database::operator=(Database&& other) noexcept {
 }
 
 void Database::Close() {
+    FinalizeScanStatements();
     connection_.Close();
     editable_ = false;
     RebindRepositories();
@@ -283,10 +292,10 @@ bool Database::OpenInternal(const std::wstring& path, bool requireExistingSchema
         return false;
     }
     if (readOnly) return Exec("PRAGMA foreign_keys=ON;");
-    if (!requireExistingSchema && InitializeSchema()) return true;
+    if (!requireExistingSchema && InitializeSchema()) return PrepareScanStatements();
     if (requireExistingSchema && ApplyEditableCatalogPragmas(connection_) &&
         CatalogSchema::EnsureIndexes(connection_)) {
-        return true;
+        return PrepareScanStatements();
     }
     WIT_LOG_ERROR(std::format(L"database pragmas/schema initialization failed path='{}' code={} message='{}'",
         path, connection_.LastErrorCode(), wit::platform::ToUtf16(connection_.LastErrorMessage())));
@@ -301,7 +310,8 @@ bool Database::CreateWorkingCopy(const Database& source) {
     if (!connection_.OpenMemory()) return false;
     RebindRepositories();
     editable_ = true;
-    const bool success = BackupDatabase(connection_.Raw(), source.connection_.Raw()) && Exec("PRAGMA foreign_keys=ON;");
+    const bool success = BackupDatabase(connection_.Raw(), source.connection_.Raw()) &&
+        Exec("PRAGMA foreign_keys=ON;") && PrepareScanStatements();
     if (!success) {
         WIT_LOG_ERROR(L"database working copy failed");
         Close();
@@ -367,6 +377,7 @@ bool Database::SaveCatalogDataFrom(const Database& source) {
         return false;
     }
 
+    FinalizeScanStatements();
     if (!PrepareSingleFileCatalog(connection_)) {
         WIT_LOG_ERROR(std::format(L"database save active catalog single-file preparation failed path='{}'", catalogPath));
         DeleteCatalogFileSet(tempPath);
@@ -413,6 +424,61 @@ bool Database::HasCatalogSchema() {
 
 bool Database::Exec(const char* sql) {
     return connection_.Exec(sql);
+}
+
+bool Database::PrepareScanStatements() {
+    if (!editable_ || !connection_.Raw()) return false;
+    FinalizeScanStatements();
+    insertFolderStatement_ = std::make_unique<SQLiteStatement>(connection_.Raw(),
+        "INSERT INTO folders(disk_id,parent_folder_id,path,name,created_at,modified_at,accessed_at,attributes,content_size,entry_type)"
+        " VALUES(?,?,?,?,?,?,?,?,?,?);");
+    updateFolderContentSizeStatement_ = std::make_unique<SQLiteStatement>(
+        connection_.Raw(), "UPDATE folders SET content_size=? WHERE id=?;");
+    insertFileStatement_ = std::make_unique<SQLiteStatement>(connection_.Raw(),
+        "INSERT INTO files(disk_id,folder_id,name,description,extension,crc,size,created_at,modified_at,accessed_at,attributes)"
+        " VALUES(?,?,?,?,?,?,?,?,?,?,?);");
+    if (insertFolderStatement_->IsValid() && updateFolderContentSizeStatement_->IsValid() &&
+        insertFileStatement_->IsValid()) {
+        return true;
+    }
+    FinalizeScanStatements();
+    return false;
+}
+
+void Database::FinalizeScanStatements() {
+    insertFileStatement_.reset();
+    updateFolderContentSizeStatement_.reset();
+    insertFolderStatement_.reset();
+}
+
+SQLiteStatement* Database::ScanInsertFolderStatement(wit::infra::ScanProfile* profile) {
+    if (!insertFolderStatement_) {
+        if (profile) ++profile->sqlite.prepareInsertFolder;
+        insertFolderStatement_ = std::make_unique<SQLiteStatement>(connection_.Raw(),
+            "INSERT INTO folders(disk_id,parent_folder_id,path,name,created_at,modified_at,accessed_at,attributes,content_size,entry_type)"
+            " VALUES(?,?,?,?,?,?,?,?,?,?);");
+    }
+    return insertFolderStatement_ && insertFolderStatement_->IsValid() ? insertFolderStatement_.get() : nullptr;
+}
+
+SQLiteStatement* Database::ScanUpdateFolderContentSizeStatement(wit::infra::ScanProfile* profile) {
+    if (!updateFolderContentSizeStatement_) {
+        if (profile) ++profile->sqlite.prepareUpdateFolderContentSize;
+        updateFolderContentSizeStatement_ = std::make_unique<SQLiteStatement>(
+            connection_.Raw(), "UPDATE folders SET content_size=? WHERE id=?;");
+    }
+    return updateFolderContentSizeStatement_ && updateFolderContentSizeStatement_->IsValid()
+        ? updateFolderContentSizeStatement_.get() : nullptr;
+}
+
+SQLiteStatement* Database::ScanInsertFileStatement(wit::infra::ScanProfile* profile) {
+    if (!insertFileStatement_) {
+        if (profile) ++profile->sqlite.prepareInsertFile;
+        insertFileStatement_ = std::make_unique<SQLiteStatement>(connection_.Raw(),
+            "INSERT INTO files(disk_id,folder_id,name,description,extension,crc,size,created_at,modified_at,accessed_at,attributes)"
+            " VALUES(?,?,?,?,?,?,?,?,?,?,?);");
+    }
+    return insertFileStatement_ && insertFileStatement_->IsValid() ? insertFileStatement_.get() : nullptr;
 }
 
 bool Database::InitializeSchema() {
@@ -649,24 +715,24 @@ std::int64_t Database::InsertFolder(const wit::core::FolderEntry& folder, wit::i
     const auto timer = profile ? std::make_optional<wit::infra::ScopedScanTimer>(
         profile->timingsNs.dbInsertFolder) : std::nullopt;
     if (!editable_) return 0;
-    if (profile) ++profile->sqlite.prepareInsertFolder;
-    SQLiteStatement statement(connection_.Raw(),
-        "INSERT INTO folders(disk_id,parent_folder_id,path,name,created_at,modified_at,accessed_at,attributes,content_size,entry_type)"
-        " VALUES(?,?,?,?,?,?,?,?,?,?);");
-    statement.BindInt64(1, folder.diskId);
-    if (folder.hasParent) statement.BindInt64(2, folder.parentFolderId); else statement.BindNull(2);
-    statement.BindText(3, wit::platform::ToUtf8(folder.path));
-    statement.BindText(4, wit::platform::ToUtf8(folder.name));
-    statement.BindInt64(5, folder.createdAt);
-    statement.BindInt64(6, folder.modifiedAt);
-    statement.BindInt64(7, folder.accessedAt);
-    statement.BindInt64(8, folder.attributes);
-    statement.BindInt64(9, static_cast<long long>(folder.contentSize));
-    statement.BindText(10, wit::core::FolderEntryTypeValue(folder.entryType));
+    auto* statement = ScanInsertFolderStatement(profile);
+    if (!statement) return 0;
+    statement->BindInt64(1, folder.diskId);
+    if (folder.hasParent) statement->BindInt64(2, folder.parentFolderId); else statement->BindNull(2);
+    statement->BindText(3, wit::platform::ToUtf8(folder.path));
+    statement->BindText(4, wit::platform::ToUtf8(folder.name));
+    statement->BindInt64(5, folder.createdAt);
+    statement->BindInt64(6, folder.modifiedAt);
+    statement->BindInt64(7, folder.accessedAt);
+    statement->BindInt64(8, folder.attributes);
+    statement->BindInt64(9, static_cast<long long>(folder.contentSize));
+    statement->BindText(10, wit::core::FolderEntryTypeValue(folder.entryType));
     if (profile) ++profile->sqlite.stepInsertFolder;
-    const auto success = sqlite3_step(statement.Raw()) == SQLITE_DONE;
-    if (profile) ++profile->sqlite.finalizeInsertFolder;
-    return success ? sqlite3_last_insert_rowid(connection_.Raw()) : 0;
+    const auto success = sqlite3_step(statement->Raw()) == SQLITE_DONE;
+    const auto insertedId = success ? sqlite3_last_insert_rowid(connection_.Raw()) : 0;
+    statement->Reset();
+    if (profile) ++profile->sqlite.resetInsertFolder;
+    return insertedId;
 }
 
 bool Database::UpdateFolderContentSize(std::int64_t folderId, std::uint64_t contentSize,
@@ -675,13 +741,16 @@ bool Database::UpdateFolderContentSize(std::int64_t folderId, std::uint64_t cont
     const auto timer = profile ? std::make_optional<wit::infra::ScopedScanTimer>(
         profile->timingsNs.dbUpdateFolderContentSize) : std::nullopt;
     if (!editable_) return false;
-    if (profile) ++profile->sqlite.prepareUpdateFolderContentSize;
-    SQLiteStatement statement(connection_.Raw(), "UPDATE folders SET content_size=? WHERE id=?;");
-    statement.BindInt64(1, static_cast<long long>(contentSize));
-    statement.BindInt64(2, folderId);
+    auto* statement = ScanUpdateFolderContentSizeStatement(profile);
+    if (!statement) return false;
+    statement->BindInt64(1, static_cast<long long>(contentSize));
+    statement->BindInt64(2, folderId);
     if (profile) ++profile->sqlite.stepUpdateFolderContentSize;
-    const auto success = sqlite3_step(statement.Raw()) == SQLITE_DONE && sqlite3_changes(connection_.Raw()) == 1;
-    if (profile) ++profile->sqlite.finalizeUpdateFolderContentSize;
+    const auto done = sqlite3_step(statement->Raw()) == SQLITE_DONE;
+    const auto changes = sqlite3_changes(connection_.Raw());
+    statement->Reset();
+    if (profile) ++profile->sqlite.resetUpdateFolderContentSize;
+    const auto success = done && changes == 1;
     return success;
 }
 
@@ -690,24 +759,23 @@ bool Database::InsertFile(const wit::core::FileEntry& file, wit::infra::ScanProf
     const auto timer = profile ? std::make_optional<wit::infra::ScopedScanTimer>(
         profile->timingsNs.dbInsertFile) : std::nullopt;
     if (!editable_) return false;
-    if (profile) ++profile->sqlite.prepareInsertFile;
-    SQLiteStatement statement(connection_.Raw(),
-        "INSERT INTO files(disk_id,folder_id,name,description,extension,crc,size,created_at,modified_at,accessed_at,attributes)"
-        " VALUES(?,?,?,?,?,?,?,?,?,?,?);");
-    statement.BindInt64(1, file.catalogId);
-    statement.BindInt64(2, file.folderId);
-    statement.BindText(3, wit::platform::ToUtf8(file.name));
-    statement.BindText(4, wit::platform::ToUtf8(file.description));
-    statement.BindText(5, wit::platform::ToUtf8(file.extension));
-    if (file.crc) statement.BindText(6, wit::platform::ToUtf8(*file.crc)); else statement.BindNull(6);
-    statement.BindInt64(7, static_cast<long long>(file.size));
-    statement.BindInt64(8, file.createdAt);
-    statement.BindInt64(9, file.modifiedAt);
-    statement.BindInt64(10, file.accessedAt);
-    statement.BindInt64(11, file.attributes);
+    auto* statement = ScanInsertFileStatement(profile);
+    if (!statement) return false;
+    statement->BindInt64(1, file.catalogId);
+    statement->BindInt64(2, file.folderId);
+    statement->BindText(3, wit::platform::ToUtf8(file.name));
+    statement->BindText(4, wit::platform::ToUtf8(file.description));
+    statement->BindText(5, wit::platform::ToUtf8(file.extension));
+    if (file.crc) statement->BindText(6, wit::platform::ToUtf8(*file.crc)); else statement->BindNull(6);
+    statement->BindInt64(7, static_cast<long long>(file.size));
+    statement->BindInt64(8, file.createdAt);
+    statement->BindInt64(9, file.modifiedAt);
+    statement->BindInt64(10, file.accessedAt);
+    statement->BindInt64(11, file.attributes);
     if (profile) ++profile->sqlite.stepInsertFile;
-    const auto success = sqlite3_step(statement.Raw()) == SQLITE_DONE;
-    if (profile) ++profile->sqlite.finalizeInsertFile;
+    const auto success = sqlite3_step(statement->Raw()) == SQLITE_DONE;
+    statement->Reset();
+    if (profile) ++profile->sqlite.resetInsertFile;
     return success;
 }
 

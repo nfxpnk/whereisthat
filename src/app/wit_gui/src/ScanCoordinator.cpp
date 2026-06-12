@@ -207,7 +207,7 @@ void ScanCoordinator::RunScan(std::stop_token stopToken, ScanId scanId, std::wst
     profile.root = root;
     profile.options.calculateCrc = request.calculateCrc;
     profile.options.browseArchives = request.browseArchives;
-    profile.options.countFilesBeforeScan = true;
+    profile.options.countFilesBeforeScan = false;
     profile.timingsNs.workingCopyCreate = workingCopyCreateNs;
     profile.timingsNs.total = workingCopyCreateNs;
     ScanResult result;
@@ -253,14 +253,8 @@ void ScanCoordinator::RunScan(std::stop_token stopToken, ScanId scanId, std::wst
     };
 
     wit::core::FileScanner scanner({enableScanFileDelay});
-    std::uint64_t totalFiles{};
-    PublishProgress(scanId, {0, 0, 0, 0, false, true});
+    PublishProgress(scanId, {0, 0, 0, 0, false, false});
     bool success = !cancelled();
-    if (success) {
-        wit::infra::ScopedScanTimer timer(profile.timingsNs.countFiles);
-        success = scanner.CountFiles(root, totalFiles, stopToken);
-    }
-    if (success && !cancelled()) PublishProgress(scanId, {0, 0, totalFiles, totalFiles, true, false});
 
     std::int64_t id{};
     if (success && !cancelled()) {
@@ -305,11 +299,8 @@ void ScanCoordinator::RunScan(std::stop_token stopToken, ScanId scanId, std::wst
         {
             wit::infra::ScopedScanTimer timer(profile.timingsNs.scanFolder);
             success = scanner.ScanFolder(root, id, *staged,
-                [this, scanId, totalFiles](const wit::core::FileScanner::Progress& progress) {
-                    const auto remaining = progress.scannedFiles < totalFiles
-                        ? totalFiles - progress.scannedFiles : 0;
-                    PublishProgress(scanId, {progress.scannedFiles, progress.scannedFolders, totalFiles,
-                        remaining, true, false});
+                [this, scanId](const wit::core::FileScanner::Progress& progress) {
+                    PublishProgress(scanId, {progress.scannedFiles, progress.scannedFolders, 0, 0, false, false});
                 }, scanResult, request.calculateCrc, false, stopToken, request.browseArchives, {}, &profile);
         }
         if (success && !cancelled()) {

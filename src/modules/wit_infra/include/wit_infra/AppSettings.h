@@ -1,5 +1,6 @@
 #pragma once
 
+#include <map>
 #include <string>
 #include <vector>
 
@@ -14,6 +15,7 @@ struct AppSettings {
     std::wstring dateTimeFormat;
     std::wstring lastCatalogPath;
     std::vector<std::wstring> recentCatalogPaths;
+    std::map<std::wstring, int> fileListColumnWidths;
 };
 
 std::wstring SettingsFilePath();

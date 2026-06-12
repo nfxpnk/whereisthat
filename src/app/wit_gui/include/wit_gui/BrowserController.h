@@ -45,6 +45,7 @@ public:
     LRESULT OnFileCacheHint(LPNMHDR header);
     LRESULT OnFileActivate(LPNMHDR header);
     bool FileItemStateChanged(LPNMHDR header) const;
+    [[nodiscard]] bool PersistFileListColumnWidths() const;
     void SelectAll();
 
     std::wstring FocusedItemStatus();

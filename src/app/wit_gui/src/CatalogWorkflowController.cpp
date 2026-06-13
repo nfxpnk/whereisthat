@@ -66,7 +66,10 @@ ControllerResult CatalogWorkflowController::Initialize() {
     if (useMultiCatalogSettings && startupSettings.lastActiveCatalog >= 0 &&
         static_cast<std::size_t>(startupSettings.lastActiveCatalog) < restoredCatalogIds.size()) {
         const auto activeId = restoredCatalogIds[static_cast<std::size_t>(startupSettings.lastActiveCatalog)];
-        if (activeId != 0) Append(result, SelectCatalog(activeId));
+        if (activeId != 0) {
+            Append(result, SelectCatalog(activeId));
+            result.browserEffects.push_back({BrowserEffectKind::SelectCatalog, activeId});
+        }
     }
 
     if (migrateLegacyCatalog && !session_.OpenCatalogs().empty()) {

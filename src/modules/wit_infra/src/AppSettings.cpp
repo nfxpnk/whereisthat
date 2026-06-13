@@ -217,7 +217,11 @@ AppSettings LoadAppSettings() {
         auto recentPath = ReadProfileString(L"RecentCatalogs", key.c_str(), path);
         if (!recentPath.empty()) RememberRecentCatalog(settings, recentPath);
     }
-    if (!settings.lastCatalogPath.empty()) RememberRecentCatalog(settings, settings.lastCatalogPath);
+    if (!settings.lastCatalogPath.empty()) {
+        const auto found = std::find_if(settings.recentCatalogPaths.begin(), settings.recentCatalogPaths.end(),
+            [&settings](const auto& recentPath) { return SamePath(recentPath, settings.lastCatalogPath); });
+        if (found == settings.recentCatalogPaths.end()) RememberRecentCatalog(settings, settings.lastCatalogPath);
+    }
     LoadFileListColumnWidths(settings, path);
     wit::platform::SetDateTimeFormatOverride(settings.dateTimeFormat);
     return settings;

@@ -7,6 +7,7 @@ Stores optional virtual root folders used to group disks/media inside a catalog.
 ## Keys, Relationships, Indexes And Constraints
 
 - Primary key: `id`.
+- `parent_group_id` references another disk group and is set to `NULL` if the parent group is deleted.
 - `name` is unique case-insensitively.
 - `disks.disk_group_id` references this table and is set to `NULL` if a group is deleted.
 - Index: `idx_disk_groups_name` on `name COLLATE NOCASE`.
@@ -16,6 +17,7 @@ Stores optional virtual root folders used to group disks/media inside a catalog.
 | Field | Type | Nullable | Default | Key/Index | Description |
 |---|---|---:|---|---|---|
 | `id` | `INTEGER` | No | none | `PRIMARY KEY AUTOINCREMENT` | Disk group identifier. |
+| `parent_group_id` | `INTEGER` | Yes | none | `FOREIGN KEY -> disk_groups.id ON DELETE SET NULL` | Optional parent virtual group. |
 | `name` | `TEXT` | No | none | `UNIQUE`; `idx_disk_groups_name` | User-visible virtual folder name. |
 | `created_at` | `INTEGER` | No | none | none | Unix timestamp when the group was created. |
 | `updated_at` | `INTEGER` | No | none | none | Unix timestamp when the group was last changed. |

@@ -124,31 +124,6 @@ bool PragmaReturns(SqliteConnection& connection, const char* sql, const char* ex
     return ok;
 }
 
-bool TableHasColumn(sqlite3* db, const char* table, const char* expectedColumn) {
-    sqlite3_stmt* stmt{};
-    const std::string query = "PRAGMA table_info(" + std::string(table) + ");";
-    if (sqlite3_prepare_v2(db, query.c_str(), -1, &stmt, nullptr) != SQLITE_OK) return false;
-    bool found = false;
-    while (sqlite3_step(stmt) == SQLITE_ROW) {
-        const auto* name = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
-        if (name && std::string(name) == expectedColumn) {
-            found = true;
-            break;
-        }
-    }
-    sqlite3_finalize(stmt);
-    return found;
-}
-
-bool UpgradeCatalogSchema(SqliteConnection& connection) {
-    if (TableHasColumn(connection.Raw(), "disk_groups", "parent_group_id")) return true;
-    if (!TableHasColumn(connection.Raw(), "disk_groups", "name") ||
-        !TableHasColumn(connection.Raw(), "disk_groups", "updated_at")) {
-        return true;
-    }
-    return connection.Exec("ALTER TABLE disk_groups ADD COLUMN parent_group_id INTEGER;");
-}
-
 bool DiskGroupExists(sqlite3* db, std::int64_t diskGroupId) {
     SQLiteStatement statement(db, "SELECT 1 FROM disk_groups WHERE id=?;");
     statement.BindInt64(1, diskGroupId);
@@ -281,11 +256,6 @@ bool Database::OpenInternal(const std::wstring& path, bool requireExistingSchema
     }
     RebindRepositories();
     editable_ = !readOnly;
-    if (requireExistingSchema && !readOnly && !UpgradeCatalogSchema(connection_)) {
-        WIT_LOG_ERROR(std::format(L"catalog schema upgrade failed path='{}'", path));
-        Close();
-        return false;
-    }
     if (requireExistingSchema && !HasCatalogSchema()) {
         WIT_LOG_WARN(std::format(L"catalog schema validation failed path='{}'", path));
         Close();

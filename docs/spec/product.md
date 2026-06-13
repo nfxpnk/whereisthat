@@ -27,6 +27,7 @@ This project is intentionally a native Windows application. It must not be migra
 - UI platform: native Win32 API and Windows Common Controls, using WTL/ATL wrappers for native UI implementation.
 - Storage engine: SQLite accessed through its C API.
 - Database deployment: `sqlite3.dll` remains a separate DLL deployed beside the executable.
+- Archive scanning: vendored libarchive headers/import library with runtime DLLs deployed beside the executable.
 - Compiler/toolset: MSVC v143.
 - UI library: vendored WTL 10.01 headers backed by the MSVC ATL component.
 - IDE support: Visual Studio 2022 and Visual Studio 2026 with the required MSVC v143 workload installed.

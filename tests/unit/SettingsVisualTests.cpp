@@ -300,6 +300,7 @@ public:
         output << "[General]\r\n"
             << "ShowStatusBar=1\r\n"
             << "ShowToolbar=1\r\n"
+            << "DoNotShowAlphaWarning=1\r\n"
             << "EnableScanFileDelay=0\r\n"
             << "MainSplitterPosition=360\r\n"
             << "DateTimeFormat=\r\n"

@@ -68,7 +68,10 @@ When schema SQL changes, update the affected SQL/table pages and [schema-invento
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/database-docs/verify.ps1
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/storage-smoke/run.ps1
+msbuild UnitTests.vcxproj /p:Configuration=Debug /p:Platform=x64
+.\x64\Debug\UnitTests.exe --gtest_filter=StorageSmoke.CatalogDatabaseScannerAndCoordinatorIntegration
 ```
 
-The verifier checks documented table and field coverage plus shared DDL against the executable initializer. The smoke tool compiles the native storage/scanner sources into a temporary validation executable and exercises replacement-format behavior; narrative meanings still require review of the scanner and storage usage.
+The verifier checks documented table and field coverage plus shared DDL against the executable initializer. The
+GoogleTest storage smoke test exercises replacement-format behavior through the native storage/scanner sources;
+narrative meanings still require review of the scanner and storage usage.

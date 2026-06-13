@@ -17,10 +17,15 @@ powershell -ExecutionPolicy Bypass -File tools/database-docs/verify.ps1
 
 The script intentionally verifies rather than auto-writes narrative Markdown. Purpose, lifecycle, and field meaning require review against application behavior; generating those claims from column names would risk documenting invented semantics.
 
-For a behavioral check of the native storage API, scanner, and replacement-format rules, run:
+For a behavioral check of the native storage API, scanner, and replacement-format rules, build and run the
+GoogleTest storage smoke coverage:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File tools/storage-smoke/run.ps1
+msbuild UnitTests.vcxproj /p:Configuration=Debug /p:Platform=x64
+.\x64\Debug\UnitTests.exe --gtest_filter=StorageSmoke.CatalogDatabaseScannerAndCoordinatorIntegration
 ```
 
-The smoke utility compiles a temporary console executable with the same C++ storage/scanner sources and vendored SQLite and libarchive libraries. It verifies fresh creation, unsupported-format rejection without schema mutation, metadata and scan-statistics storage, persisted recursive folder sizes, readable archive hierarchy/counts, unreadable archive fallback, normalized extension/attribute/CRC behavior, derived summaries, and filesystem catalog-size reporting; generated files are confined to the system temporary directory and removed afterward.
+That migrated test verifies fresh creation, unsupported-format rejection without schema mutation, metadata and
+scan-statistics storage, persisted recursive folder sizes, readable archive hierarchy/counts, unreadable archive
+fallback, normalized extension/attribute/CRC behavior, derived summaries, filesystem catalog-size reporting, and
+scan-coordinator lifecycle behavior. See [`../../tests/README.md`](../../tests/README.md) for the current test setup.

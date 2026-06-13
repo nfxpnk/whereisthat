@@ -8,6 +8,7 @@ A change is acceptable only when Where Is That? remains:
 - Implemented in C++20 using the Win32 API, Windows Common Controls, and permitted WTL/ATL native wrappers.
 - Built with MSVC v143 through Visual Studio/MSBuild project files.
 - Backed by SQLite through the native C API and a separately deployed `sqlite3.dll`.
+- Using the vendored libarchive runtime for opt-in archive scanning.
 
 The delivered application and supported build must not depend on .NET, WPF, C#, Qt, Electron, Python, CMake, or vcpkg. WTL headers may be vendored and used with the MSVC ATL build component without adding a deployed UI runtime.
 
@@ -16,8 +17,10 @@ The delivered application and supported build must not depend on .NET, WPF, C#, 
 - `whereisthat.sln` builds in `Release|x64` using MSBuild and the v143 toolset.
 - The executable output is `WhereIsThat.exe`.
 - `sqlite3.dll` is copied to the same output directory as `WhereIsThat.exe`.
+- The libarchive runtime DLLs are copied to the same output directory as `WhereIsThat.exe`.
 - A published Windows release is an installer-free portable app folder/zip whose included PE binaries are directly SHA-256 Authenticode signed with timestamps and successfully verified from the final zip.
 - The project links `sqlite3.lib` and compilation uses `sqlite3.h`.
+- The project links `archive.lib` and archive scan compilation uses the vendored libarchive headers.
 - The project compiles vendored WTL headers with the required MSVC v143 ATL component and deploys no additional WTL runtime DLL.
 - The application uses its WTL 10.01 message loop and WTL-hosted main frame without adding a UI runtime dependency.
 - The supported build does not require CMake, vcpkg, or Python.

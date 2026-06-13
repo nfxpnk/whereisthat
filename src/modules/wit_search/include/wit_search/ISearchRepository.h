@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 
+#include "wit_search/AdvancedSearchParser.h"
 #include "wit_types/FileEntry.h"
 
 namespace wit::search {
@@ -14,6 +15,11 @@ public:
     virtual int CountByName(const std::wstring& nameTerm) = 0;
     virtual std::vector<wit::core::FileEntry> PageByName(
         const std::wstring& nameTerm,
+        int offset,
+        int limit) = 0;
+    virtual int CountAdvanced(const AdvancedSearchExpression& expression) = 0;
+    virtual std::vector<wit::core::FileEntry> PageAdvanced(
+        const AdvancedSearchExpression& expression,
         int offset,
         int limit) = 0;
 };

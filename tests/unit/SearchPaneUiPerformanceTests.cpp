@@ -61,7 +61,8 @@ TEST(DISABLED_SearchPaneUiPerformance, SearchAndScrollFakeCatalog) {
     ASSERT_TRUE(database.OpenExisting(catalogPath.wstring()));
 
     wit::ui::SearchDialog dialog;
-    ASSERT_TRUE(dialog.Show(nullptr, &database.SearchRepository(), [] {}));
+    ASSERT_TRUE(dialog.Show(nullptr, &database.SearchRepository(),
+        [](const wit::core::FileEntry&) { return true; }, [] {}));
     PumpMessages();
 
     const auto searchWindow = FindWindowW(nullptr, L"Search for Items");

@@ -5,6 +5,9 @@ Where Is That? is a native Windows 10/11 file cataloging utility built with C++2
 ## Project Specification
 The canonical product, architecture, build, storage, UI, coding, and acceptance rules are maintained in [`docs/spec/`](docs/spec/). Contributors should read and preserve these decisions when proposing or implementing changes.
 
+## Contributing
+Volunteer code review and focused contributions are welcome. See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the areas where feedback would be especially helpful and the project contribution guidelines.
+
 ## Why C++ + Win32 API + WTL + SQLite + MSVC
 - Fast startup and low memory footprint.
 - Small distributable.

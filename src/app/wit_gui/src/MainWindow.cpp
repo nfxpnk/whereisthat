@@ -356,6 +356,7 @@ LRESULT MainFrame::OnDestroy(UINT, WPARAM, LPARAM, BOOL&) {
 
 LRESULT MainFrame::OnTreeSelectionChanged(int, LPNMHDR header, BOOL&) {
     ApplyControllerResult(controller_.SelectCatalog(browser_.OnTreeSelectionChanged(header)));
+    chrome_.UpdateSortToolbarButtons(browser_.ToolbarSort());
     return 0;
 }
 
@@ -377,12 +378,13 @@ LRESULT MainFrame::OnFileCacheHint(int, LPNMHDR header, BOOL&) {
 
 LRESULT MainFrame::OnFileColumnClick(int, LPNMHDR header, BOOL&) {
     const auto result = browser_.OnFileColumnClick(header);
-    chrome_.UpdateSortToolbarButtons(browser_.ContentSort());
+    chrome_.UpdateSortToolbarButtons(browser_.ToolbarSort());
     return result;
 }
 
 LRESULT MainFrame::OnFileActivate(int, LPNMHDR header, BOOL&) {
     const auto result = browser_.OnFileActivate(header);
+    chrome_.UpdateSortToolbarButtons(browser_.ToolbarSort());
     UpdateBrowserStatus();
     return result;
 }
@@ -425,11 +427,13 @@ bool MainFrame::InitializeFrame() {
         chrome_.ForwardHandle(), chrome_.AddressHandle(),
         [this](wit::core::CatalogId id) { return controller_.WorkingDatabase(id); },
         [this](wit::core::CatalogId id) { return controller_.CatalogLabel(id); });
-    chrome_.UpdateSortToolbarButtons(browser_.ContentSort());
+    chrome_.UpdateSortToolbarButtons(browser_.ToolbarSort());
     browser_.Clear();
     ApplyControllerResult(std::move(initial));
+    chrome_.UpdateSortToolbarButtons(browser_.ToolbarSort());
     if (!startupCatalogPath_.empty()) {
         ApplyControllerResult(controller_.OpenCatalogPathSelected(startupCatalogPath_));
+        chrome_.UpdateSortToolbarButtons(browser_.ToolbarSort());
     }
     chrome_.UpdateProgramStatusLights();
     WIT_LOG_INFO(L"main frame initialization completed");
@@ -481,21 +485,23 @@ void MainFrame::HandleCommand(int id) {
     }
     else if (id == ID_SEARCH_FOR_ITEMS) ApplyControllerResult(controller_.RequestSearch());
     else if (const auto sortColumn = SortColumnForToolbarCommand(id)) {
-        auto sort = browser_.ContentSort();
+        auto sort = browser_.ToolbarSort();
         sort.column = *sortColumn;
-        browser_.SetContentSort(sort, true);
-        chrome_.UpdateSortToolbarButtons(browser_.ContentSort());
+        browser_.SetToolbarSort(sort, true);
+        chrome_.UpdateSortToolbarButtons(browser_.ToolbarSort());
     } else if (id == ID_TOOLBAR_SORT_REVERSE) {
-        auto sort = browser_.ContentSort();
+        auto sort = browser_.ToolbarSort();
         sort.ascending = !sort.ascending;
-        browser_.SetContentSort(sort, true);
-        chrome_.UpdateSortToolbarButtons(browser_.ContentSort());
+        browser_.SetToolbarSort(sort, true);
+        chrome_.UpdateSortToolbarButtons(browser_.ToolbarSort());
     }
     else if (id == IDC_BROWSER_BACK) {
         browser_.NavigateBack();
+        chrome_.UpdateSortToolbarButtons(browser_.ToolbarSort());
         UpdateBrowserStatus();
     } else if (id == IDC_BROWSER_FORWARD) {
         browser_.NavigateForward();
+        chrome_.UpdateSortToolbarButtons(browser_.ToolbarSort());
         UpdateBrowserStatus();
     } else if (id >= ID_OPTIONS_GENERAL_SETTINGS && id <= ID_OPTIONS_DESCRIPTION_SETTINGS) {
         switch (id) {

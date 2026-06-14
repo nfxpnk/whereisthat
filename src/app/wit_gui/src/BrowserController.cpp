@@ -34,6 +34,29 @@ int SettingsColumnFor(wit::core::FileSortColumn column) {
     }
 }
 
+std::optional<int> RootColumnForToolbarSort(wit::core::FileSortColumn column) {
+    switch (column) {
+    case wit::core::FileSortColumn::Name: return 0;
+    case wit::core::FileSortColumn::Type: return 1;
+    case wit::core::FileSortColumn::Size: return 2;
+    case wit::core::FileSortColumn::Modified: return 4;
+    default: return std::nullopt;
+    }
+}
+
+wit::core::FileSort ToolbarSortFromRootSort(wit::core::BrowserRootSort sort) {
+    wit::core::FileSort toolbarSort{};
+    toolbarSort.ascending = sort.ascending;
+    switch (sort.column) {
+    case 0: toolbarSort.column = wit::core::FileSortColumn::Name; break;
+    case 1: toolbarSort.column = wit::core::FileSortColumn::Type; break;
+    case 2: toolbarSort.column = wit::core::FileSortColumn::Size; break;
+    case 4: toolbarSort.column = wit::core::FileSortColumn::Modified; break;
+    default: toolbarSort.column = wit::core::FileSortColumn::Path; break;
+    }
+    return toolbarSort;
+}
+
 }
 
 void BrowserController::Attach(HWND tree, HWND files, HWND back, HWND forward, HWND address,
@@ -285,10 +308,24 @@ wit::core::FileSort BrowserController::ContentSort() const {
     return files_.Sort();
 }
 
+wit::core::FileSort BrowserController::ToolbarSort() const {
+    return files_.ShowsBrowserItems() ? ToolbarSortFromRootSort(files_.RootSort()) : files_.Sort();
+}
+
 bool BrowserController::SetContentSort(wit::core::FileSort sort, bool persist) {
     const bool applied = files_.SetSort(sort);
     if (persist) SaveContentSortPreference(files_.Sort());
     return applied;
+}
+
+bool BrowserController::SetToolbarSort(wit::core::FileSort sort, bool persist) {
+    if (!files_.ShowsBrowserItems()) return SetContentSort(sort, persist);
+    auto rootSort = files_.RootSort();
+    if (const auto rootColumn = RootColumnForToolbarSort(sort.column)) {
+        rootSort.column = *rootColumn;
+    }
+    rootSort.ascending = sort.ascending;
+    return files_.SetRootSort(rootSort);
 }
 
 void BrowserController::SaveContentSortPreference(wit::core::FileSort sort) const {
@@ -301,7 +338,7 @@ void BrowserController::SaveContentSortPreference(wit::core::FileSort sort) cons
 LRESULT BrowserController::OnFileColumnClick(LPNMHDR header) {
     const auto* click = reinterpret_cast<NMLISTVIEW*>(header);
     if (click && files_.ToggleSortForColumn(click->iSubItem)) {
-        SaveContentSortPreference(files_.Sort());
+        if (!files_.ShowsBrowserItems()) SaveContentSortPreference(files_.Sort());
         return 0;
     }
     return 0;

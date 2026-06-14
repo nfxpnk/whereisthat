@@ -15,4 +15,9 @@ struct FileSort {
     bool ascending{true};
 };
 
+struct BrowserRootSort {
+    int column{};
+    bool ascending{true};
+};
+
 }

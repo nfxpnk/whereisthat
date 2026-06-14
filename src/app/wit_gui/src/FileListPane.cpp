@@ -242,6 +242,10 @@ std::optional<wit::core::FileSortColumn> SortColumnFromContentColumn(int column)
     }
 }
 
+bool IsBrowserRootColumn(int column) {
+    return column >= 0 && column < static_cast<int>(kBrowserRootColumns.size());
+}
+
 wit::core::FileSortColumn SortColumnFromSettings(int column) {
     return SortColumnFromContentColumn(column).value_or(wit::core::FileSortColumn::Name);
 }
@@ -283,7 +287,7 @@ void FileListView::ConfigureColumns() {
     const auto settings = wit::platform::LoadAppSettings();
     if (ShowsBrowserItems()) {
         InsertColumns(hwnd, kBrowserRootColumns, settings);
-        UpdateListViewSortIndicators(hwnd, -1, true);
+        UpdateSortIndicators();
         return;
     }
     InsertColumns(hwnd, kBrowserContentColumns, settings);
@@ -331,6 +335,18 @@ void FileListView::ResetCachedItems() {
     if (!hwnd) return;
     ListView_SetItemCountEx(hwnd, total, LVSICF_NOSCROLL);
     InvalidateRect(hwnd, nullptr, TRUE);
+}
+
+bool FileListView::ApplyBrowserRootSort() {
+    if (!hwnd || !ShowsBrowserItems()) return false;
+    SendMessageW(hwnd, WM_SETREDRAW, FALSE, 0);
+    browserPageStart = -1;
+    browserPage.clear();
+    ListView_SetItemCountEx(hwnd, total, LVSICF_NOSCROLL);
+    SendMessageW(hwnd, WM_SETREDRAW, TRUE, 0);
+    InvalidateRect(hwnd, nullptr, TRUE);
+    UpdateWindow(hwnd);
+    return true;
 }
 
 std::vector<wit::core::FileEntry> FileListView::SelectedEntriesInRange(int firstRow, int lastRow) {
@@ -381,7 +397,18 @@ bool FileListView::ApplyContentSort(
 }
 
 bool FileListView::ToggleSortForColumn(int column) {
-    if (!hwnd || ShowsBrowserItems()) return false;
+    if (!hwnd) return false;
+    if (ShowsBrowserItems()) {
+        if (!IsBrowserRootColumn(column)) return false;
+        if (rootSort_.column == column) {
+            rootSort_.ascending = !rootSort_.ascending;
+        } else {
+            rootSort_.column = column;
+            rootSort_.ascending = true;
+        }
+        UpdateSortIndicators();
+        return ApplyBrowserRootSort();
+    }
     const auto sortColumn = SortColumnFromContentColumn(column);
     if (!sortColumn) return false;
     auto nextSort = sort_;
@@ -414,10 +441,19 @@ bool FileListView::SetSort(wit::core::FileSort sort) {
     return ApplyContentSort(std::move(selected), focusedId, focusedIsDirectory);
 }
 
+bool FileListView::SetRootSort(wit::core::BrowserRootSort sort) {
+    rootSort_ = sort;
+    UpdateSortIndicators();
+    return ApplyBrowserRootSort();
+}
+
 void FileListView::UpdateSortIndicators() {
     if (!hwnd) return;
-    UpdateListViewSortIndicators(hwnd, ShowsBrowserItems() ? -1 : ContentColumnFromSortColumn(sort_.column),
-        sort_.ascending);
+    if (ShowsBrowserItems()) {
+        UpdateListViewSortIndicators(hwnd, rootSort_.column, rootSort_.ascending);
+        return;
+    }
+    UpdateListViewSortIndicators(hwnd, ContentColumnFromSortColumn(sort_.column), sort_.ascending);
 }
 
 void FileListView::PreloadRange(int firstRow, int lastRow) {
@@ -483,7 +519,7 @@ const wit::core::BrowserItem* FileListView::BrowserItemAt(int row) {
     if (!browser || !ShowsBrowserItems() || row < 0 || row >= total) return nullptr;
     const int pageStart = (row / PageSize) * PageSize;
     if (browserPageStart != pageStart) {
-        browserPage = browser->GetBrowserRootItemsPage(location, pageStart, PageSize);
+        browserPage = browser->GetBrowserRootItemsPage(location, pageStart, PageSize, rootSort_);
         browserPageStart = pageStart;
     }
     const int index = row - pageStart;

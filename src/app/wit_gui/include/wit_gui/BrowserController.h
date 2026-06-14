@@ -39,7 +39,9 @@ public:
     void RefreshDisplay();
     bool LocateFile(wit::core::CatalogId catalogId, const wit::core::FileEntry& entry);
     [[nodiscard]] wit::core::FileSort ContentSort() const;
+    [[nodiscard]] wit::core::FileSort ToolbarSort() const;
     bool SetContentSort(wit::core::FileSort sort, bool persist);
+    bool SetToolbarSort(wit::core::FileSort sort, bool persist);
 
     wit::core::CatalogId OnTreeSelectionChanged(LPNMHDR header);
     LRESULT OnTreeExpanding(LPNMHDR header);

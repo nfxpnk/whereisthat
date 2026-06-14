@@ -20,7 +20,8 @@ public:
     virtual std::vector<wit::core::BrowserItem> GetBrowserRootItemsPage(
         const wit::core::BrowserLocation& location,
         int offset,
-        int limit) = 0;
+        int limit,
+        wit::core::BrowserRootSort sort = {}) = 0;
     virtual std::vector<wit::core::FileEntry> GetBrowserItemsPage(
         const wit::core::BrowserLocation& location,
         int offset,

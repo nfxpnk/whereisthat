@@ -109,6 +109,30 @@ std::string OrderByFor(wit::core::FileSort sort, bool folders) {
         : " f.name COLLATE WIN_NATURAL_NOCASE ASC,f.id ASC ";
     return order;
 }
+
+const char* RootOrderExpressionFor(int column) {
+    switch (column) {
+    case 1: return "disk_type COLLATE WIN_NATURAL_NOCASE";
+    case 2: return "total_capacity";
+    case 3: return "free_space";
+    case 4: return "updated_at";
+    case 5: return "CASE WHEN kind=0 THEN total_disks ELSE disk_number END";
+    case 6: return "description COLLATE WIN_NATURAL_NOCASE";
+    case 7: return "category COLLATE WIN_NATURAL_NOCASE";
+    case 8: return "location COLLATE WIN_NATURAL_NOCASE";
+    case 0:
+    default:
+        return "name COLLATE WIN_NATURAL_NOCASE";
+    }
+}
+
+std::string RootOrderByFor(wit::core::BrowserRootSort sort) {
+    std::string order{"ORDER BY kind ASC,"};
+    order += RootOrderExpressionFor(sort.column);
+    order += sort.ascending ? " ASC," : " DESC,";
+    order += " name COLLATE WIN_NATURAL_NOCASE ASC,id ASC ";
+    return order;
+}
 }
 
 SqliteBrowserRepository::SqliteBrowserRepository(sqlite3* db) : db_(db) {}
@@ -145,10 +169,11 @@ int SqliteBrowserRepository::GetBrowserRootItemCount(const wit::core::BrowserLoc
 }
 
 std::vector<wit::core::BrowserItem> SqliteBrowserRepository::GetBrowserRootItemsPage(
-    const wit::core::BrowserLocation& location, int offset, int limit) {
+    const wit::core::BrowserLocation& location, int offset, int limit, wit::core::BrowserRootSort sort) {
     std::vector<wit::core::BrowserItem> items;
+    EnsureNaturalNoCaseCollation(db_);
     if (location.isDiskGroup) {
-        SQLiteStatement statement(db_,
+        const auto sql = std::string(
             "WITH RECURSIVE group_tree(root_id,id) AS ("
             "SELECT id,id FROM disk_groups "
             "UNION ALL SELECT t.root_id,g.id FROM disk_groups g JOIN group_tree t ON g.parent_group_id=t.id) "
@@ -165,7 +190,8 @@ std::vector<wit::core::BrowserItem> SqliteBrowserRepository::GetBrowserRootItems
             "SELECT 1 AS kind,d.id,d.disk_group_id,d.disk_name,d.disk_number,d.source_path,d.total_capacity,"
             "d.free_space,d.updated_at,d.description,d.category,d.location,d.disk_type,0 AS total_disks,NULL AS parent_group_id "
             "FROM disks d WHERE d.disk_group_id=?) "
-            "ORDER BY kind,name COLLATE NOCASE,id LIMIT ? OFFSET ?;");
+            ) + RootOrderByFor(sort) + "LIMIT ? OFFSET ?;";
+        SQLiteStatement statement(db_, sql.c_str());
         statement.BindInt64(1, location.diskGroupId);
         statement.BindInt64(2, location.diskGroupId);
         statement.BindInt64(3, limit);
@@ -183,7 +209,7 @@ std::vector<wit::core::BrowserItem> SqliteBrowserRepository::GetBrowserRootItems
         }
         return items;
     }
-    SQLiteStatement statement(db_,
+    const auto sql = std::string(
         "WITH RECURSIVE group_tree(root_id,id) AS ("
         "SELECT id,id FROM disk_groups "
         "UNION ALL SELECT t.root_id,g.id FROM disk_groups g JOIN group_tree t ON g.parent_group_id=t.id) "
@@ -200,7 +226,8 @@ std::vector<wit::core::BrowserItem> SqliteBrowserRepository::GetBrowserRootItems
         "SELECT 1 AS kind,d.id,d.disk_group_id,d.disk_name,d.disk_number,d.source_path,d.total_capacity,"
         "d.free_space,d.updated_at,d.description,d.category,d.location,d.disk_type,0 AS total_disks,NULL AS parent_group_id "
         "FROM disks d WHERE d.disk_group_id IS NULL) "
-        "ORDER BY kind,name COLLATE NOCASE,id LIMIT ? OFFSET ?;");
+        ) + RootOrderByFor(sort) + "LIMIT ? OFFSET ?;";
+    SQLiteStatement statement(db_, sql.c_str());
     statement.BindInt64(1, limit);
     statement.BindInt64(2, offset);
     while (sqlite3_step(statement.Raw()) == SQLITE_ROW) {

@@ -1,4 +1,5 @@
 #include "wit_gui/SearchPane.h"
+#include <wit_infra/PathHelpers.h>
 #include "wit_infra/StringUtils.h"
 #include <wit_infra/Win32Helpers.h>
 #include <CommCtrl.h>
@@ -10,6 +11,7 @@
 #include <string_view>
 #include <utility>
 #include <windowsx.h>
+#include <Shellapi.h>
 
 namespace wit::ui {
 namespace {
@@ -50,6 +52,53 @@ void UpdateListViewSortIndicators(HWND list, int sortColumn, bool ascending) {
         item.fmt &= ~(HDF_SORTUP | HDF_SORTDOWN);
         if (index == sortColumn) item.fmt |= ascending ? HDF_SORTUP : HDF_SORTDOWN;
         Header_SetItem(header, index, &item);
+    }
+}
+
+bool DirectoryExists(const std::wstring& path) {
+    const DWORD attributes = ::GetFileAttributesW(path.c_str());
+    return attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+}
+
+std::wstring QuoteExplorerPath(const std::wstring& path) {
+    return L"\"" + path + L"\"";
+}
+
+void ShowFolderNotFound(HWND owner) {
+    ::MessageBoxW(owner,
+        L"Sorry, this folder does not exist any more on the media.\nPlease update data for this media.",
+        L"Folder not found", MB_OK | MB_ICONWARNING);
+}
+
+void ShowFileNotFound(HWND owner) {
+    ::MessageBoxW(owner,
+        L"Sorry, this file does not exist any more on the media.\nPlease update data for this media.",
+        L"File not found", MB_OK | MB_ICONWARNING);
+}
+
+bool FileExists(const std::wstring& path) {
+    const DWORD attributes = ::GetFileAttributesW(path.c_str());
+    return attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_DIRECTORY) == 0;
+}
+
+void OpenInExplorerOrAlert(HWND owner, const std::wstring& path, bool selectItem) {
+    if (path.empty() || (selectItem ? !FileExists(path) : !DirectoryExists(path))) {
+        if (selectItem) {
+            ShowFileNotFound(owner);
+        } else {
+            ShowFolderNotFound(owner);
+        }
+        return;
+    }
+    const auto parameters = selectItem ? (L"/select," + QuoteExplorerPath(path)) : QuoteExplorerPath(path);
+    const auto result = reinterpret_cast<INT_PTR>(
+        ::ShellExecuteW(owner, L"open", L"explorer.exe", parameters.c_str(), nullptr, SW_SHOWNORMAL));
+    if (result <= 32) {
+        if (selectItem) {
+            ShowFileNotFound(owner);
+        } else {
+            ShowFolderNotFound(owner);
+        }
     }
 }
 }
@@ -113,6 +162,14 @@ LRESULT SearchDialog::OnLocateInCatalog(WORD, WORD, HWND, BOOL&) {
         ::MessageBoxW(m_hWnd, L"The selected file could not be located in the catalog.",
             L"Locate in Catalog", MB_OK | MB_ICONINFORMATION);
     }
+    return 0;
+}
+
+LRESULT SearchDialog::OnOpenInExplorer(WORD, WORD, HWND, BOOL&) {
+    const auto* entry = FocusedEntry();
+    if (!entry) return 0;
+    const bool selectItem = !entry->isDirectory || entry->isArchive;
+    OpenInExplorerOrAlert(m_hWnd, wit::platform::Join(entry->parentPath, entry->name), selectItem);
     return 0;
 }
 
@@ -411,7 +468,7 @@ void SearchDialog::ShowResultsContextMenu(POINT screenPoint) {
     ::AppendMenuW(menu, MF_STRING, ID_SEARCH_RESULTS_LOCATE_IN_CATALOG, L"Locate in Catalog");
     ::AppendMenuW(menu, disabled, ID_SEARCH_RESULTS_VIEW_FILE_PLACEHOLDER, L"View File");
     ::AppendMenuW(menu, disabled, ID_SEARCH_RESULTS_LAUNCH_FILE_PLACEHOLDER, L"Launch File");
-    ::AppendMenuW(menu, disabled, ID_SEARCH_RESULTS_OPEN_EXPLORER_PLACEHOLDER, L"Open in Explorer");
+    ::AppendMenuW(menu, MF_STRING, ID_SEARCH_RESULTS_OPEN_EXPLORER_PLACEHOLDER, L"Open in Explorer");
     ::AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
 
     ::AppendMenuW(fileManagement, disabled, ID_SEARCH_RESULTS_COPY_TO_PLACEHOLDER, L"Copy To...");

@@ -52,6 +52,7 @@ public:
     bool IsFileListFolder(int row);
     bool IsFileListFile(int row);
     std::optional<wit::core::BrowserTarget> FileListBrowserTargetForRow(int row);
+    std::optional<std::wstring> ExplorerTargetForFocusedItem(bool& selectItem);
     bool GoToFileListFolder(int row);
     bool FileItemStateChanged(LPNMHDR header) const;
     [[nodiscard]] bool PersistFileListColumnWidths() const;

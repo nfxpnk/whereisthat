@@ -30,6 +30,7 @@ public:
         COMMAND_ID_HANDLER(IDC_SEARCH_EXECUTE, OnExecuteSearch)
         COMMAND_ID_HANDLER(IDCANCEL, OnCloseCommand)
         COMMAND_ID_HANDLER(ID_SEARCH_RESULTS_LOCATE_IN_CATALOG, OnLocateInCatalog)
+        COMMAND_ID_HANDLER(ID_SEARCH_RESULTS_OPEN_EXPLORER_PLACEHOLDER, OnOpenInExplorer)
         NOTIFY_HANDLER(IDC_SEARCH_RESULTS, LVN_GETDISPINFOW, OnGetDisplayInfo)
         NOTIFY_HANDLER(IDC_SEARCH_RESULTS, LVN_ODCACHEHINT, OnCacheHint)
         NOTIFY_HANDLER(IDC_SEARCH_RESULTS, LVN_COLUMNCLICK, OnColumnClick)
@@ -69,6 +70,7 @@ private:
     LRESULT OnContextMenu(UINT message, WPARAM wparam, LPARAM lparam, BOOL& handled);
     LRESULT OnExecuteSearch(WORD notifyCode, WORD id, HWND control, BOOL& handled);
     LRESULT OnLocateInCatalog(WORD notifyCode, WORD id, HWND control, BOOL& handled);
+    LRESULT OnOpenInExplorer(WORD notifyCode, WORD id, HWND control, BOOL& handled);
     LRESULT OnWindowClose(UINT message, WPARAM wparam, LPARAM lparam, BOOL& handled);
     LRESULT OnDestroy(UINT message, WPARAM wparam, LPARAM lparam, BOOL& handled);
     LRESULT OnCloseCommand(WORD notifyCode, WORD id, HWND control, BOOL& handled);

@@ -4,6 +4,7 @@
 #include <format>
 #include <optional>
 #include <utility>
+#include <Shellapi.h>
 #include "wit_gui/AddDiskDialog.h"
 #include "wit_gui/AboutDialog.h"
 #include "wit_gui/BrowserItemIcons.h"
@@ -272,6 +273,58 @@ bool PromptMoveDiskToGroup(HWND owner, const std::vector<wit::core::DiskGroup>& 
     return accepted;
 }
 
+bool DirectoryExists(const std::wstring& path) {
+    const DWORD attributes = ::GetFileAttributesW(path.c_str());
+    return attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+}
+
+std::wstring QuoteExplorerPath(const std::wstring& path) {
+    return L"\"" + path + L"\"";
+}
+
+void ShowFolderNotFound(HWND owner) {
+    ::MessageBoxW(owner,
+        L"Sorry, this folder does not exist any more on the media.\nPlease update data for this media.",
+        L"Folder not found", MB_OK | MB_ICONWARNING);
+}
+
+void ShowFileNotFound(HWND owner) {
+    ::MessageBoxW(owner,
+        L"Sorry, this file does not exist any more on the media.\nPlease update data for this media.",
+        L"File not found", MB_OK | MB_ICONWARNING);
+}
+
+void OpenFolderInExplorerOrAlert(HWND owner, const std::wstring& folder) {
+    if (folder.empty() || !DirectoryExists(folder)) {
+        ShowFolderNotFound(owner);
+        return;
+    }
+    const auto parameters = QuoteExplorerPath(folder);
+    const auto result = reinterpret_cast<INT_PTR>(
+        ::ShellExecuteW(owner, L"open", L"explorer.exe", parameters.c_str(), nullptr, SW_SHOWNORMAL));
+    if (result <= 32) ShowFolderNotFound(owner);
+}
+
+bool FileExists(const std::wstring& path) {
+    const DWORD attributes = ::GetFileAttributesW(path.c_str());
+    return attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_DIRECTORY) == 0;
+}
+
+void OpenInExplorerOrAlert(HWND owner, const std::wstring& path, bool selectItem) {
+    if (selectItem) {
+        if (path.empty() || !FileExists(path)) {
+            ShowFileNotFound(owner);
+            return;
+        }
+        const auto parameters = L"/select," + QuoteExplorerPath(path);
+        const auto result = reinterpret_cast<INT_PTR>(
+            ::ShellExecuteW(owner, L"open", L"explorer.exe", parameters.c_str(), nullptr, SW_SHOWNORMAL));
+        if (result <= 32) ShowFileNotFound(owner);
+        return;
+    }
+    OpenFolderInExplorerOrAlert(owner, path);
+}
+
 }
 
 bool MainFrame::Create() {
@@ -492,6 +545,16 @@ void MainFrame::OnAbout() {
     dialog.Show(m_hWnd);
 }
 
+void MainFrame::OpenFocusedItemInExplorer() {
+    bool selectItem{};
+    const auto target = browser_.ExplorerTargetForFocusedItem(selectItem);
+    if (!target) {
+        ShowFolderNotFound(m_hWnd);
+        return;
+    }
+    OpenInExplorerOrAlert(m_hWnd, *target, selectItem);
+}
+
 void MainFrame::HandleCommand(int id) {
     if (id == ID_FILE_NEWCATALOG) ApplyControllerResult(controller_.RequestNewCatalog());
     else if (id == ID_WIT_FILE_OPEN) ApplyControllerResult(controller_.RequestOpenCatalog());
@@ -502,6 +565,7 @@ void MainFrame::HandleCommand(int id) {
     else if (id == ID_WIT_FILE_CLOSE) ApplyControllerResult(controller_.RequestCloseCatalog());
     else if (id == ID_EDIT_ADDDISKIMAGE) ApplyControllerResult(controller_.RequestAddOrUpdateMedia());
     else if (id == ID_TREE_CONTEXT_MOVE_TO_GROUP) OnMoveSelectedItemToGroup();
+    else if (id == ID_ACTIONS_OPEN_EXPLORER) OpenFocusedItemInExplorer();
     else if (id == ID_TREE_CONTEXT_ADD_NEW_DISK_GROUP_PLACEHOLDER) {
         std::wstring name;
         if (PromptDiskGroupName(m_hWnd, name)) ApplyControllerResult(controller_.CreateDiskGroup(name));
@@ -652,7 +716,7 @@ LRESULT MainFrame::ShowTreeContextMenu() {
         AppendDisabledMenuItem(menu, ID_TREE_CONTEXT_RENUMBER_DISKS_PLACEHOLDER, L"Renumber Disks");
         AppendDisabledMenuItem(menu, ID_TREE_CONTEXT_DELETE_DISK_PLACEHOLDER, L"Delete Disk");
         AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-        AppendDisabledMenuItem(menu, ID_ACTIONS_OPEN_EXPLORER, L"Open in Explorer");
+        AppendMenuW(menu, MF_STRING, ID_ACTIONS_OPEN_EXPLORER, L"Open in Explorer");
         AppendDisabledMenuItem(menu, ID_TREE_CONTEXT_FIND_ON_DISK_PLACEHOLDER, L"Find on This Disk");
         AppendDisabledMenuItem(menu, ID_SEARCH_FIND_SELECTED_ITEMS, L"Find Selected Items");
         AppendDisabledMenuItem(menu, ID_TREE_CONTEXT_USER_LIST_PLACEHOLDER, L"User List");
@@ -670,7 +734,7 @@ LRESULT MainFrame::ShowTreeContextMenu() {
         AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
         AppendDisabledMenuItem(menu, ID_ACTIONS_VIEW_FILE, L"View File");
         AppendDisabledMenuItem(menu, ID_ACTIONS_LAUNCH_FILE, L"Launch File");
-        AppendDisabledMenuItem(menu, ID_ACTIONS_OPEN_EXPLORER, L"Open in Explorer");
+        AppendMenuW(menu, MF_STRING, ID_ACTIONS_OPEN_EXPLORER, L"Open in Explorer");
         AppendDisabledMenuItem(menu, ID_ACTIONS_FILE_MANAGEMENT, L"File Management");
         AppendDisabledMenuItem(menu, ID_TREE_CONTEXT_FIND_IN_FOLDER_PLACEHOLDER, L"Find in This Folder");
         AppendDisabledMenuItem(menu, ID_SEARCH_FIND_SELECTED_ITEMS, L"Find Selected Items");
@@ -689,7 +753,7 @@ LRESULT MainFrame::ShowTreeContextMenu() {
         AppendDisabledMenuItem(menu, ID_SEARCH_COMPARE_MEDIA, L"Compare to Media");
         AppendDisabledMenuItem(menu, ID_SEARCH_COMPARE_CATALOGED_DATA, L"Compare Cataloged Data");
         AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-        AppendDisabledMenuItem(menu, ID_ACTIONS_OPEN_EXPLORER, L"Open in Explorer");
+        AppendMenuW(menu, MF_STRING, ID_ACTIONS_OPEN_EXPLORER, L"Open in Explorer");
         AppendDisabledMenuItem(menu, ID_ACTIONS_FILE_MANAGEMENT, L"File Management");
         AppendDisabledMenuItem(menu, ID_TREE_CONTEXT_FIND_IN_FOLDER_PLACEHOLDER, L"Find in This Folder");
         AppendDisabledMenuItem(menu, ID_SEARCH_FIND_SELECTED_ITEMS, L"Find Selected Items");
@@ -708,6 +772,9 @@ LRESULT MainFrame::ShowTreeContextMenu() {
         screenPoint.x, screenPoint.y, m_hWnd, nullptr);
     DestroyMenu(menu);
     if (command == ID_TREE_CONTEXT_MOVE_TO_GROUP) OnMoveSelectedItemToGroup(target);
+    else if (command == ID_ACTIONS_OPEN_EXPLORER && target) {
+        OpenInExplorerOrAlert(m_hWnd, target->location.path, IsArchiveTreeItem(chrome_.TreeHandle(), item));
+    }
     else if (command) HandleCommand(command);
     return 0;
 }
@@ -763,7 +830,7 @@ LRESULT MainFrame::ShowListContextMenu() {
         AppendDisabledMenuItem(menu, ID_TREE_CONTEXT_RENUMBER_DISKS_PLACEHOLDER, L"Renumber Disks");
         AppendDisabledMenuItem(menu, ID_TREE_CONTEXT_DELETE_DISK_PLACEHOLDER, L"Delete Disk");
         AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-        AppendDisabledMenuItem(menu, ID_ACTIONS_OPEN_EXPLORER, L"Open in Explorer");
+        AppendMenuW(menu, MF_STRING, ID_ACTIONS_OPEN_EXPLORER, L"Open in Explorer");
         AppendDisabledMenuItem(menu, ID_TREE_CONTEXT_FIND_ON_DISK_PLACEHOLDER, L"Find on This Disk");
         AppendDisabledMenuItem(menu, ID_SEARCH_FIND_SELECTED_ITEMS, L"Find Selected Items");
         AppendDisabledMenuItem(menu, ID_TREE_CONTEXT_USER_LIST_PLACEHOLDER, L"User List");
@@ -782,7 +849,7 @@ LRESULT MainFrame::ShowListContextMenu() {
         AppendDisabledMenuItem(menu, ID_SEARCH_COMPARE_MEDIA, L"Compare to Media");
         AppendDisabledMenuItem(menu, ID_SEARCH_COMPARE_CATALOGED_DATA, L"Compare Cataloged Data");
         AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-        AppendDisabledMenuItem(menu, ID_ACTIONS_OPEN_EXPLORER, L"Open in Explorer");
+        AppendMenuW(menu, MF_STRING, ID_ACTIONS_OPEN_EXPLORER, L"Open in Explorer");
         AppendDisabledMenuItem(menu, ID_ACTIONS_FILE_MANAGEMENT, L"File Management");
         AppendDisabledMenuItem(menu, ID_TREE_CONTEXT_FIND_IN_FOLDER_PLACEHOLDER, L"Find in This Folder");
         AppendDisabledMenuItem(menu, ID_SEARCH_FIND_SELECTED_ITEMS, L"Find Selected Items");
@@ -798,7 +865,7 @@ LRESULT MainFrame::ShowListContextMenu() {
     } else if (isFile) {
         AppendDisabledMenuItem(menu, ID_ACTIONS_VIEW_FILE, L"View File");
         AppendDisabledMenuItem(menu, ID_ACTIONS_LAUNCH_FILE, L"Launch File");
-        AppendDisabledMenuItem(menu, ID_ACTIONS_OPEN_EXPLORER, L"Open in Explorer");
+        AppendMenuW(menu, MF_STRING, ID_ACTIONS_OPEN_EXPLORER, L"Open in Explorer");
         AppendDisabledMenuItem(menu, ID_ACTIONS_FILE_MANAGEMENT, L"File Management");
         AppendDisabledMenuItem(menu, ID_SEARCH_FIND_SELECTED_ITEMS, L"Find Selected Items");
         AppendDisabledMenuItem(menu, ID_SEARCH_COMPARE_CATALOGED_DATA, L"Compare Cataloged Data");

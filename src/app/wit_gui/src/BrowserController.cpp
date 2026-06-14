@@ -392,6 +392,29 @@ std::optional<wit::core::BrowserTarget> BrowserController::FileListBrowserTarget
     return target;
 }
 
+std::optional<std::wstring> BrowserController::ExplorerTargetForFocusedItem(bool& selectItem) {
+    selectItem = false;
+    const int row = filesHandle_ ? ListView_GetNextItem(filesHandle_, -1, LVNI_FOCUSED) : -1;
+    if (row >= 0) {
+        if (const auto* item = files_.BrowserItemAt(row)) {
+            return item->type == wit::core::BrowserItemType::Disk ? std::optional(item->disk.sourcePath) : std::nullopt;
+        }
+        if (const auto* entry = files_.EntryAt(row)) {
+            if (entry->isDirectory && !entry->isArchive) {
+                return wit::platform::Join(entry->parentPath, entry->name);
+            }
+            selectItem = true;
+            return wit::platform::Join(entry->parentPath, entry->name);
+        }
+    }
+
+    const auto target = SelectedTreeTarget();
+    if (!target || target->location.isRoot || target->location.isDiskGroup || target->location.path.empty()) {
+        return std::nullopt;
+    }
+    return target->location.path;
+}
+
 bool BrowserController::GoToFileListFolder(int row) {
     if (!hasTarget_ || row < 0) return false;
     auto next = currentTarget_;

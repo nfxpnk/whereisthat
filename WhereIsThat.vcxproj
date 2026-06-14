@@ -41,7 +41,7 @@
         <Link>
             <SubSystem>Windows</SubSystem>
             <AdditionalLibraryDirectories>third_party\sqlite;third_party\libarchive\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-            <AdditionalDependencies>sqlite3.lib;archive.lib;comctl32.lib;ole32.lib;uuid.lib;windowscodecs.lib;Dbghelp.lib;%(AdditionalDependencies)</AdditionalDependencies>
+            <AdditionalDependencies>sqlite3.lib;archive.lib;comctl32.lib;shell32.lib;ole32.lib;uuid.lib;windowscodecs.lib;Dbghelp.lib;%(AdditionalDependencies)</AdditionalDependencies>
         </Link>
         <PostBuildEvent>
             <Command>copy /Y "$(ProjectDir)third_party\sqlite\sqlite3.dll" "$(OutDir)sqlite3.dll"

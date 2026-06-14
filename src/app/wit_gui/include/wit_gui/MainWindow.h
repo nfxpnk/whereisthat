@@ -102,6 +102,7 @@ private:
     void HandleCommand(int id);
     void OnExit();
     void OnAbout();
+    void OpenFocusedItemInExplorer();
     void OnMoveSelectedItemToGroup(std::optional<wit::core::BrowserTarget> target = std::nullopt);
     LRESULT ShowTreeContextMenu();
     LRESULT ShowListContextMenu();

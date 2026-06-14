@@ -49,6 +49,10 @@ public:
     LRESULT OnFileCacheHint(LPNMHDR header);
     LRESULT OnFileColumnClick(LPNMHDR header);
     LRESULT OnFileActivate(LPNMHDR header);
+    bool IsFileListFolder(int row);
+    bool IsFileListFile(int row);
+    std::optional<wit::core::BrowserTarget> FileListBrowserTargetForRow(int row);
+    bool GoToFileListFolder(int row);
     bool FileItemStateChanged(LPNMHDR header) const;
     [[nodiscard]] bool PersistFileListColumnWidths() const;
     void SelectAll();

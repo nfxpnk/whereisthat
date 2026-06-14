@@ -48,6 +48,7 @@ public:
         NOTIFY_HANDLER(IDC_FILES, LVN_COLUMNCLICK, OnFileColumnClick)
         NOTIFY_HANDLER(IDC_FILES, LVN_ITEMACTIVATE, OnFileActivate)
         NOTIFY_HANDLER(IDC_FILES, LVN_ITEMCHANGED, OnFileItemChanged)
+        NOTIFY_HANDLER(IDC_FILES, NM_RCLICK, OnFileRightClick)
         NOTIFY_CODE_HANDLER(HDN_ENDTRACKW, OnFileHeaderWidthChanged)
         NOTIFY_CODE_HANDLER(HDN_DIVIDERDBLCLICKW, OnFileHeaderWidthChanged)
         NOTIFY_HANDLER(IDC_TOOLBAR, TBN_DROPDOWN, OnToolbarDropDown)
@@ -91,6 +92,7 @@ private:
     LRESULT OnFileColumnClick(int id, LPNMHDR header, BOOL& handled);
     LRESULT OnFileActivate(int id, LPNMHDR header, BOOL& handled);
     LRESULT OnFileItemChanged(int id, LPNMHDR header, BOOL& handled);
+    LRESULT OnFileRightClick(int id, LPNMHDR header, BOOL& handled);
     LRESULT OnFileHeaderWidthChanged(int id, LPNMHDR header, BOOL& handled);
     LRESULT OnToolbarDropDown(int id, LPNMHDR header, BOOL& handled);
     LRESULT OnToolbarGetInfoTip(int id, LPNMHDR header, BOOL& handled);
@@ -102,6 +104,7 @@ private:
     void OnAbout();
     void OnMoveSelectedItemToGroup(std::optional<wit::core::BrowserTarget> target = std::nullopt);
     LRESULT ShowTreeContextMenu();
+    LRESULT ShowListContextMenu();
     void ApplyControllerResult(wit::app::ControllerResult result);
     void PerformRequest(const wit::app::RequestEffect& request);
     void RenderRecentMenu(const std::vector<std::wstring>& paths);

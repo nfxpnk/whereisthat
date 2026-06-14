@@ -348,17 +348,63 @@ LRESULT BrowserController::OnFileActivate(LPNMHDR header) {
     if (!hasTarget_) return 0;
     const auto* activation = reinterpret_cast<NMITEMACTIVATE*>(header);
     if (activation->iItem < 0) return 0;
+    if (GoToFileListFolder(activation->iItem)) return 0;
+    return 0;
+}
+
+bool BrowserController::IsFileListFolder(int row) {
+    if (!hasTarget_ || currentTarget_.location.isRoot || currentTarget_.location.isDiskGroup) return false;
+    const auto* entry = files_.EntryAt(row);
+    return entry && entry->isDirectory && !entry->isArchive;
+}
+
+bool BrowserController::IsFileListFile(int row) {
+    if (!hasTarget_ || currentTarget_.location.isRoot || currentTarget_.location.isDiskGroup) return false;
+    const auto* entry = files_.EntryAt(row);
+    return entry && !entry->isDirectory;
+}
+
+std::optional<wit::core::BrowserTarget> BrowserController::FileListBrowserTargetForRow(int row) {
+    if (!hasTarget_ || row < 0 || (!currentTarget_.location.isRoot && !currentTarget_.location.isDiskGroup)) {
+        return std::nullopt;
+    }
+
+    const auto* item = files_.BrowserItemAt(row);
+    if (!item) return std::nullopt;
+
+    auto target = currentTarget_;
+    target.location.isRoot = false;
+    if (item->type == wit::core::BrowserItemType::DiskGroup) {
+        target.location.isDiskGroup = true;
+        target.location.diskGroupId = item->group.id;
+        target.location.diskGroupName = item->group.name;
+        return target;
+    }
+
+    const auto& disk = item->disk;
+    target.location.isDiskGroup = false;
+    target.location.diskGroupId = currentTarget_.location.isDiskGroup ? currentTarget_.location.diskGroupId : 0;
+    target.location.diskGroupName = currentTarget_.location.isDiskGroup ? currentTarget_.location.diskGroupName : L"";
+    target.location.sourceId = disk.id;
+    target.location.sourceName = disk.diskName;
+    target.location.sourceRoot = disk.sourcePath;
+    target.location.path = disk.sourcePath;
+    return target;
+}
+
+bool BrowserController::GoToFileListFolder(int row) {
+    if (!hasTarget_ || row < 0) return false;
     auto next = currentTarget_;
     next.location.isRoot = false;
     if (currentTarget_.location.isRoot || currentTarget_.location.isDiskGroup) {
-        const auto* item = files_.BrowserItemAt(activation->iItem);
-        if (!item) return 0;
+        const auto* item = files_.BrowserItemAt(row);
+        if (!item) return false;
         if (item->type == wit::core::BrowserItemType::DiskGroup) {
             next.location.isDiskGroup = true;
             next.location.diskGroupId = item->group.id;
             next.location.diskGroupName = item->group.name;
             NavigateTo(next, true);
-            return 0;
+            return true;
         }
         const auto* disk = &item->disk;
         next.location.isDiskGroup = false;
@@ -367,13 +413,13 @@ LRESULT BrowserController::OnFileActivate(LPNMHDR header) {
         next.location.sourceRoot = disk->sourcePath;
         next.location.path = disk->sourcePath;
     } else {
-        const auto* entry = files_.EntryAt(activation->iItem);
-        if (!entry || !entry->isDirectory) return 0;
+        const auto* entry = files_.EntryAt(row);
+        if (!entry || !entry->isDirectory) return false;
         next.location = currentTarget_.location;
         next.location.path = wit::platform::Join(currentTarget_.location.path, entry->name);
     }
     NavigateTo(next, true);
-    return 0;
+    return true;
 }
 
 bool BrowserController::FileItemStateChanged(LPNMHDR header) const {

@@ -4,6 +4,7 @@
 #include <vector>
 
 #include "wit_types/FileEntry.h"
+#include "wit_types/FileSort.h"
 
 namespace wit::search {
 
@@ -15,7 +16,8 @@ public:
     virtual std::vector<wit::core::FileEntry> PageByName(
         const std::wstring& nameTerm,
         int offset,
-        int limit) = 0;
+        int limit,
+        wit::core::FileSort sort = {}) = 0;
 };
 
 }

@@ -9,6 +9,7 @@
 #include <cwctype>
 #include <format>
 #include <iterator>
+#include <optional>
 #include <strsafe.h>
 #include <string_view>
 #include <unordered_map>
@@ -229,6 +230,41 @@ void CopyText(std::wstring_view text, wchar_t* buffer, std::size_t bufferSize) {
     if (!buffer || bufferSize == 0) return;
     StringCchCopyNW(buffer, bufferSize, text.data(), text.size());
 }
+
+std::optional<wit::core::FileSortColumn> SortColumnFromContentColumn(int column) {
+    switch (column) {
+    case 0: return wit::core::FileSortColumn::Name;
+    case 1: return wit::core::FileSortColumn::Type;
+    case 2: return wit::core::FileSortColumn::Size;
+    case 3: return wit::core::FileSortColumn::Path;
+    case 4: return wit::core::FileSortColumn::Modified;
+    default: return std::nullopt;
+    }
+}
+
+int ContentColumnFromSortColumn(wit::core::FileSortColumn column) {
+    switch (column) {
+    case wit::core::FileSortColumn::Type: return 1;
+    case wit::core::FileSortColumn::Size: return 2;
+    case wit::core::FileSortColumn::Path: return 3;
+    case wit::core::FileSortColumn::Modified: return 4;
+    case wit::core::FileSortColumn::Name:
+    default: return 0;
+    }
+}
+
+void UpdateListViewSortIndicators(HWND list, int sortColumn, bool ascending) {
+    const HWND header = ListView_GetHeader(list);
+    if (!header) return;
+    const int count = Header_GetItemCount(header);
+    for (int index = 0; index < count; ++index) {
+        HDITEMW item{HDI_FORMAT};
+        if (!Header_GetItem(header, index, &item)) continue;
+        item.fmt &= ~(HDF_SORTUP | HDF_SORTDOWN);
+        if (index == sortColumn) item.fmt |= ascending ? HDF_SORTUP : HDF_SORTDOWN;
+        Header_SetItem(header, index, &item);
+    }
+}
 }
 
 void FileListView::ConfigureColumns() {
@@ -236,9 +272,11 @@ void FileListView::ConfigureColumns() {
     const auto settings = wit::platform::LoadAppSettings();
     if (ShowsBrowserItems()) {
         InsertColumns(hwnd, kBrowserRootColumns, settings);
+        UpdateListViewSortIndicators(hwnd, -1, true);
         return;
     }
     InsertColumns(hwnd, kBrowserContentColumns, settings);
+    UpdateSortIndicators();
 }
 
 bool FileListView::PersistColumnWidths() const {
@@ -284,6 +322,84 @@ void FileListView::ResetCachedItems() {
     InvalidateRect(hwnd, nullptr, TRUE);
 }
 
+std::vector<wit::core::FileEntry> FileListView::SelectedEntriesInRange(int firstRow, int lastRow) {
+    std::vector<wit::core::FileEntry> selected;
+    if (!hwnd || ShowsBrowserItems()) return selected;
+    firstRow = std::clamp(firstRow, 0, (std::max)(0, total - 1));
+    lastRow = std::clamp(lastRow, firstRow, (std::max)(0, total - 1));
+    for (int row = ListView_GetNextItem(hwnd, firstRow - 1, LVNI_SELECTED); row >= 0 && row <= lastRow;
+        row = ListView_GetNextItem(hwnd, row, LVNI_SELECTED)) {
+        if (const auto* entry = EntryAt(row)) selected.push_back(*entry);
+    }
+    return selected;
+}
+
+bool FileListView::ApplyContentSort(
+    std::vector<wit::core::FileEntry> selectedEntries, std::int64_t focusedId, bool focusedIsDirectory) {
+    if (!hwnd || ShowsBrowserItems()) return false;
+    const int topRow = (std::max)(0, ListView_GetTopIndex(hwnd));
+    const int visibleRows = (std::max)(ListView_GetCountPerPage(hwnd), 1);
+    const int firstRestoreRow = (std::max)(0, topRow - PageSize);
+    const int lastRestoreRow = (std::min)(total - 1, topRow + visibleRows + PageSize);
+
+    SendMessageW(hwnd, WM_SETREDRAW, FALSE, 0);
+    ClearCache();
+    ListView_SetItemState(hwnd, -1, 0, LVIS_SELECTED | LVIS_FOCUSED);
+    ListView_SetItemCountEx(hwnd, total, LVSICF_NOSCROLL);
+    bool focusedRestored = focusedId == 0;
+    for (int row = firstRestoreRow; row <= lastRestoreRow && (!selectedEntries.empty() || !focusedRestored); ++row) {
+        const auto* entry = EntryAt(row);
+        if (!entry) continue;
+        const auto selected = std::ranges::find_if(selectedEntries, [entry](const auto& selectedEntry) {
+            return selectedEntry.id == entry->id && selectedEntry.isDirectory == entry->isDirectory;
+        });
+        if (selected != selectedEntries.end()) {
+            ListView_SetItemState(hwnd, row, LVIS_SELECTED, LVIS_SELECTED);
+            selectedEntries.erase(selected);
+        }
+        if (!focusedRestored && entry->id == focusedId && entry->isDirectory == focusedIsDirectory) {
+            ListView_SetItemState(hwnd, row, LVIS_FOCUSED, LVIS_FOCUSED);
+            ListView_EnsureVisible(hwnd, row, FALSE);
+            focusedRestored = true;
+        }
+    }
+    SendMessageW(hwnd, WM_SETREDRAW, TRUE, 0);
+    InvalidateRect(hwnd, nullptr, TRUE);
+    UpdateWindow(hwnd);
+    return true;
+}
+
+bool FileListView::ToggleSortForColumn(int column) {
+    if (!hwnd || ShowsBrowserItems()) return false;
+    const auto sortColumn = SortColumnFromContentColumn(column);
+    if (!sortColumn) return false;
+
+    const int focusedRow = ListView_GetNextItem(hwnd, -1, LVNI_FOCUSED);
+    const auto* focusedEntry = focusedRow >= 0 ? EntryAt(focusedRow) : nullptr;
+    const std::int64_t focusedId = focusedEntry ? focusedEntry->id : 0;
+    const bool focusedIsDirectory = focusedEntry && focusedEntry->isDirectory;
+    const int topRow = (std::max)(0, ListView_GetTopIndex(hwnd));
+    const int visibleRows = (std::max)(ListView_GetCountPerPage(hwnd), 1);
+    auto selected = SelectedEntriesInRange((std::max)(0, topRow - PageSize),
+        (std::min)(total - 1, topRow + visibleRows + PageSize));
+
+    if (sort_.column == *sortColumn) {
+        sort_.ascending = !sort_.ascending;
+    } else {
+        sort_.column = *sortColumn;
+        sort_.ascending = true;
+    }
+
+    UpdateSortIndicators();
+    return ApplyContentSort(std::move(selected), focusedId, focusedIsDirectory);
+}
+
+void FileListView::UpdateSortIndicators() {
+    if (!hwnd) return;
+    UpdateListViewSortIndicators(hwnd, ShowsBrowserItems() ? -1 : ContentColumnFromSortColumn(sort_.column),
+        sort_.ascending);
+}
+
 void FileListView::PreloadRange(int firstRow, int lastRow) {
     if (!browser || ShowsBrowserItems() || total <= 0) return;
     firstRow = std::clamp(firstRow, 0, total - 1);
@@ -314,7 +430,7 @@ void FileListView::CacheFilePage(int pageStartValue) {
 
     CachedFilePage cachedPage;
     cachedPage.start = normalizedStart;
-    cachedPage.items = browser->GetBrowserItemsPage(location, normalizedStart, PageSize);
+    cachedPage.items = browser->GetBrowserItemsPage(location, normalizedStart, PageSize, sort_);
     cachedPage.lastUsed = ++cacheClock_;
     cachedFilePages_.push_back(std::move(cachedPage));
 

@@ -360,6 +360,10 @@ LRESULT MainFrame::OnFileCacheHint(int, LPNMHDR header, BOOL&) {
     return browser_.OnFileCacheHint(header);
 }
 
+LRESULT MainFrame::OnFileColumnClick(int, LPNMHDR header, BOOL&) {
+    return browser_.OnFileColumnClick(header);
+}
+
 LRESULT MainFrame::OnFileActivate(int, LPNMHDR header, BOOL&) {
     const auto result = browser_.OnFileActivate(header);
     UpdateBrowserStatus();

@@ -6,6 +6,7 @@
 #include "wit_types/BrowserLocation.h"
 #include <wit_types/Disk.h>
 #include <wit_types/FileEntry.h>
+#include <wit_types/FileSort.h>
 #include "wit_database/IBrowserRepository.h"
 
 namespace wit::ui {
@@ -29,6 +30,8 @@ public:
     const wit::core::BrowserItem* BrowserItemAt(int row);
     const wit::core::Disk* DiskAt(int row);
     bool SelectEntry(std::int64_t id, bool isDirectory);
+    bool ToggleSortForColumn(int column);
+    void UpdateSortIndicators();
     int ImageFor(int row);
     void TextFor(int row, int column, wchar_t* buffer, std::size_t bufferSize);
 
@@ -44,10 +47,13 @@ private:
 
     unsigned long long cacheClock_{};
     std::vector<CachedFilePage> cachedFilePages_;
+    wit::core::FileSort sort_{};
 
     void ConfigureColumns();
     void ClearCache();
     void CacheFilePage(int pageStart);
+    bool ApplyContentSort(std::vector<wit::core::FileEntry> selectedEntries, std::int64_t focusedId, bool focusedIsDirectory);
+    std::vector<wit::core::FileEntry> SelectedEntriesInRange(int firstRow, int lastRow);
 };
 }
 #include <Windows.h>

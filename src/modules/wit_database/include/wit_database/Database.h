@@ -65,7 +65,7 @@ public:
     std::vector<wit::core::Catalog> GetCatalogs();
     int GetBrowserItemCount(const wit::core::BrowserLocation& location);
     std::vector<wit::core::FileEntry> GetBrowserItemsPage(const wit::core::BrowserLocation& location,
-        int offset, int limit);
+        int offset, int limit, wit::core::FileSort sort = {});
     bool HasChildFolders(std::int64_t sourceId, const std::wstring& parentPath);
     std::vector<wit::core::FileEntry> GetChildFolders(std::int64_t sourceId, const std::wstring& parentPath);
     int GetItemSearchCount(const std::wstring& nameTerm);

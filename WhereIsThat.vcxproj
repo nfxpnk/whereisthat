@@ -145,6 +145,7 @@ copy /Y "$(ProjectDir)third_party\libarchive\bin\*.dll" "$(OutDir)"</Command>
         <ClInclude Include="src\modules\wit_types\include\wit_types\CatalogIdentity.h"/>
         <ClInclude Include="src\modules\wit_types\include\wit_types\Disk.h"/>
         <ClInclude Include="src\modules\wit_types\include\wit_types\FolderEntry.h"/>
+        <ClInclude Include="src\modules\wit_types\include\wit_types\FileSort.h"/>
         <ClInclude Include="src\modules\wit_types\include\wit_types\ScanProgress.h"/>
         <ClInclude Include="src\modules\wit_types\include\wit_types\SearchQuery.h"/>
         <ClInclude Include="src\modules\wit_infra\include\wit_infra\AppSettings.h"/>

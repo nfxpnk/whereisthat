@@ -781,8 +781,8 @@ int Database::GetBrowserItemCount(const wit::core::BrowserLocation& location) {
 }
 
 std::vector<wit::core::FileEntry> Database::GetBrowserItemsPage(
-    const wit::core::BrowserLocation& location, int offset, int limit) {
-    return browserRepository_.GetBrowserItemsPage(location, offset, limit);
+    const wit::core::BrowserLocation& location, int offset, int limit, wit::core::FileSort sort) {
+    return browserRepository_.GetBrowserItemsPage(location, offset, limit, sort);
 }
 
 bool Database::HasChildFolders(std::int64_t sourceId, const std::wstring& parentPath) {
@@ -799,6 +799,6 @@ int Database::GetItemSearchCount(const std::wstring& nameTerm) {
 }
 
 std::vector<wit::core::FileEntry> Database::GetItemSearchPage(const std::wstring& nameTerm, int offset, int limit) {
-    return searchRepository_.PageByName(nameTerm, offset, limit);
+    return searchRepository_.PageByName(nameTerm, offset, limit, {});
 }
 }

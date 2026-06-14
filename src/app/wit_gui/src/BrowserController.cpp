@@ -269,6 +269,14 @@ LRESULT BrowserController::OnFileCacheHint(LPNMHDR header) {
     return 0;
 }
 
+LRESULT BrowserController::OnFileColumnClick(LPNMHDR header) {
+    const auto* click = reinterpret_cast<NMLISTVIEW*>(header);
+    if (click && files_.ToggleSortForColumn(click->iSubItem)) {
+        return 0;
+    }
+    return 0;
+}
+
 LRESULT BrowserController::OnFileActivate(LPNMHDR header) {
     if (!hasTarget_) return 0;
     const auto* activation = reinterpret_cast<NMITEMACTIVATE*>(header);

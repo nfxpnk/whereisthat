@@ -14,7 +14,8 @@ public:
     void SetDatabase(sqlite3* db);
 
     int CountByName(const std::wstring& nameTerm) override;
-    std::vector<wit::core::FileEntry> PageByName(const std::wstring& nameTerm, int offset, int limit) override;
+    std::vector<wit::core::FileEntry> PageByName(
+        const std::wstring& nameTerm, int offset, int limit, wit::core::FileSort sort = {}) override;
 
 private:
     sqlite3* db_{};

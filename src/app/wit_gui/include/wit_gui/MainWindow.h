@@ -45,6 +45,7 @@ public:
         NOTIFY_HANDLER(IDC_BROWSER_TREE, NM_RCLICK, OnTreeRightClick)
         NOTIFY_HANDLER(IDC_FILES, LVN_GETDISPINFOW, OnFileGetDispInfo)
         NOTIFY_HANDLER(IDC_FILES, LVN_ODCACHEHINT, OnFileCacheHint)
+        NOTIFY_HANDLER(IDC_FILES, LVN_COLUMNCLICK, OnFileColumnClick)
         NOTIFY_HANDLER(IDC_FILES, LVN_ITEMACTIVATE, OnFileActivate)
         NOTIFY_HANDLER(IDC_FILES, LVN_ITEMCHANGED, OnFileItemChanged)
         NOTIFY_CODE_HANDLER(HDN_ENDTRACKW, OnFileHeaderWidthChanged)
@@ -87,6 +88,7 @@ private:
     LRESULT OnTreeRightClick(int id, LPNMHDR header, BOOL& handled);
     LRESULT OnFileGetDispInfo(int id, LPNMHDR header, BOOL& handled);
     LRESULT OnFileCacheHint(int id, LPNMHDR header, BOOL& handled);
+    LRESULT OnFileColumnClick(int id, LPNMHDR header, BOOL& handled);
     LRESULT OnFileActivate(int id, LPNMHDR header, BOOL& handled);
     LRESULT OnFileItemChanged(int id, LPNMHDR header, BOOL& handled);
     LRESULT OnFileHeaderWidthChanged(int id, LPNMHDR header, BOOL& handled);

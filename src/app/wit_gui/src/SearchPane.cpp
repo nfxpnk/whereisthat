@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <format>
 #include <iterator>
+#include <optional>
 #include <strsafe.h>
 #include <string_view>
 #include <utility>
@@ -15,6 +16,41 @@ namespace {
 void CopyText(std::wstring_view text, wchar_t* buffer, std::size_t bufferSize) {
     if (!buffer || bufferSize == 0) return;
     StringCchCopyNW(buffer, bufferSize, text.data(), text.size());
+}
+
+std::optional<wit::core::FileSortColumn> SortColumnFromResultColumn(int column) {
+    switch (column) {
+    case 0: return wit::core::FileSortColumn::Name;
+    case 1: return wit::core::FileSortColumn::Type;
+    case 2: return wit::core::FileSortColumn::Size;
+    case 3: return wit::core::FileSortColumn::Path;
+    case 4: return wit::core::FileSortColumn::Modified;
+    default: return std::nullopt;
+    }
+}
+
+int ResultColumnFromSortColumn(wit::core::FileSortColumn column) {
+    switch (column) {
+    case wit::core::FileSortColumn::Type: return 1;
+    case wit::core::FileSortColumn::Size: return 2;
+    case wit::core::FileSortColumn::Path: return 3;
+    case wit::core::FileSortColumn::Modified: return 4;
+    case wit::core::FileSortColumn::Name:
+    default: return 0;
+    }
+}
+
+void UpdateListViewSortIndicators(HWND list, int sortColumn, bool ascending) {
+    const HWND header = ListView_GetHeader(list);
+    if (!header) return;
+    const int count = Header_GetItemCount(header);
+    for (int index = 0; index < count; ++index) {
+        HDITEMW item{HDI_FORMAT};
+        if (!Header_GetItem(header, index, &item)) continue;
+        item.fmt &= ~(HDF_SORTUP | HDF_SORTDOWN);
+        if (index == sortColumn) item.fmt |= ascending ? HDF_SORTUP : HDF_SORTDOWN;
+        Header_SetItem(header, index, &item);
+    }
 }
 }
 
@@ -120,6 +156,12 @@ LRESULT SearchDialog::OnCacheHint(int, LPNMHDR header, BOOL&) {
     return 0;
 }
 
+LRESULT SearchDialog::OnColumnClick(int, LPNMHDR header, BOOL&) {
+    const auto* click = reinterpret_cast<NMLISTVIEW*>(header);
+    if (click) ToggleSortForColumn(click->iSubItem);
+    return 0;
+}
+
 void SearchDialog::Initialize() {
     results_ = GetDlgItem(IDC_SEARCH_RESULTS);
     ListView_SetExtendedListViewStyle(results_, LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER);
@@ -143,6 +185,7 @@ void SearchDialog::Initialize() {
     column.cx = 105;
     column.pszText = const_cast<LPWSTR>(L"Modified");
     ListView_InsertColumn(results_, 4, &column);
+    UpdateSortIndicators();
 
     SetDlgItemTextW(IDC_SEARCH_SUMMARY, L"Enter part of a file or folder name to search.");
 }
@@ -197,7 +240,7 @@ void SearchDialog::CachePage(int pageStart) {
 
     CachedPage page;
     page.start = normalizedStart;
-    page.items = search_->PageByName(nameTerm_, normalizedStart, PageSize);
+    page.items = search_->PageByName(nameTerm_, normalizedStart, PageSize, sort_);
     page.lastUsed = ++cacheClock_;
     cachedPages_.push_back(std::move(page));
 
@@ -238,6 +281,80 @@ const wit::core::FileEntry* SearchDialog::EntryAt(int row) {
 const wit::core::FileEntry* SearchDialog::FocusedEntry() {
     const int row = ListView_GetNextItem(results_, -1, LVNI_FOCUSED);
     return row >= 0 ? EntryAt(row) : nullptr;
+}
+
+std::vector<wit::core::FileEntry> SearchDialog::SelectedEntriesInRange(int firstRow, int lastRow) {
+    std::vector<wit::core::FileEntry> selected;
+    if (!results_) return selected;
+    firstRow = std::clamp(firstRow, 0, (std::max)(0, total_ - 1));
+    lastRow = std::clamp(lastRow, firstRow, (std::max)(0, total_ - 1));
+    for (int row = ListView_GetNextItem(results_, firstRow - 1, LVNI_SELECTED); row >= 0 && row <= lastRow;
+        row = ListView_GetNextItem(results_, row, LVNI_SELECTED)) {
+        if (const auto* entry = EntryAt(row)) selected.push_back(*entry);
+    }
+    return selected;
+}
+
+void SearchDialog::RestoreSelection(
+    std::vector<wit::core::FileEntry> selectedEntries, std::int64_t focusedId, bool focusedIsDirectory) {
+    if (!results_) return;
+    const int topRow = (std::max)(0, ListView_GetTopIndex(results_));
+    const int visibleRows = (std::max)(ListView_GetCountPerPage(results_), 1);
+    const int firstRestoreRow = (std::max)(0, topRow - PageSize);
+    const int lastRestoreRow = (std::min)(total_ - 1, topRow + visibleRows + PageSize);
+
+    SendMessageW(results_, WM_SETREDRAW, FALSE, 0);
+    ClearCache();
+    ListView_SetItemState(results_, -1, 0, LVIS_SELECTED | LVIS_FOCUSED);
+    ResetResultItemCache();
+    bool focusedRestored = focusedId == 0;
+    for (int row = firstRestoreRow; row <= lastRestoreRow && (!selectedEntries.empty() || !focusedRestored); ++row) {
+        const auto* entry = EntryAt(row);
+        if (!entry) continue;
+        const auto selected = std::ranges::find_if(selectedEntries, [entry](const auto& selectedEntry) {
+            return selectedEntry.id == entry->id && selectedEntry.isDirectory == entry->isDirectory;
+        });
+        if (selected != selectedEntries.end()) {
+            ListView_SetItemState(results_, row, LVIS_SELECTED, LVIS_SELECTED);
+            selectedEntries.erase(selected);
+        }
+        if (!focusedRestored && entry->id == focusedId && entry->isDirectory == focusedIsDirectory) {
+            ListView_SetItemState(results_, row, LVIS_FOCUSED, LVIS_FOCUSED);
+            ListView_EnsureVisible(results_, row, FALSE);
+            focusedRestored = true;
+        }
+    }
+    SendMessageW(results_, WM_SETREDRAW, TRUE, 0);
+    ::InvalidateRect(results_, nullptr, TRUE);
+    ::UpdateWindow(results_);
+}
+
+void SearchDialog::ToggleSortForColumn(int column) {
+    const auto sortColumn = SortColumnFromResultColumn(column);
+    if (!sortColumn || !results_) return;
+
+    const int focusedRow = ListView_GetNextItem(results_, -1, LVNI_FOCUSED);
+    const auto* focusedEntry = focusedRow >= 0 ? EntryAt(focusedRow) : nullptr;
+    const std::int64_t focusedId = focusedEntry ? focusedEntry->id : 0;
+    const bool focusedIsDirectory = focusedEntry && focusedEntry->isDirectory;
+    const int topRow = (std::max)(0, ListView_GetTopIndex(results_));
+    const int visibleRows = (std::max)(ListView_GetCountPerPage(results_), 1);
+    auto selected = SelectedEntriesInRange((std::max)(0, topRow - PageSize),
+        (std::min)(total_ - 1, topRow + visibleRows + PageSize));
+
+    if (sort_.column == *sortColumn) {
+        sort_.ascending = !sort_.ascending;
+    } else {
+        sort_.column = *sortColumn;
+        sort_.ascending = true;
+    }
+    UpdateSortIndicators();
+    RestoreSelection(std::move(selected), focusedId, focusedIsDirectory);
+}
+
+void SearchDialog::UpdateSortIndicators() {
+    if (!results_) return;
+    UpdateListViewSortIndicators(results_, ResultColumnFromSortColumn(sort_.column), sort_.ascending);
 }
 
 bool SearchDialog::PrepareContextMenuSelection(LPARAM lparam, POINT& screenPoint) {

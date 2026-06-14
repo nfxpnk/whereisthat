@@ -43,6 +43,7 @@ public:
     LRESULT OnTreeExpanding(LPNMHDR header);
     LRESULT OnFileGetDispInfo(LPNMHDR header);
     LRESULT OnFileCacheHint(LPNMHDR header);
+    LRESULT OnFileColumnClick(LPNMHDR header);
     LRESULT OnFileActivate(LPNMHDR header);
     bool FileItemStateChanged(LPNMHDR header) const;
     [[nodiscard]] bool PersistFileListColumnWidths() const;

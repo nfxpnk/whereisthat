@@ -21,6 +21,21 @@ bool IsBlank(const std::wstring& value) {
     return true;
 }
 
+std::optional<wit::core::FileSortColumn> SortColumnForToolbarCommand(int id) {
+    switch (id) {
+    case ID_TOOLBAR_SORT_NAME:
+        return wit::core::FileSortColumn::Name;
+    case ID_TOOLBAR_SORT_EXTENSION:
+        return wit::core::FileSortColumn::Type;
+    case ID_TOOLBAR_SORT_SIZE:
+        return wit::core::FileSortColumn::Size;
+    case ID_TOOLBAR_SORT_DATE:
+        return wit::core::FileSortColumn::Modified;
+    default:
+        return std::nullopt;
+    }
+}
+
 INT_PTR CALLBACK DiskGroupDialogProc(HWND dialog, UINT message, WPARAM wparam, LPARAM lparam) {
     auto* name = reinterpret_cast<std::wstring*>(GetWindowLongPtrW(dialog, GWLP_USERDATA));
     if (message == WM_INITDIALOG) {
@@ -361,7 +376,9 @@ LRESULT MainFrame::OnFileCacheHint(int, LPNMHDR header, BOOL&) {
 }
 
 LRESULT MainFrame::OnFileColumnClick(int, LPNMHDR header, BOOL&) {
-    return browser_.OnFileColumnClick(header);
+    const auto result = browser_.OnFileColumnClick(header);
+    chrome_.UpdateSortToolbarButtons(browser_.ContentSort());
+    return result;
 }
 
 LRESULT MainFrame::OnFileActivate(int, LPNMHDR header, BOOL&) {
@@ -408,6 +425,7 @@ bool MainFrame::InitializeFrame() {
         chrome_.ForwardHandle(), chrome_.AddressHandle(),
         [this](wit::core::CatalogId id) { return controller_.WorkingDatabase(id); },
         [this](wit::core::CatalogId id) { return controller_.CatalogLabel(id); });
+    chrome_.UpdateSortToolbarButtons(browser_.ContentSort());
     browser_.Clear();
     ApplyControllerResult(std::move(initial));
     if (!startupCatalogPath_.empty()) {
@@ -462,6 +480,17 @@ void MainFrame::HandleCommand(int id) {
         if (PromptDiskGroupName(m_hWnd, name)) ApplyControllerResult(controller_.CreateDiskGroup(name));
     }
     else if (id == ID_SEARCH_FOR_ITEMS) ApplyControllerResult(controller_.RequestSearch());
+    else if (const auto sortColumn = SortColumnForToolbarCommand(id)) {
+        auto sort = browser_.ContentSort();
+        sort.column = *sortColumn;
+        browser_.SetContentSort(sort, true);
+        chrome_.UpdateSortToolbarButtons(browser_.ContentSort());
+    } else if (id == ID_TOOLBAR_SORT_REVERSE) {
+        auto sort = browser_.ContentSort();
+        sort.ascending = !sort.ascending;
+        browser_.SetContentSort(sort, true);
+        chrome_.UpdateSortToolbarButtons(browser_.ContentSort());
+    }
     else if (id == IDC_BROWSER_BACK) {
         browser_.NavigateBack();
         UpdateBrowserStatus();

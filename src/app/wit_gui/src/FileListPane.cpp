@@ -242,6 +242,10 @@ std::optional<wit::core::FileSortColumn> SortColumnFromContentColumn(int column)
     }
 }
 
+wit::core::FileSortColumn SortColumnFromSettings(int column) {
+    return SortColumnFromContentColumn(column).value_or(wit::core::FileSortColumn::Name);
+}
+
 int ContentColumnFromSortColumn(wit::core::FileSortColumn column) {
     switch (column) {
     case wit::core::FileSortColumn::Type: return 1;
@@ -265,6 +269,13 @@ void UpdateListViewSortIndicators(HWND list, int sortColumn, bool ascending) {
         Header_SetItem(header, index, &item);
     }
 }
+}
+
+void FileListView::Attach(HWND handle) {
+    hwnd = handle;
+    const auto settings = wit::platform::LoadAppSettings();
+    sort_.column = SortColumnFromSettings(settings.contentSortColumn);
+    sort_.ascending = !settings.contentSortReverse;
 }
 
 void FileListView::ConfigureColumns() {
@@ -373,7 +384,22 @@ bool FileListView::ToggleSortForColumn(int column) {
     if (!hwnd || ShowsBrowserItems()) return false;
     const auto sortColumn = SortColumnFromContentColumn(column);
     if (!sortColumn) return false;
+    auto nextSort = sort_;
+    if (nextSort.column == *sortColumn) {
+        nextSort.ascending = !nextSort.ascending;
+    } else {
+        nextSort.column = *sortColumn;
+        nextSort.ascending = true;
+    }
+    return SetSort(nextSort);
+}
 
+bool FileListView::SetSort(wit::core::FileSort sort) {
+    if (!hwnd || ShowsBrowserItems()) {
+        sort_ = sort;
+        UpdateSortIndicators();
+        return false;
+    }
     const int focusedRow = ListView_GetNextItem(hwnd, -1, LVNI_FOCUSED);
     const auto* focusedEntry = focusedRow >= 0 ? EntryAt(focusedRow) : nullptr;
     const std::int64_t focusedId = focusedEntry ? focusedEntry->id : 0;
@@ -383,13 +409,7 @@ bool FileListView::ToggleSortForColumn(int column) {
     auto selected = SelectedEntriesInRange((std::max)(0, topRow - PageSize),
         (std::min)(total - 1, topRow + visibleRows + PageSize));
 
-    if (sort_.column == *sortColumn) {
-        sort_.ascending = !sort_.ascending;
-    } else {
-        sort_.column = *sortColumn;
-        sort_.ascending = true;
-    }
-
+    sort_ = sort;
     UpdateSortIndicators();
     return ApplyContentSort(std::move(selected), focusedId, focusedIsDirectory);
 }

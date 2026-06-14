@@ -25,6 +25,8 @@ struct AppSettings {
     bool hasMultiCatalogSettings{};
     std::vector<std::wstring> recentCatalogPaths;
     std::map<std::wstring, int> fileListColumnWidths;
+    int contentSortColumn{};
+    bool contentSortReverse{};
 };
 
 std::wstring SettingsFilePath();

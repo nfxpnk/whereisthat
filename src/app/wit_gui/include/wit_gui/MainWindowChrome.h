@@ -5,6 +5,7 @@
 #include <array>
 #include <functional>
 #include <string>
+#include <wit_types/FileSort.h>
 #include "wit_win32/BaseWindow.h"
 
 namespace wit::app {
@@ -27,6 +28,7 @@ public:
     HWND ForwardHandle() const { return forwardHandle_; }
     HWND AddressHandle() const { return addressHandle_; }
     HWND StatusHandle() const { return statusHandle_; }
+    HWND ToolbarHandle() const { return toolbarHandle_; }
     int SplitterPosition() const { return splitterPosition_; }
 
     void OnSize(int width, int height);
@@ -43,6 +45,7 @@ public:
     void SetAppStatus(AppStatus status);
     void SetScanCommandEnabled(bool enabled);
     void SetSaveCommandEnabled(bool enabled);
+    void UpdateSortToolbarButtons(wit::core::FileSort sort);
     void UpdateProgramStatusLights();
     bool DrawStatusPart(LPDRAWITEMSTRUCT drawItem, bool protectedCatalog);
     LRESULT OnToolbarDropDown(LPNMTOOLBAR notification);

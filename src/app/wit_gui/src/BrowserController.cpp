@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <format>
 #include <wit_infra/ScopeGuard.h>
+#include <wit_infra/AppSettings.h>
 #include <wit_infra/Logging.h>
 #include <wit_infra/PathHelpers.h>
 #include "wit_infra/StringUtils.h"
@@ -20,6 +21,17 @@ std::wstring CompactSize(std::uint64_t bytes) {
         if (end == decimal + 1) result.erase(decimal, 1);
     }
     return result;
+}
+
+int SettingsColumnFor(wit::core::FileSortColumn column) {
+    switch (column) {
+    case wit::core::FileSortColumn::Type: return 1;
+    case wit::core::FileSortColumn::Size: return 2;
+    case wit::core::FileSortColumn::Path: return 3;
+    case wit::core::FileSortColumn::Modified: return 4;
+    case wit::core::FileSortColumn::Name:
+    default: return 0;
+    }
 }
 
 }
@@ -269,9 +281,27 @@ LRESULT BrowserController::OnFileCacheHint(LPNMHDR header) {
     return 0;
 }
 
+wit::core::FileSort BrowserController::ContentSort() const {
+    return files_.Sort();
+}
+
+bool BrowserController::SetContentSort(wit::core::FileSort sort, bool persist) {
+    const bool applied = files_.SetSort(sort);
+    if (persist) SaveContentSortPreference(files_.Sort());
+    return applied;
+}
+
+void BrowserController::SaveContentSortPreference(wit::core::FileSort sort) const {
+    auto settings = wit::platform::LoadAppSettings();
+    settings.contentSortColumn = SettingsColumnFor(sort.column);
+    settings.contentSortReverse = !sort.ascending;
+    (void)wit::platform::SaveAppSettings(settings);
+}
+
 LRESULT BrowserController::OnFileColumnClick(LPNMHDR header) {
     const auto* click = reinterpret_cast<NMLISTVIEW*>(header);
     if (click && files_.ToggleSortForColumn(click->iSubItem)) {
+        SaveContentSortPreference(files_.Sort());
         return 0;
     }
     return 0;

@@ -17,6 +17,7 @@ constexpr const wchar_t* kCatalogsSection = L"Catalogs";
 constexpr const wchar_t* kOpenCatalogCountKey = L"OpenCatalogCount";
 constexpr const wchar_t* kLastActiveCatalogKey = L"LastActiveCatalog";
 constexpr const wchar_t* kFileListColumnWidthsSection = L"FileListColumnWidths";
+constexpr int kMaximumContentSortColumn = 4;
 
 std::wstring ExecutableDirectory() {
     DWORD capacity = MAX_PATH;
@@ -203,6 +204,12 @@ AppSettings LoadAppSettings() {
         GetPrivateProfileIntW(L"General", L"EnableScanFileDelay", 0, path.c_str()) != 0;
     settings.mainSplitterPosition = GetPrivateProfileIntW(
         L"General", L"MainSplitterPosition", kDefaultMainSplitterPosition, path.c_str());
+    settings.contentSortColumn = GetPrivateProfileIntW(L"General", L"ContentSortColumn", 0, path.c_str());
+    if (settings.contentSortColumn < 0 || settings.contentSortColumn > kMaximumContentSortColumn) {
+        settings.contentSortColumn = 0;
+    }
+    settings.contentSortReverse =
+        GetPrivateProfileIntW(L"General", L"ContentSortReverse", 0, path.c_str()) != 0;
     settings.dateTimeFormat = ReadProfileString(L"General", L"DateTimeFormat", path);
     if (!wit::platform::IsValidDateTimeFormat(settings.dateTimeFormat)) {
         settings.dateTimeFormat.clear();
@@ -230,6 +237,7 @@ AppSettings LoadAppSettings() {
 bool SaveAppSettings(const AppSettings& settings) {
     const auto path = SettingsFilePath();
     const auto splitterPosition = std::format(L"{}", settings.mainSplitterPosition);
+    const auto contentSortColumn = std::format(L"{}", settings.contentSortColumn);
     bool success = WritePrivateProfileStringW(L"General", L"ShowStatusBar",
         settings.showStatusBar ? L"1" : L"0", path.c_str()) != FALSE &&
         WritePrivateProfileStringW(L"General", L"ShowToolbar",
@@ -240,6 +248,10 @@ bool SaveAppSettings(const AppSettings& settings) {
             settings.enableScanFileDelay ? L"1" : L"0", path.c_str()) != FALSE &&
         WritePrivateProfileStringW(L"General", L"MainSplitterPosition",
             splitterPosition.c_str(), path.c_str()) != FALSE &&
+        WritePrivateProfileStringW(L"General", L"ContentSortColumn",
+            contentSortColumn.c_str(), path.c_str()) != FALSE &&
+        WritePrivateProfileStringW(L"General", L"ContentSortReverse",
+            settings.contentSortReverse ? L"1" : L"0", path.c_str()) != FALSE &&
         WritePrivateProfileStringW(L"General", L"DateTimeFormat",
             settings.dateTimeFormat.c_str(), path.c_str()) != FALSE &&
         WritePrivateProfileStringW(L"General", L"LastCatalogPath",

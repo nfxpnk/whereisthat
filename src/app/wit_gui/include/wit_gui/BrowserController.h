@@ -38,6 +38,8 @@ public:
     void NavigateForward();
     void RefreshDisplay();
     bool LocateFile(wit::core::CatalogId catalogId, const wit::core::FileEntry& entry);
+    [[nodiscard]] wit::core::FileSort ContentSort() const;
+    bool SetContentSort(wit::core::FileSort sort, bool persist);
 
     wit::core::CatalogId OnTreeSelectionChanged(LPNMHDR header);
     LRESULT OnTreeExpanding(LPNMHDR header);
@@ -71,6 +73,7 @@ private:
     void NavigateTo(const wit::core::BrowserTarget& target, bool addToHistory, bool syncTreeSelection = true);
     void UpdateNavigationControls();
     std::wstring AddressFor(const wit::core::BrowserTarget& target) const;
+    void SaveContentSortPreference(wit::core::FileSort sort) const;
     void UpdateMovedDiskTargets(wit::core::CatalogId id, std::int64_t diskId,
         std::int64_t diskGroupId, const std::wstring& diskGroupName);
 };

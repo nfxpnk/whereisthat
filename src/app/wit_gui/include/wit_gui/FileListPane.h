@@ -19,7 +19,7 @@ public:
     int browserPageStart{-1};
     std::vector<wit::core::BrowserItem> browserPage;
 
-    void Attach(HWND handle) { hwnd = handle; }
+    void Attach(HWND handle);
     void SetLocation(const wit::core::BrowserLocation& newLocation, wit::storage::IBrowserRepository* repository);
     void ResetCachedItems();
     void PreloadRange(int firstRow, int lastRow);
@@ -31,6 +31,8 @@ public:
     const wit::core::Disk* DiskAt(int row);
     bool SelectEntry(std::int64_t id, bool isDirectory);
     bool ToggleSortForColumn(int column);
+    bool SetSort(wit::core::FileSort sort);
+    [[nodiscard]] wit::core::FileSort Sort() const { return sort_; }
     void UpdateSortIndicators();
     int ImageFor(int row);
     void TextFor(int row, int column, wchar_t* buffer, std::size_t bufferSize);

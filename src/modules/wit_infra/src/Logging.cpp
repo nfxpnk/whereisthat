@@ -42,7 +42,7 @@ std::wstring LogDirectory() {
     std::filesystem::path base = (length != 0 && length < std::size(modulePath))
         ? std::filesystem::path(modulePath).parent_path()
         : std::filesystem::current_path();
-    return base.wstring();
+    return (base / L"logs").wstring();
 }
 
 std::wstring TimestampForFile() {

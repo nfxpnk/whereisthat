@@ -80,6 +80,63 @@ wit::core::ScanRequest ToScanRequest(const wit::ui::AddNewDiskMediaResult& media
     };
 }
 
+void CenterWindowOnMonitor(HWND hwnd) {
+    if (!::IsWindow(hwnd)) return;
+
+    RECT windowRect{};
+    if (!::GetWindowRect(hwnd, &windowRect)) return;
+
+    const int width = windowRect.right - windowRect.left;
+    const int height = windowRect.bottom - windowRect.top;
+
+    const HWND owner = ::GetWindow(hwnd, GW_OWNER);
+    HWND centerOn = nullptr;
+    if (owner && ::IsWindow(owner) && !::IsIconic(owner)) {
+        centerOn = owner;
+    }
+
+    RECT centerRect{};
+    HMONITOR monitor{};
+    if (centerOn) {
+        ::GetWindowRect(centerOn, &centerRect);
+        monitor = ::MonitorFromWindow(centerOn, MONITOR_DEFAULTTONEAREST);
+    } else {
+        monitor = ::MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+    }
+
+    MONITORINFO monitorInfo{};
+    monitorInfo.cbSize = sizeof(monitorInfo);
+    if (!monitor || !::GetMonitorInfoW(monitor, &monitorInfo)) return;
+
+    const RECT area = monitorInfo.rcWork;
+    if (!centerOn) {
+        centerRect = area;
+    }
+
+    int x = ((centerRect.left + centerRect.right) / 2) - (width / 2);
+    int y = ((centerRect.top + centerRect.bottom) / 2) - (height / 2);
+
+    const int areaWidth = area.right - area.left;
+    if (width >= areaWidth) {
+        x = area.left;
+    } else if (x < area.left) {
+        x = area.left;
+    } else if (x + width > area.right) {
+        x = area.right - width;
+    }
+
+    const int areaHeight = area.bottom - area.top;
+    if (height >= areaHeight) {
+        y = area.top;
+    } else if (y < area.top) {
+        y = area.top;
+    } else if (y + height > area.bottom) {
+        y = area.bottom - height;
+    }
+
+    ::SetWindowPos(hwnd, nullptr, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+}
+
 std::vector<wit::ui::CatalogChoice> ToDialogCatalogChoices(const std::vector<wit::app::CatalogChoice>& choices) {
     std::vector<wit::ui::CatalogChoice> dialogChoices;
     dialogChoices.reserve(choices.size());
@@ -190,6 +247,7 @@ bool MainFrame::Create() {
         return false;
     }
     SetWindowPos(nullptr, 0, 0, 1100, 720, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+    CenterWindowOnMonitor(m_hWnd);
     m_hAccel = LoadAcceleratorsW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDR_MAINACCEL));
     return true;
 }

@@ -26,7 +26,9 @@ public:
     void RefreshCatalog(wit::core::CatalogId id, const std::wstring& label,
         wit::storage::Database* database, bool select);
     void MoveDiskToGroup(wit::core::CatalogId id, std::int64_t diskId,
-        std::int64_t diskGroupId, wit::storage::Database* database);
+        std::int64_t diskGroupId, wit::storage::Database* database, bool databaseReflectsChange);
+    void MoveDiskGroupToGroup(wit::core::CatalogId id, std::int64_t diskGroupId,
+        std::int64_t parentGroupId, bool databaseReflectsChange);
     void RemoveCatalog(wit::core::CatalogId id);
     bool SelectCatalogRoot(wit::core::CatalogId id);
     bool SelectFirstCatalogRoot();

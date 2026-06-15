@@ -15,6 +15,7 @@ enum class BrowserEffectKind {
     AddCatalog,
     RefreshCatalog,
     MoveDiskToGroup,
+    MoveDiskGroupToGroup,
     RemoveCatalog,
     SelectCatalog,
     Clear
@@ -28,6 +29,8 @@ struct BrowserEffect {
     bool select{};
     std::int64_t diskId{};
     std::int64_t diskGroupId{};
+    std::int64_t parentGroupId{};
+    bool databaseReflectsChange{};
 };
 
 struct MessageEffect {

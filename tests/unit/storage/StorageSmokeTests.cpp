@@ -5,6 +5,7 @@
 #include <wit_gui/ScanCoordinator.h>
 #include <wit_infra/PathHelpers.h>
 #include <wit_infra/AppSettings.h>
+#include <wit_infra/SaveProfiler.h>
 #include <wit_infra/ScanProfiler.h>
 #include <wit_infra/VolumeInfo.h>
 #include <wit_infra/Win32Helpers.h>
@@ -718,6 +719,10 @@ TEST(StorageSmoke, ImportedCatalogGroupAndDiskMovesSaveThroughAppWorkflow) {
         ASSERT_NE(firstRootGroupId, 0);
         ASSERT_NE(secondRootGroupId, 0);
 
+        wit::infra::SaveProfile metadataSaveProfile;
+        metadataSaveProfile.operation = L"metadataMoves";
+        wit::infra::SaveProfileScope metadataSaveProfileScope(metadataSaveProfile);
+
         std::vector<std::int64_t> movedGroupIds;
         for (const auto& group : groups) {
             if (group.parentGroupId == firstRootGroupId) {
@@ -740,6 +745,16 @@ TEST(StorageSmoke, ImportedCatalogGroupAndDiskMovesSaveThroughAppWorkflow) {
         auto saveResult = controller.RequestSave();
         ASSERT_TRUE(saveResult.messages.empty()) << "pending moves save through app workflow";
         ASSERT_TRUE(saveResult.presentation.catalogStatus == L"Loaded") << "catalog is clean after save";
+        EXPECT_EQ(metadataSaveProfile.timingsNs.createWorkingCopy, 0u)
+            << "metadata moves do not create a full working copy";
+        EXPECT_EQ(metadataSaveProfile.timingsNs.backupCreateWorkingCopy, 0u)
+            << "metadata moves do not backup-copy the catalog";
+        EXPECT_EQ(metadataSaveProfile.timingsNs.saveCatalogDataFrom, 0u)
+            << "metadata moves do not use full replacement save";
+        EXPECT_EQ(metadataSaveProfile.timingsNs.backupSavePendingToTemp, 0u)
+            << "metadata moves do not export a replacement catalog";
+        EXPECT_EQ(metadataSaveProfile.timingsNs.integrityCheck, 0u)
+            << "metadata moves skip full catalog integrity check";
 
         wit::storage::Database reopened;
         ASSERT_TRUE(reopened.OpenExisting(catalogPath.wstring())) << "saved imported catalog reopens";
@@ -762,6 +777,113 @@ TEST(StorageSmoke, ImportedCatalogGroupAndDiskMovesSaveThroughAppWorkflow) {
         }
         reopened.Close();
     }
+    std::filesystem::remove_all(testRoot);
+}
+
+TEST(StorageSmoke, PendingMetadataMovesValidateAgainstPendingState) {
+    const auto sourceCatalogPath = std::filesystem::current_path() / L"tests" / L"d-import-test.db";
+    if (!std::filesystem::exists(sourceCatalogPath)) {
+        GTEST_SKIP() << "tests\\d-import-test.db fixture is not available";
+    }
+
+    const auto testRoot = std::filesystem::temp_directory_path() /
+        (L"whereisthat-pending-metadata-validation-" + std::to_wstring(GetCurrentProcessId()));
+    std::filesystem::remove_all(testRoot);
+    std::filesystem::create_directories(testRoot);
+    const auto catalogPath = testRoot / L"d-import-test-copy.db";
+    std::filesystem::copy_file(sourceCatalogPath, catalogPath, std::filesystem::copy_options::overwrite_existing);
+
+    {
+        wit::app::CatalogWorkflowController controller;
+        const auto openResult = controller.OpenCatalogPathSelected(catalogPath.wstring());
+        ASSERT_TRUE(openResult.messages.empty());
+        ASSERT_FALSE(openResult.browserEffects.empty());
+        const auto catalogId = openResult.browserEffects.front().catalogId;
+        auto* database = controller.WorkingDatabase(catalogId);
+        ASSERT_NE(database, nullptr);
+
+        const auto groups = database->GetDiskGroups();
+        std::int64_t rootA{};
+        std::int64_t childOfA{};
+        std::int64_t rootB{};
+        for (const auto& group : groups) {
+            if (group.parentGroupId != 0) continue;
+            const auto child = std::find_if(groups.begin(), groups.end(),
+                [&group](const wit::core::DiskGroup& candidate) { return candidate.parentGroupId == group.id; });
+            if (child != groups.end() && rootA == 0) {
+                rootA = group.id;
+                childOfA = child->id;
+            } else if (rootB == 0) {
+                rootB = group.id;
+            }
+        }
+        ASSERT_NE(rootA, 0);
+        ASSERT_NE(childOfA, 0);
+        ASSERT_NE(rootB, 0);
+
+        auto firstMove = controller.MoveDiskGroupToGroup(catalogId, rootA, rootB);
+        ASSERT_TRUE(firstMove.messages.empty()) << "first pending group move is valid";
+        auto cycleMove = controller.MoveDiskGroupToGroup(catalogId, rootB, childOfA);
+        ASSERT_FALSE(cycleMove.messages.empty()) << "second move is rejected against pending hierarchy";
+    }
+
+    std::filesystem::remove_all(testRoot);
+}
+
+TEST(StorageSmoke, FullPendingCatalogFoldsEarlierMetadataAndPreservesLaterStagedMoves) {
+    const auto sourceCatalogPath = std::filesystem::current_path() / L"tests" / L"d-import-test.db";
+    if (!std::filesystem::exists(sourceCatalogPath)) {
+        GTEST_SKIP() << "tests\\d-import-test.db fixture is not available";
+    }
+
+    const auto testRoot = std::filesystem::temp_directory_path() /
+        (L"whereisthat-mixed-pending-save-" + std::to_wstring(GetCurrentProcessId()));
+    std::filesystem::remove_all(testRoot);
+    std::filesystem::create_directories(testRoot);
+    const auto catalogPath = testRoot / L"d-import-test-copy.db";
+    std::filesystem::copy_file(sourceCatalogPath, catalogPath, std::filesystem::copy_options::overwrite_existing);
+
+    std::int64_t diskId{};
+    std::int64_t firstTargetGroupId{};
+    std::int64_t finalTargetGroupId{};
+    {
+        wit::app::CatalogWorkflowController controller;
+        const auto openResult = controller.OpenCatalogPathSelected(catalogPath.wstring());
+        ASSERT_TRUE(openResult.messages.empty());
+        ASSERT_FALSE(openResult.browserEffects.empty());
+        const auto catalogId = openResult.browserEffects.front().catalogId;
+        auto* database = controller.WorkingDatabase(catalogId);
+        ASSERT_NE(database, nullptr);
+
+        const auto groups = database->GetDiskGroups();
+        const auto disks = database->GetDisksPage(0, 20);
+        ASSERT_GE(groups.size(), 2u);
+        ASSERT_FALSE(disks.empty());
+        diskId = disks.front().id;
+        firstTargetGroupId = groups.front().id;
+        finalTargetGroupId = groups.back().id;
+        ASSERT_NE(firstTargetGroupId, finalTargetGroupId);
+
+        auto metadataMove = controller.MoveDiskToGroup(catalogId, diskId, firstTargetGroupId);
+        ASSERT_TRUE(metadataMove.messages.empty()) << "metadata-only move is staged";
+        auto createGroup = controller.CreateDiskGroup(L"Mixed Pending Group");
+        ASSERT_TRUE(createGroup.messages.empty()) << "full pending catalog accepts prior metadata edits";
+        auto stagedMove = controller.MoveDiskToGroup(catalogId, diskId, finalTargetGroupId);
+        ASSERT_TRUE(stagedMove.messages.empty()) << "later move applies to full pending catalog";
+        auto saveResult = controller.RequestSave();
+        ASSERT_TRUE(saveResult.messages.empty()) << "mixed pending changes save";
+    }
+
+    wit::storage::Database reopened;
+    ASSERT_TRUE(reopened.OpenExisting(catalogPath.wstring()));
+    const auto reopenedDisks = reopened.GetDisksPage(0, 20);
+    const auto found = std::find_if(reopenedDisks.begin(), reopenedDisks.end(),
+        [diskId](const wit::core::Disk& disk) { return disk.id == diskId; });
+    ASSERT_NE(found, reopenedDisks.end());
+    EXPECT_EQ(found->diskGroupId, finalTargetGroupId)
+        << "older metadata move does not overwrite newer full-staged move";
+    reopened.Close();
+
     std::filesystem::remove_all(testRoot);
 }
 

@@ -540,6 +540,10 @@ bool Database::BeginTransaction() {
     return editable_ && Exec("BEGIN TRANSACTION;");
 }
 
+bool Database::BeginImmediateTransaction() {
+    return editable_ && Exec("BEGIN IMMEDIATE TRANSACTION;");
+}
+
 bool Database::Commit() {
     return editable_ && Exec("COMMIT;");
 }

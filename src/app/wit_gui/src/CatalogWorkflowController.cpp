@@ -269,6 +269,7 @@ ControllerResult CatalogWorkflowController::SaveCatalog(wit::core::CatalogId id)
         return result;
     }
     const bool hadPendingChanges = catalog->HasPendingChanges();
+    const bool hadFullCatalogChanges = catalog->HasPendingFullCatalogChanges();
     if (!session_.SavePending(id)) {
         if (auto* profile = wit::infra::CurrentSaveProfile()) profile->result = "failed";
         WIT_LOG_ERROR(std::format(L"save catalog failed id={} path='{}'", id, catalog->path));
@@ -281,8 +282,10 @@ ControllerResult CatalogWorkflowController::SaveCatalog(wit::core::CatalogId id)
     if (hadPendingChanges) {
         if (auto* profile = wit::infra::CurrentSaveProfile()) profile->result = "completed";
         WIT_LOG_INFO(std::format(L"save catalog completed id={} path='{}'", id, catalog->path));
-        result.browserEffects.push_back({BrowserEffectKind::RefreshCatalog, id, catalog->label,
-            catalog->WorkingDatabase(), true});
+        if (hadFullCatalogChanges) {
+            result.browserEffects.push_back({BrowserEffectKind::RefreshCatalog, id, catalog->label,
+                catalog->WorkingDatabase(), true});
+        }
         result.presentation.refreshBrowserStatus = true;
     }
     PopulatePresentation(result);
@@ -536,7 +539,13 @@ ControllerResult CatalogWorkflowController::CreateDiskGroup(const std::wstring& 
         PopulatePresentation(result);
         return result;
     }
-    session_.AcceptPending(catalog->id, std::move(pending));
+    if (!session_.AcceptPending(catalog->id, std::move(pending))) {
+        result.messages.push_back(Message(L"Unable to prepare pending catalog changes.",
+            L"Add New Disk Group", MB_OK | MB_ICONERROR));
+        if (auto* profile = wit::infra::CurrentSaveProfile()) profile->result = "failed";
+        PopulatePresentation(result);
+        return result;
+    }
     WIT_LOG_INFO(std::format(L"create disk group staged catalogId={} groupId={} name='{}'",
         catalog->id, id, name));
     if (auto* profile = wit::infra::CurrentSaveProfile()) profile->result = "completed";
@@ -576,15 +585,7 @@ ControllerResult CatalogWorkflowController::MoveDiskToGroup(wit::core::CatalogId
         PopulatePresentation(result);
         return result;
     }
-    auto pending = std::make_unique<wit::storage::Database>();
-    if (!pending->CreateWorkingCopy(*database)) {
-        result.messages.push_back(Message(L"Unable to prepare pending catalog changes.",
-            L"Move to Group", MB_OK | MB_ICONERROR));
-        if (auto* profile = wit::infra::CurrentSaveProfile()) profile->result = "failed";
-        PopulatePresentation(result);
-        return result;
-    }
-    if (!pending->MoveDiskToGroup(diskId, diskGroupId)) {
+    if (!session_.RecordMoveDiskToGroup(catalogId, diskId, diskGroupId)) {
         WIT_LOG_WARN(std::format(L"move disk failed catalogId={} diskId={} targetGroupId={}",
             catalogId, diskId, diskGroupId));
         result.messages.push_back(Message(L"Unable to move the disk image to the selected group.",
@@ -593,13 +594,12 @@ ControllerResult CatalogWorkflowController::MoveDiskToGroup(wit::core::CatalogId
         PopulatePresentation(result);
         return result;
     }
-    session_.AcceptPending(catalogId, std::move(pending));
     WIT_LOG_INFO(std::format(L"move disk staged catalogId={} diskId={} targetGroupId={}",
         catalogId, diskId, diskGroupId));
     if (auto* profile = wit::infra::CurrentSaveProfile()) profile->result = "completed";
     const bool active = ActiveCatalog() && ActiveCatalog()->id == catalogId;
     result.browserEffects.push_back({BrowserEffectKind::MoveDiskToGroup, catalogId, catalog->label,
-        catalog->WorkingDatabase(), active, diskId, diskGroupId});
+        catalog->WorkingDatabase(), active, diskId, diskGroupId, 0, catalog->HasPendingFullCatalogChanges()});
     result.presentation.refreshBrowserStatus = true;
     PopulatePresentation(result);
     return result;
@@ -634,15 +634,7 @@ ControllerResult CatalogWorkflowController::MoveDiskGroupToGroup(wit::core::Cata
         PopulatePresentation(result);
         return result;
     }
-    auto pending = std::make_unique<wit::storage::Database>();
-    if (!pending->CreateWorkingCopy(*database)) {
-        result.messages.push_back(Message(L"Unable to prepare pending catalog changes.",
-            L"Move to Group", MB_OK | MB_ICONERROR));
-        if (auto* profile = wit::infra::CurrentSaveProfile()) profile->result = "failed";
-        PopulatePresentation(result);
-        return result;
-    }
-    if (!pending->MoveDiskGroupToGroup(diskGroupId, parentGroupId)) {
+    if (!session_.RecordMoveDiskGroupToGroup(catalogId, diskGroupId, parentGroupId)) {
         WIT_LOG_WARN(std::format(L"move disk group failed catalogId={} groupId={} targetParentGroupId={}",
             catalogId, diskGroupId, parentGroupId));
         result.messages.push_back(Message(L"Unable to move the disk group to the selected destination.",
@@ -651,13 +643,12 @@ ControllerResult CatalogWorkflowController::MoveDiskGroupToGroup(wit::core::Cata
         PopulatePresentation(result);
         return result;
     }
-    session_.AcceptPending(catalogId, std::move(pending));
     WIT_LOG_INFO(std::format(L"move disk group staged catalogId={} groupId={} targetParentGroupId={}",
         catalogId, diskGroupId, parentGroupId));
     if (auto* profile = wit::infra::CurrentSaveProfile()) profile->result = "completed";
     const bool active = ActiveCatalog() && ActiveCatalog()->id == catalogId;
-    result.browserEffects.push_back({BrowserEffectKind::RefreshCatalog, catalogId, catalog->label,
-        catalog->WorkingDatabase(), active});
+    result.browserEffects.push_back({BrowserEffectKind::MoveDiskGroupToGroup, catalogId, catalog->label,
+        catalog->WorkingDatabase(), active, 0, diskGroupId, parentGroupId, catalog->HasPendingFullCatalogChanges()});
     result.presentation.refreshBrowserStatus = true;
     PopulatePresentation(result);
     return result;
@@ -805,11 +796,15 @@ ControllerResult CatalogWorkflowController::OnScanComplete(ScanId scanId) {
     }
     if (!cancellationRequested && scanResult->outcome == ScanOutcome::Completed && scanResult->pending) {
         if (auto* catalog = session_.Find(scanResult->destinationCatalogId)) {
-            session_.AcceptPending(catalog->id, std::move(scanResult->pending));
-            const bool active = ActiveCatalog() && ActiveCatalog()->id == catalog->id;
-            result.browserEffects.push_back({BrowserEffectKind::RefreshCatalog, catalog->id, catalog->label,
-                catalog->WorkingDatabase(), active});
-            result.presentation.refreshBrowserStatus = true;
+            if (!session_.AcceptPending(catalog->id, std::move(scanResult->pending))) {
+                result.messages.push_back(Message(L"The scan completed, but its pending catalog changes could not be merged.",
+                    L"Add/Update Disk Image", MB_OK | MB_ICONERROR));
+            } else {
+                const bool active = ActiveCatalog() && ActiveCatalog()->id == catalog->id;
+                result.browserEffects.push_back({BrowserEffectKind::RefreshCatalog, catalog->id, catalog->label,
+                    catalog->WorkingDatabase(), active});
+                result.presentation.refreshBrowserStatus = true;
+            }
         }
     } else if (!cancellationRequested && (scanResult->outcome == ScanOutcome::Failed ||
         (scanResult->outcome == ScanOutcome::Completed && !scanResult->pending))) {

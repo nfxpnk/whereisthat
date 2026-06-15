@@ -1,6 +1,7 @@
 #pragma once
 
 #include <memory>
+#include <cstdint>
 #include <string>
 #include <thread>
 #include <vector>
@@ -10,17 +11,31 @@
 
 namespace wit::app {
 
+enum class PendingMetadataEditKind {
+    MoveDiskToGroup,
+    MoveDiskGroupToGroup
+};
+
+struct PendingMetadataEdit {
+    PendingMetadataEditKind kind{};
+    std::int64_t id{};
+    std::int64_t targetId{};
+};
+
 struct OpenCatalog {
     wit::core::CatalogId id{};
     std::wstring path;
     std::wstring label;
     wit::storage::Database database;
     std::unique_ptr<wit::storage::Database> pendingDatabase;
+    std::vector<PendingMetadataEdit> pendingMetadataEdits;
     bool dirty{};
 
     bool IsOpen() const { return database.IsOpen(); }
     bool IsEditable() const { return database.IsEditable(); }
     bool HasPendingChanges() const { return dirty; }
+    bool HasPendingFullCatalogChanges() const { return pendingDatabase != nullptr; }
+    bool HasPendingMetadataEdits() const { return !pendingMetadataEdits.empty(); }
     [[nodiscard]] wit::storage::Database* WorkingDatabase() {
         return pendingDatabase ? pendingDatabase.get() : &database;
     }
@@ -44,7 +59,11 @@ public:
     bool HasCatalogs() const { return !catalogs_.empty(); }
     std::vector<OpenCatalog*> OpenCatalogs();
 
-    void AcceptPending(wit::core::CatalogId id, std::unique_ptr<wit::storage::Database> pending);
+    [[nodiscard]] bool AcceptPending(wit::core::CatalogId id, std::unique_ptr<wit::storage::Database> pending);
+    [[nodiscard]] bool RecordMoveDiskToGroup(wit::core::CatalogId id, std::int64_t diskId,
+        std::int64_t diskGroupId);
+    [[nodiscard]] bool RecordMoveDiskGroupToGroup(wit::core::CatalogId id, std::int64_t diskGroupId,
+        std::int64_t parentGroupId);
     [[nodiscard]] bool SavePending(wit::core::CatalogId id);
     void DiscardPending(wit::core::CatalogId id);
     [[nodiscard]] bool Remove(wit::core::CatalogId id, bool* settingsSaved = nullptr);
@@ -52,6 +71,10 @@ public:
 private:
     void AssertOwnerThread() const;
     [[nodiscard]] int LastActiveCatalogIndex() const;
+    [[nodiscard]] bool SavePendingMetadataEdits(OpenCatalog& catalog);
+    [[nodiscard]] bool ApplyPendingMetadataEdits(OpenCatalog& catalog, wit::storage::Database& database);
+    [[nodiscard]] bool CanMoveDiskGroupToGroup(OpenCatalog& catalog, std::int64_t diskGroupId,
+        std::int64_t parentGroupId) const;
 
     std::vector<std::unique_ptr<OpenCatalog>> catalogs_;
     wit::core::CatalogId activeCatalogId_{};

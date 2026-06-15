@@ -948,7 +948,12 @@ void MainFrame::ApplyControllerResult(wit::app::ControllerResult result) {
             browser_.RefreshCatalog(effect.catalogId, effect.label, effect.database, effect.select);
             break;
         case wit::app::BrowserEffectKind::MoveDiskToGroup:
-            browser_.MoveDiskToGroup(effect.catalogId, effect.diskId, effect.diskGroupId, effect.database);
+            browser_.MoveDiskToGroup(effect.catalogId, effect.diskId, effect.diskGroupId, effect.database,
+                effect.databaseReflectsChange);
+            break;
+        case wit::app::BrowserEffectKind::MoveDiskGroupToGroup:
+            browser_.MoveDiskGroupToGroup(effect.catalogId, effect.diskGroupId, effect.parentGroupId,
+                effect.databaseReflectsChange);
             break;
         case wit::app::BrowserEffectKind::RemoveCatalog:
             browser_.RemoveCatalog(effect.catalogId);

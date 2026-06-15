@@ -151,9 +151,11 @@ void BrowserController::RefreshCatalog(wit::core::CatalogId id, const std::wstri
 }
 
 void BrowserController::MoveDiskToGroup(wit::core::CatalogId id, std::int64_t diskId,
-    std::int64_t diskGroupId, wit::storage::Database* database) {
+    std::int64_t diskGroupId, wit::storage::Database* database, bool databaseReflectsChange) {
     if (!database || !database->IsOpen()) return;
-    if (hasTarget_ && currentTarget_.catalogId == id) {
+    const bool clearCurrentList = hasTarget_ && currentTarget_.catalogId == id &&
+        (currentTarget_.location.isRoot || currentTarget_.location.isDiskGroup);
+    if (clearCurrentList) {
         files_.SetLocation({}, nullptr);
     }
     std::wstring diskGroupName;
@@ -175,8 +177,33 @@ void BrowserController::MoveDiskToGroup(wit::core::CatalogId id, std::int64_t di
         return;
     }
     UpdateMovedDiskTargets(id, diskId, diskGroupId, diskGroupName);
-    if (hasTarget_ && currentTarget_.catalogId == id) {
+    if (databaseReflectsChange && hasTarget_ && currentTarget_.catalogId == id) {
         files_.SetLocation(currentTarget_.location, &database->BrowserRepository());
+        const auto address = AddressFor(currentTarget_);
+        SetWindowTextW(addressHandle_, address.c_str());
+    } else if (hasTarget_ && currentTarget_.catalogId == id) {
+        const auto address = AddressFor(currentTarget_);
+        SetWindowTextW(addressHandle_, address.c_str());
+    }
+}
+
+void BrowserController::MoveDiskGroupToGroup(wit::core::CatalogId id, std::int64_t diskGroupId,
+    std::int64_t parentGroupId, bool databaseReflectsChange) {
+    const bool clearCurrentList = hasTarget_ && currentTarget_.catalogId == id &&
+        (currentTarget_.location.isRoot || currentTarget_.location.isDiskGroup);
+    if (clearCurrentList) {
+        files_.SetLocation({}, nullptr);
+    }
+    if (!tree_.MoveDiskGroupToGroup(id, diskGroupId, parentGroupId)) {
+        WIT_LOG_DEBUG(std::format(L"move disk group tree update skipped catalogId={} groupId={} targetParentGroupId={}",
+            id, diskGroupId, parentGroupId));
+    }
+    if (databaseReflectsChange && hasTarget_ && currentTarget_.catalogId == id) {
+        auto* database = databaseResolver_ ? databaseResolver_(id) : nullptr;
+        if (database && database->IsOpen()) files_.SetLocation(currentTarget_.location, &database->BrowserRepository());
+        const auto address = AddressFor(currentTarget_);
+        SetWindowTextW(addressHandle_, address.c_str());
+    } else if (hasTarget_ && currentTarget_.catalogId == id) {
         const auto address = AddressFor(currentTarget_);
         SetWindowTextW(addressHandle_, address.c_str());
     }

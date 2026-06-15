@@ -37,6 +37,7 @@ public:
     bool IsEditable() const { return editable_; }
     [[nodiscard]] bool InitializeSchema();
     [[nodiscard]] bool BeginTransaction();
+    [[nodiscard]] bool BeginImmediateTransaction();
     [[nodiscard]] bool Commit();
     [[nodiscard]] bool Rollback();
     [[nodiscard]] bool SetCatalogDescription(const std::wstring& description);

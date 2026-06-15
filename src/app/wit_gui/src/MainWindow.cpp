@@ -11,6 +11,7 @@
 #include "wit_gui/CatalogFileDialog.h"
 #include "wit_gui/GeneralSettingsDialog.h"
 #include <wit_infra/Logging.h>
+#include <wit_infra/SaveProfiler.h>
 #include "wit_scanner/ScanRequest.h"
 #include "resource.h"
 
@@ -561,14 +562,35 @@ void MainFrame::HandleCommand(int id) {
     else if (id >= ID_FILE_RECENT_FIRST && id <= ID_FILE_RECENT_LAST) {
         ApplyControllerResult(controller_.RequestOpenRecentCatalog(
             static_cast<std::size_t>(id - ID_FILE_RECENT_FIRST)));
-    } else if (id == ID_WIT_FILE_SAVE) ApplyControllerResult(controller_.RequestSave());
+    } else if (id == ID_WIT_FILE_SAVE) {
+        wit::infra::SaveProfile profile;
+        profile.profileId = wit::infra::NextSaveProfileId();
+        profile.operation = L"saveCommand";
+        wit::infra::SaveProfileScope profileScope(profile);
+        {
+            wit::infra::ScopedSaveTimer totalTimer(profile.timingsNs.total);
+            wit::infra::ScopedSaveTimer commandTimer(profile.timingsNs.commandHandle);
+            ApplyControllerResult(controller_.RequestSave());
+        }
+        (void)wit::infra::WriteSaveProfileJson(profile);
+    }
     else if (id == ID_WIT_FILE_CLOSE) ApplyControllerResult(controller_.RequestCloseCatalog());
     else if (id == ID_EDIT_ADDDISKIMAGE) ApplyControllerResult(controller_.RequestAddOrUpdateMedia());
     else if (id == ID_TREE_CONTEXT_MOVE_TO_GROUP) OnMoveSelectedItemToGroup();
     else if (id == ID_ACTIONS_OPEN_EXPLORER) OpenFocusedItemInExplorer();
     else if (id == ID_TREE_CONTEXT_ADD_NEW_DISK_GROUP_PLACEHOLDER) {
         std::wstring name;
-        if (PromptDiskGroupName(m_hWnd, name)) ApplyControllerResult(controller_.CreateDiskGroup(name));
+        if (PromptDiskGroupName(m_hWnd, name)) {
+            wit::infra::SaveProfile profile;
+            profile.profileId = wit::infra::NextSaveProfileId();
+            profile.operation = L"createDiskGroup";
+            wit::infra::SaveProfileScope profileScope(profile);
+            {
+                wit::infra::ScopedSaveTimer totalTimer(profile.timingsNs.total);
+                ApplyControllerResult(controller_.CreateDiskGroup(name));
+            }
+            (void)wit::infra::WriteSaveProfileJson(profile);
+        }
     }
     else if (id == ID_SEARCH_FOR_ITEMS) ApplyControllerResult(controller_.RequestSearch());
     else if (const auto sortColumn = SortColumnForToolbarCommand(id)) {
@@ -637,8 +659,17 @@ void MainFrame::OnMoveSelectedItemToGroup(std::optional<wit::core::BrowserTarget
     if (IsDiskMediaTarget(*target)) {
         if (!PromptMoveDiskToGroup(m_hWnd, groups, target->location.diskGroupId, 0, selectedGroupId)) return;
         if (selectedGroupId == target->location.diskGroupId) return;
-        ApplyControllerResult(controller_.MoveDiskToGroup(target->catalogId,
-            target->location.sourceId, selectedGroupId));
+        wit::infra::SaveProfile profile;
+        profile.profileId = wit::infra::NextSaveProfileId();
+        profile.catalogId = target->catalogId;
+        profile.operation = L"moveDiskToGroup";
+        wit::infra::SaveProfileScope profileScope(profile);
+        {
+            wit::infra::ScopedSaveTimer totalTimer(profile.timingsNs.total);
+            ApplyControllerResult(controller_.MoveDiskToGroup(target->catalogId,
+                target->location.sourceId, selectedGroupId));
+        }
+        (void)wit::infra::WriteSaveProfileJson(profile);
         return;
     }
 
@@ -652,8 +683,17 @@ void MainFrame::OnMoveSelectedItemToGroup(std::optional<wit::core::BrowserTarget
     if (!PromptMoveDiskToGroup(m_hWnd, groups, currentParentGroupId,
         target->location.diskGroupId, selectedGroupId)) return;
     if (selectedGroupId == currentParentGroupId) return;
-    ApplyControllerResult(controller_.MoveDiskGroupToGroup(target->catalogId,
-        target->location.diskGroupId, selectedGroupId));
+    wit::infra::SaveProfile profile;
+    profile.profileId = wit::infra::NextSaveProfileId();
+    profile.catalogId = target->catalogId;
+    profile.operation = L"moveDiskGroupToGroup";
+    wit::infra::SaveProfileScope profileScope(profile);
+    {
+        wit::infra::ScopedSaveTimer totalTimer(profile.timingsNs.total);
+        ApplyControllerResult(controller_.MoveDiskGroupToGroup(target->catalogId,
+            target->location.diskGroupId, selectedGroupId));
+    }
+    (void)wit::infra::WriteSaveProfileJson(profile);
 }
 
 LRESULT MainFrame::ShowTreeContextMenu() {
@@ -895,6 +935,10 @@ LRESULT MainFrame::ShowListContextMenu() {
 }
 
 void MainFrame::ApplyControllerResult(wit::app::ControllerResult result) {
+    const auto timer = wit::infra::CurrentSaveProfile()
+        ? std::make_optional<wit::infra::ScopedSaveTimer>(
+            wit::infra::CurrentSaveProfile()->timingsNs.applyControllerResult)
+        : std::nullopt;
     for (const auto& effect : result.browserEffects) {
         switch (effect.kind) {
         case wit::app::BrowserEffectKind::AddCatalog:

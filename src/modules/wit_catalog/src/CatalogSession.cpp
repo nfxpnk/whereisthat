@@ -4,9 +4,11 @@
 #include <cassert>
 #include <filesystem>
 #include <format>
+#include <optional>
 #include <vector>
 #include <wit_infra/Logging.h>
 #include <wit_infra/PathHelpers.h>
+#include <wit_infra/SaveProfiler.h>
 
 namespace wit::app {
 namespace {
@@ -146,6 +148,10 @@ std::vector<OpenCatalog*> CatalogSession::OpenCatalogs() {
 }
 
 void CatalogSession::AcceptPending(wit::core::CatalogId id, std::unique_ptr<wit::storage::Database> pending) {
+    const auto timer = wit::infra::CurrentSaveProfile()
+        ? std::make_optional<wit::infra::ScopedSaveTimer>(
+            wit::infra::CurrentSaveProfile()->timingsNs.acceptPending)
+        : std::nullopt;
     AssertOwnerThread();
     auto* catalog = Find(id);
     if (!catalog) return;
@@ -155,6 +161,10 @@ void CatalogSession::AcceptPending(wit::core::CatalogId id, std::unique_ptr<wit:
 }
 
 bool CatalogSession::SavePending(wit::core::CatalogId id) {
+    const auto timer = wit::infra::CurrentSaveProfile()
+        ? std::make_optional<wit::infra::ScopedSaveTimer>(
+            wit::infra::CurrentSaveProfile()->timingsNs.savePending)
+        : std::nullopt;
     AssertOwnerThread();
     auto* catalog = Find(id);
     if (!catalog || !catalog->database.IsOpen() || catalog->path.empty()) {

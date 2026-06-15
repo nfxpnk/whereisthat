@@ -2,6 +2,7 @@
 #include "wit_database/Database.h"
 #include "wit_database/SQLiteStatement.h"
 #include <wit_infra/Logging.h>
+#include <wit_infra/SaveProfiler.h>
 #include <wit_infra/ScanProfiler.h>
 #include <wit_infra/VolumeInfo.h>
 #include <wit_infra/Win32Helpers.h>
@@ -11,6 +12,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <cwchar>
 #include <format>
 #include <memory>
 #include <optional>
@@ -51,7 +53,14 @@ void PopulateDisk(wit::core::Disk& disk, sqlite3_stmt* stmt) {
     disk.diskType = DiskTypeFromText(Text(stmt, 11));
 }
 
-bool BackupDatabase(sqlite3* destination, sqlite3* source) {
+bool BackupDatabase(sqlite3* destination, sqlite3* source, const wchar_t* reason) {
+    const bool createWorkingCopy = wcscmp(reason, L"create_working_copy") == 0;
+    auto* profile = wit::infra::CurrentSaveProfile();
+    const auto timer = profile
+        ? std::make_optional<wit::infra::ScopedSaveTimer>(createWorkingCopy
+            ? profile->timingsNs.backupCreateWorkingCopy
+            : profile->timingsNs.backupSavePendingToTemp)
+        : std::nullopt;
     auto* backup = sqlite3_backup_init(destination, "main", source, "main");
     if (!backup) return false;
 
@@ -97,6 +106,10 @@ void DeleteCatalogFileSet(const std::wstring& path) {
 }
 
 bool IntegrityCheckOk(SqliteConnection& connection) {
+    const auto timer = wit::infra::CurrentSaveProfile()
+        ? std::make_optional<wit::infra::ScopedSaveTimer>(
+            wit::infra::CurrentSaveProfile()->timingsNs.integrityCheck)
+        : std::nullopt;
     sqlite3_stmt* statement{};
     if (sqlite3_prepare_v2(connection.Raw(), "PRAGMA integrity_check;", -1, &statement, nullptr) != SQLITE_OK) {
         return false;
@@ -136,12 +149,39 @@ bool CatalogSidecarsAbsent(const std::wstring& path) {
         GetFileAttributesW((path + L"-shm").c_str()) == INVALID_FILE_ATTRIBUTES;
 }
 
-bool PrepareSingleFileCatalog(SqliteConnection& connection) {
-    return connection.Exec("PRAGMA wal_checkpoint(TRUNCATE);") &&
-        PragmaReturns(connection, "PRAGMA journal_mode=DELETE;", "delete");
+enum class SingleFileCatalogTarget {
+    Temp,
+    Active
+};
+
+bool PrepareSingleFileCatalog(SqliteConnection& connection, SingleFileCatalogTarget target) {
+    auto* profile = wit::infra::CurrentSaveProfile();
+    const auto timer = profile
+        ? std::make_optional<wit::infra::ScopedSaveTimer>(
+            target == SingleFileCatalogTarget::Temp
+                ? profile->timingsNs.prepareTempSingleFileCatalog
+                : profile->timingsNs.prepareActiveSingleFileCatalog)
+        : std::nullopt;
+    {
+        const auto checkpointTimer = profile
+            ? std::make_optional<wit::infra::ScopedSaveTimer>(profile->timingsNs.walCheckpointTruncate)
+            : std::nullopt;
+        if (!connection.Exec("PRAGMA wal_checkpoint(TRUNCATE);")) return false;
+    }
+    {
+        const auto journalTimer = profile
+            ? std::make_optional<wit::infra::ScopedSaveTimer>(profile->timingsNs.journalModeDelete)
+            : std::nullopt;
+        if (!PragmaReturns(connection, "PRAGMA journal_mode=DELETE;", "delete")) return false;
+    }
+    return true;
 }
 
 bool VerifyCatalog(SqliteConnection& connection) {
+    const auto timer = wit::infra::CurrentSaveProfile()
+        ? std::make_optional<wit::infra::ScopedSaveTimer>(
+            wit::infra::CurrentSaveProfile()->timingsNs.verifyCatalog)
+        : std::nullopt;
     return connection.Exec("PRAGMA foreign_keys=ON;") &&
         IntegrityCheckOk(connection) &&
         CatalogSchema::Validate(connection);
@@ -149,6 +189,10 @@ bool VerifyCatalog(SqliteConnection& connection) {
 
 bool ReplaceCatalogFile(const std::wstring& catalogPath, const std::wstring& replacementPath,
     const std::wstring& backupPath) {
+    const auto timer = wit::infra::CurrentSaveProfile()
+        ? std::make_optional<wit::infra::ScopedSaveTimer>(
+            wit::infra::CurrentSaveProfile()->timingsNs.replaceCatalogFile)
+        : std::nullopt;
     DeleteCatalogFileSet(backupPath);
     if (ReplaceFileW(catalogPath.c_str(), replacementPath.c_str(), backupPath.c_str(),
         REPLACEFILE_WRITE_THROUGH, nullptr, nullptr)) {
@@ -182,9 +226,18 @@ bool RestoreCatalogFile(const std::wstring& catalogPath, const std::wstring& bac
 }
 
 bool ApplyEditableCatalogPragmas(SqliteConnection& connection) {
-    return connection.Exec("PRAGMA foreign_keys=ON;") &&
-        connection.Exec("PRAGMA journal_mode=WAL;") &&
-        connection.Exec("PRAGMA synchronous=NORMAL;");
+    if (!connection.Exec("PRAGMA foreign_keys=ON;")) return false;
+    {
+        const auto journalTimer = wit::infra::CurrentSaveProfile()
+            ? std::make_optional<wit::infra::ScopedSaveTimer>(
+                wit::infra::CurrentSaveProfile()->timingsNs.journalModeWal)
+            : std::nullopt;
+        if (!connection.Exec("PRAGMA journal_mode=WAL;")) return false;
+    }
+    {
+        if (!connection.Exec("PRAGMA synchronous=NORMAL;")) return false;
+    }
+    return true;
 }
 }
 
@@ -245,6 +298,10 @@ bool Database::OpenExisting(const std::wstring& path) {
 }
 
 bool Database::OpenInternal(const std::wstring& path, bool requireExistingSchema, bool readOnly) {
+    const auto timer = wit::infra::CurrentSaveProfile()
+        ? std::make_optional<wit::infra::ScopedSaveTimer>(
+            wit::infra::CurrentSaveProfile()->timingsNs.openInternal)
+        : std::nullopt;
     Close();
     WIT_LOG_DEBUG(std::format(L"database open internal path='{}' requireSchema={} readOnly={}",
         path, requireExistingSchema, readOnly));
@@ -274,13 +331,17 @@ bool Database::OpenInternal(const std::wstring& path, bool requireExistingSchema
 }
 
 bool Database::CreateWorkingCopy(const Database& source) {
+    const auto timer = wit::infra::CurrentSaveProfile()
+        ? std::make_optional<wit::infra::ScopedSaveTimer>(
+            wit::infra::CurrentSaveProfile()->timingsNs.createWorkingCopy)
+        : std::nullopt;
     WIT_LOG_DEBUG(L"database working copy requested");
     if (!source.connection_.IsOpen()) return false;
     Close();
     if (!connection_.OpenMemory()) return false;
     RebindRepositories();
     editable_ = true;
-    const bool success = BackupDatabase(connection_.Raw(), source.connection_.Raw()) &&
+    const bool success = BackupDatabase(connection_.Raw(), source.connection_.Raw(), L"create_working_copy") &&
         Exec("PRAGMA foreign_keys=ON;") && PrepareScanStatements();
     if (!success) {
         WIT_LOG_ERROR(L"database working copy failed");
@@ -296,6 +357,10 @@ bool Database::CreateWorkingCopy(const Database& source) {
 // 2. Make the catalog read-only or locked by another process; save must fail and leave pending edits.
 // 3. Break temp verification or replacement under a debugger; the original catalog must still open.
 bool Database::SaveCatalogDataFrom(const Database& source) {
+    const auto timer = wit::infra::CurrentSaveProfile()
+        ? std::make_optional<wit::infra::ScopedSaveTimer>(
+            wit::infra::CurrentSaveProfile()->timingsNs.saveCatalogDataFrom)
+        : std::nullopt;
     WIT_LOG_INFO(L"database save from staged catalog started");
     if (!connection_.IsOpen() || !editable_ || !source.connection_.IsOpen()) {
         WIT_LOG_ERROR(L"database save rejected: source or destination is not open/editable");
@@ -322,13 +387,14 @@ bool Database::SaveCatalogDataFrom(const Database& source) {
         }
         tempCreated = true;
         WIT_LOG_DEBUG(std::format(L"database save temp created path='{}'", tempPath));
-        if (!BackupDatabase(tempConnection.Raw(), source.connection_.Raw()) || !VerifyCatalog(tempConnection)) {
+        if (!BackupDatabase(tempConnection.Raw(), source.connection_.Raw(), L"save_pending_to_temp") ||
+            !VerifyCatalog(tempConnection)) {
             WIT_LOG_ERROR(std::format(L"database save temp backup or verification failed path='{}'", tempPath));
             tempConnection.Close();
             DeleteCatalogFileSet(tempPath);
             return false;
         }
-        if (!PrepareSingleFileCatalog(tempConnection)) {
+        if (!PrepareSingleFileCatalog(tempConnection, SingleFileCatalogTarget::Temp)) {
             WIT_LOG_ERROR(std::format(L"database save temp single-file preparation failed path='{}'", tempPath));
             tempConnection.Close();
             DeleteCatalogFileSet(tempPath);
@@ -348,7 +414,7 @@ bool Database::SaveCatalogDataFrom(const Database& source) {
     }
 
     FinalizeScanStatements();
-    if (!PrepareSingleFileCatalog(connection_)) {
+    if (!PrepareSingleFileCatalog(connection_, SingleFileCatalogTarget::Active)) {
         WIT_LOG_ERROR(std::format(L"database save active catalog single-file preparation failed path='{}'", catalogPath));
         DeleteCatalogFileSet(tempPath);
         return false;
@@ -356,7 +422,13 @@ bool Database::SaveCatalogDataFrom(const Database& source) {
     const std::wstring backupPath = MakeTempCatalogPath(catalogPath + L".backup");
     WIT_LOG_DEBUG(std::format(L"database save closing active catalog before replace path='{}' backup='{}'",
         catalogPath, backupPath));
-    Close();
+    {
+        const auto closeTimer = wit::infra::CurrentSaveProfile()
+            ? std::make_optional<wit::infra::ScopedSaveTimer>(
+                wit::infra::CurrentSaveProfile()->timingsNs.closeActiveCatalog)
+            : std::nullopt;
+        Close();
+    }
     if (!CatalogSidecarsAbsent(catalogPath)) {
         WIT_LOG_ERROR(std::format(L"database save active sidecars remain path='{}'", catalogPath));
         DeleteCatalogFileSet(tempPath);
@@ -374,12 +446,20 @@ bool Database::SaveCatalogDataFrom(const Database& source) {
         return false;
     }
 
-    if (OpenInternal(catalogPath, true)) {
-        DeleteCatalogFileSet(backupPath);
-        WIT_LOG_INFO(std::format(L"database save completed path='{}'", catalogPath));
-        return true;
+    {
+        const auto reopenTimer = wit::infra::CurrentSaveProfile()
+            ? std::make_optional<wit::infra::ScopedSaveTimer>(
+                wit::infra::CurrentSaveProfile()->timingsNs.reopenReplacement)
+            : std::nullopt;
+        if (OpenInternal(catalogPath, true)) {
+            DeleteCatalogFileSet(backupPath);
+            WIT_LOG_INFO(std::format(L"database save completed path='{}'", catalogPath));
+            return true;
+        }
     }
-    Close();
+    {
+        Close();
+    }
     WIT_LOG_ERROR(std::format(L"database save replacement did not reopen; restoring backup path='{}' backup='{}'",
         catalogPath, backupPath));
     const bool restored = RestoreCatalogFile(catalogPath, backupPath);

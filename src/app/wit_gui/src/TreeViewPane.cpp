@@ -2,9 +2,11 @@
 #include "wit_gui/BrowserItemIcons.h"
 #include <wit_infra/Logging.h>
 #include <wit_infra/PathHelpers.h>
+#include <wit_infra/SaveProfiler.h>
 #include <algorithm>
 #include <format>
 #include <functional>
+#include <optional>
 
 namespace wit::ui {
 namespace {
@@ -70,6 +72,10 @@ const CatalogTreeView::Root* CatalogTreeView::FindRoot(wit::core::CatalogId id) 
 }
 
 void CatalogTreeView::PopulateRoot(Root& root, const std::wstring& label, wit::storage::Database* database) {
+    const auto timer = wit::infra::CurrentSaveProfile()
+        ? std::make_optional<wit::infra::ScopedSaveTimer>(
+            wit::infra::CurrentSaveProfile()->timingsNs.treePopulateRoot)
+        : std::nullopt;
     TVITEMW text{};
     text.mask = TVIF_TEXT | TVIF_CHILDREN | TVIF_STATE;
     text.stateMask = TVIS_BOLD;
@@ -133,6 +139,10 @@ void CatalogTreeView::AddCatalog(wit::core::CatalogId id, const std::wstring& ca
 
 void CatalogTreeView::RefreshCatalog(wit::core::CatalogId id, const std::wstring& catalogLabel,
     wit::storage::Database* database, bool select) {
+    const auto timer = wit::infra::CurrentSaveProfile()
+        ? std::make_optional<wit::infra::ScopedSaveTimer>(
+            wit::infra::CurrentSaveProfile()->timingsNs.treeRefreshCatalog)
+        : std::nullopt;
     auto* root = FindRoot(id);
     if (!root) {
         AddCatalog(id, catalogLabel, database, select);

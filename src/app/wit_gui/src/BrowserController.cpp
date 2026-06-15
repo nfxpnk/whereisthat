@@ -1,10 +1,12 @@
 #include "wit_gui/BrowserController.h"
 #include <algorithm>
 #include <format>
+#include <optional>
 #include <wit_infra/ScopeGuard.h>
 #include <wit_infra/AppSettings.h>
 #include <wit_infra/Logging.h>
 #include <wit_infra/PathHelpers.h>
+#include <wit_infra/SaveProfiler.h>
 #include "wit_infra/StringUtils.h"
 #include <wit_infra/Win32Helpers.h>
 
@@ -136,6 +138,10 @@ void BrowserController::AddCatalog(wit::core::CatalogId id, const std::wstring& 
 
 void BrowserController::RefreshCatalog(wit::core::CatalogId id, const std::wstring& label,
     wit::storage::Database* database, bool select) {
+    const auto timer = wit::infra::CurrentSaveProfile()
+        ? std::make_optional<wit::infra::ScopedSaveTimer>(
+            wit::infra::CurrentSaveProfile()->timingsNs.browserRefreshCatalog)
+        : std::nullopt;
     if (!database || !database->IsOpen()) return;
     if (hasTarget_ && currentTarget_.catalogId == id) {
         files_.SetLocation({}, nullptr);

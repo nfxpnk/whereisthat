@@ -654,6 +654,49 @@ ControllerResult CatalogWorkflowController::MoveDiskGroupToGroup(wit::core::Cata
     return result;
 }
 
+ControllerResult CatalogWorkflowController::DeleteDisk(wit::core::CatalogId catalogId, std::int64_t diskId) {
+    ControllerResult result;
+    WIT_LOG_INFO(std::format(L"delete disk requested catalogId={} diskId={}", catalogId, diskId));
+    auto* catalog = session_.Find(catalogId);
+    auto* database = catalog ? catalog->WorkingDatabase() : nullptr;
+    if (auto* profile = wit::infra::CurrentSaveProfile()) {
+        profile->catalogId = catalogId;
+        profile->catalogPath = catalog ? catalog->path : L"";
+    }
+    if (!database || !database->IsEditable()) {
+        if (auto* profile = wit::infra::CurrentSaveProfile()) profile->result = "unavailable";
+        result.messages.push_back(Message(L"Open an editable catalog before deleting a disk image.",
+            L"Delete Disk", MB_OK | MB_ICONINFORMATION));
+        PopulatePresentation(result);
+        return result;
+    }
+    if (scans_.Targets(catalogId)) {
+        if (auto* profile = wit::infra::CurrentSaveProfile()) profile->result = "scanRunning";
+        result.messages.push_back(Message(L"A scan is still preparing changes for this catalog.",
+            L"Scan in progress", MB_OK | MB_ICONINFORMATION));
+        PopulatePresentation(result);
+        return result;
+    }
+
+    if (!session_.RecordDeleteDisk(catalogId, diskId)) {
+        WIT_LOG_WARN(std::format(L"delete disk failed catalogId={} diskId={}", catalogId, diskId));
+        result.messages.push_back(Message(L"Unable to delete the disk image from the catalog.",
+            L"Delete Disk", MB_OK | MB_ICONWARNING));
+        if (auto* profile = wit::infra::CurrentSaveProfile()) profile->result = "failed";
+        PopulatePresentation(result);
+        return result;
+    }
+
+    WIT_LOG_INFO(std::format(L"delete disk staged catalogId={} diskId={}", catalogId, diskId));
+    if (auto* profile = wit::infra::CurrentSaveProfile()) profile->result = "completed";
+    const bool active = ActiveCatalog() && ActiveCatalog()->id == catalogId;
+    result.browserEffects.push_back({BrowserEffectKind::RefreshCatalog, catalogId, catalog->label,
+        catalog->WorkingDatabase(), active});
+    result.presentation.refreshBrowserStatus = true;
+    PopulatePresentation(result);
+    return result;
+}
+
 ControllerResult CatalogWorkflowController::MediaSelectionCompleted(
     const std::optional<wit::core::ScanRequest>& request) {
     ControllerResult result;

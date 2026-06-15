@@ -136,6 +136,7 @@ public:
         std::int64_t diskGroupId);
     ControllerResult MoveDiskGroupToGroup(wit::core::CatalogId catalogId, std::int64_t diskGroupId,
         std::int64_t parentGroupId);
+    ControllerResult DeleteDisk(wit::core::CatalogId catalogId, std::int64_t diskId);
     ControllerResult MediaSelectionCompleted(const std::optional<wit::core::ScanRequest>& request);
     ControllerResult RequestCancelScan();
     ControllerResult RequestGeneralSettings();

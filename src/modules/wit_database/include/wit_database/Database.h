@@ -49,6 +49,7 @@ public:
     [[nodiscard]] std::int64_t FindDiskBySourcePath(const std::wstring& sourcePath,
         const std::wstring& originalLocation = L"");
     [[nodiscard]] bool DeleteContentForDisk(std::int64_t diskId);
+    [[nodiscard]] bool DeleteDisk(std::int64_t diskId);
     [[nodiscard]] bool MoveDiskToGroup(std::int64_t diskId, std::int64_t diskGroupId);
     [[nodiscard]] bool MoveDiskGroupToGroup(std::int64_t diskGroupId, std::int64_t parentGroupId);
     [[nodiscard]] bool UpdateDisk(const wit::core::Disk& disk);

@@ -666,6 +666,13 @@ bool Database::DeleteContentForDisk(std::int64_t diskId) {
     return sqlite3_step(statement.Raw()) == SQLITE_DONE;
 }
 
+bool Database::DeleteDisk(std::int64_t diskId) {
+    if (!editable_ || diskId == 0) return false;
+    SQLiteStatement statement(connection_.Raw(), "DELETE FROM disks WHERE id=?;");
+    statement.BindInt64(1, diskId);
+    return sqlite3_step(statement.Raw()) == SQLITE_DONE && sqlite3_changes(connection_.Raw()) == 1;
+}
+
 bool Database::MoveDiskToGroup(std::int64_t diskId, std::int64_t diskGroupId) {
     if (!editable_ || diskId == 0) return false;
     if (diskGroupId != 0 && !DiskGroupExists(connection_.Raw(), diskGroupId)) return false;

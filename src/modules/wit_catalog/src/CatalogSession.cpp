@@ -217,6 +217,28 @@ bool CatalogSession::RecordMoveDiskGroupToGroup(wit::core::CatalogId id, std::in
     return true;
 }
 
+bool CatalogSession::RecordDeleteDisk(wit::core::CatalogId id, std::int64_t diskId) {
+    AssertOwnerThread();
+    auto* catalog = Find(id);
+    if (!catalog || diskId == 0) return false;
+    if (catalog->pendingDatabase) {
+        if (!catalog->pendingDatabase->DeleteDisk(diskId)) return false;
+        catalog->dirty = true;
+        WIT_LOG_DEBUG(std::format(L"session deleted disk in pending catalogId={} diskId={}", id, diskId));
+        return true;
+    }
+
+    auto pending = std::make_unique<wit::storage::Database>();
+    if (!pending->CreateWorkingCopy(catalog->database)) return false;
+    if (!ApplyPendingMetadataEdits(*catalog, *pending)) return false;
+    if (!pending->DeleteDisk(diskId)) return false;
+    catalog->pendingMetadataEdits.clear();
+    catalog->pendingDatabase = std::move(pending);
+    catalog->dirty = true;
+    WIT_LOG_DEBUG(std::format(L"session staged disk delete catalogId={} diskId={}", id, diskId));
+    return true;
+}
+
 bool CatalogSession::SavePending(wit::core::CatalogId id) {
     const auto timer = wit::infra::CurrentSaveProfile()
         ? std::make_optional<wit::infra::ScopedSaveTimer>(

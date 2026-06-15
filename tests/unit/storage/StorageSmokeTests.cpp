@@ -631,6 +631,16 @@ TEST(StorageSmoke, CatalogDatabaseScannerAndCoordinatorIntegration) {
     EXPECT_EQ(archiveProbeProfile.sqlite.stepInsertFolder, archiveProbeProfile.counts.dbInsertFolderCalls);
     EXPECT_EQ(archiveProbeProfile.sqlite.stepUpdateFolderContentSize,
         archiveProbeProfile.counts.dbUpdateFolderContentSizeCalls);
+    EXPECT_TRUE(archiveDb.DeleteDisk(archiveDisk.id)) << "disk delete succeeds";
+    EXPECT_EQ(ScalarInt(archiveCatalogPath, "SELECT COUNT(*) FROM disks WHERE id=1;"), 0)
+        << "disk row is removed";
+    EXPECT_EQ(ScalarInt(archiveCatalogPath, "SELECT COUNT(*) FROM folders WHERE disk_id=1;"), 0)
+        << "disk delete cascades folders and archive folders";
+    EXPECT_EQ(ScalarInt(archiveCatalogPath, "SELECT COUNT(*) FROM files WHERE disk_id=1;"), 0)
+        << "disk delete cascades ordinary files and archive member files";
+    EXPECT_EQ(ScalarInt(archiveCatalogPath, "SELECT COUNT(*) FROM disk_scan_statistics WHERE disk_id=1;"), 0)
+        << "disk delete cascades scan statistics";
+    EXPECT_EQ(archiveDb.GetDiskCount(), 2) << "other disks remain cataloged";
     archiveDb.Close();
 
     EXPECT_TRUE(ExecRaw(oldPath, "CREATE TABLE catalogs(id INTEGER PRIMARY KEY);"
@@ -883,6 +893,64 @@ TEST(StorageSmoke, FullPendingCatalogFoldsEarlierMetadataAndPreservesLaterStaged
     EXPECT_EQ(found->diskGroupId, finalTargetGroupId)
         << "older metadata move does not overwrite newer full-staged move";
     reopened.Close();
+
+    std::filesystem::remove_all(testRoot);
+}
+
+TEST(StorageSmoke, DeleteDiskSavesAfterPendingMoveAndCascadesContents) {
+    const auto sourceCatalogPath = std::filesystem::current_path() / L"tests" / L"d-import-test.db";
+    if (!std::filesystem::exists(sourceCatalogPath)) {
+        GTEST_SKIP() << "tests\\d-import-test.db fixture is not available";
+    }
+
+    const auto testRoot = std::filesystem::temp_directory_path() /
+        (L"whereisthat-delete-disk-" + std::to_wstring(GetCurrentProcessId()));
+    std::filesystem::remove_all(testRoot);
+    std::filesystem::create_directories(testRoot);
+    const auto catalogPath = testRoot / L"d-import-test-delete-copy.db";
+    std::filesystem::copy_file(sourceCatalogPath, catalogPath, std::filesystem::copy_options::overwrite_existing);
+
+    std::int64_t diskId{};
+    {
+        wit::app::CatalogWorkflowController controller;
+        const auto openResult = controller.OpenCatalogPathSelected(catalogPath.wstring());
+        ASSERT_TRUE(openResult.messages.empty());
+        ASSERT_FALSE(openResult.browserEffects.empty());
+        const auto catalogId = openResult.browserEffects.front().catalogId;
+        auto* database = controller.WorkingDatabase(catalogId);
+        ASSERT_NE(database, nullptr);
+
+        const auto groups = database->GetDiskGroups();
+        const auto disks = database->GetDisksPage(0, 20);
+        ASSERT_FALSE(groups.empty());
+        ASSERT_FALSE(disks.empty());
+        diskId = disks.front().id;
+        const auto folderCount = ScalarInt(catalogPath,
+            std::format("SELECT COUNT(*) FROM folders WHERE disk_id={};", diskId).c_str());
+        const auto fileCount = ScalarInt(catalogPath,
+            std::format("SELECT COUNT(*) FROM files WHERE disk_id={};", diskId).c_str());
+        ASSERT_GT(folderCount + fileCount, 0) << "chosen disk has cataloged contents";
+
+        auto moveResult = controller.MoveDiskToGroup(catalogId, diskId, groups.front().id);
+        ASSERT_TRUE(moveResult.messages.empty()) << "metadata move is staged first";
+        auto deleteResult = controller.DeleteDisk(catalogId, diskId);
+        ASSERT_TRUE(deleteResult.messages.empty()) << "delete folds pending metadata before removing disk";
+        auto* pending = controller.WorkingDatabase(catalogId);
+        ASSERT_NE(pending, nullptr);
+        const auto pendingDisks = pending->GetDisksPage(0, 200);
+        EXPECT_TRUE(std::none_of(pendingDisks.begin(), pendingDisks.end(),
+            [diskId](const wit::core::Disk& disk) { return disk.id == diskId; }))
+            << "working catalog no longer exposes deleted disk";
+        auto saveResult = controller.RequestSave();
+        ASSERT_TRUE(saveResult.messages.empty()) << "delete disk pending changes save";
+    }
+
+    EXPECT_EQ(ScalarInt(catalogPath, std::format("SELECT COUNT(*) FROM disks WHERE id={};", diskId).c_str()), 0)
+        << "deleted disk row is removed on save";
+    EXPECT_EQ(ScalarInt(catalogPath, std::format("SELECT COUNT(*) FROM folders WHERE disk_id={};", diskId).c_str()), 0)
+        << "deleted disk folders are removed on save";
+    EXPECT_EQ(ScalarInt(catalogPath, std::format("SELECT COUNT(*) FROM files WHERE disk_id={};", diskId).c_str()), 0)
+        << "deleted disk files are removed on save";
 
     std::filesystem::remove_all(testRoot);
 }

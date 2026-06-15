@@ -64,6 +64,7 @@ public:
         std::int64_t diskGroupId);
     [[nodiscard]] bool RecordMoveDiskGroupToGroup(wit::core::CatalogId id, std::int64_t diskGroupId,
         std::int64_t parentGroupId);
+    [[nodiscard]] bool RecordDeleteDisk(wit::core::CatalogId id, std::int64_t diskId);
     [[nodiscard]] bool SavePending(wit::core::CatalogId id);
     void DiscardPending(wit::core::CatalogId id);
     [[nodiscard]] bool Remove(wit::core::CatalogId id, bool* settingsSaved = nullptr);

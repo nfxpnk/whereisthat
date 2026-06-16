@@ -66,5 +66,29 @@ bool CatalogFileDialog::ChooseCatalogToOpen(HWND owner, std::wstring& path) cons
     return selected;
 }
 
+bool CatalogFileDialog::ChooseSaveAsCatalogPath(HWND owner, std::wstring& path) const {
+    IFileSaveDialog* dialog{};
+    if (FAILED(CoCreateInstance(CLSID_FileSaveDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dialog)))) {
+        return false;
+    }
+    dialog->SetTitle(L"Save catalog as...");
+    dialog->SetFileTypes(2, kCatalogFileTypes);
+    dialog->SetFileTypeIndex(1);
+    dialog->SetDefaultExtension(L"db");
+    DWORD options{};
+    dialog->GetOptions(&options);
+    dialog->SetOptions(options | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST | FOS_NOCHANGEDIR | FOS_OVERWRITEPROMPT);
+    bool selected = false;
+    if (SUCCEEDED(dialog->Show(owner))) {
+        IShellItem* item{};
+        if (SUCCEEDED(dialog->GetResult(&item))) {
+            selected = ItemFileSystemPath(item, path);
+            item->Release();
+        }
+    }
+    dialog->Release();
+    return selected;
+}
+
 }
 

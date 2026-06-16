@@ -2,6 +2,7 @@
 #include <wit_infra/Logging.h>
 #include <wit_infra/SaveProfiler.h>
 #include <wit_infra/ScopeGuard.h>
+#include <filesystem>
 #include <iterator>
 #include <memory>
 #include <format>
@@ -289,6 +290,118 @@ ControllerResult CatalogWorkflowController::SaveCatalog(wit::core::CatalogId id)
         result.presentation.refreshBrowserStatus = true;
     }
     PopulatePresentation(result);
+    return result;
+}
+
+ControllerResult CatalogWorkflowController::RequestSaveAs() {
+    ControllerResult result;
+    if (scans_.IsRunning()) {
+        result.messages.push_back(Message(L"A scan is already running.", L"Scan in progress",
+            MB_OK | MB_ICONINFORMATION));
+    } else {
+        auto* catalog = ActiveCatalog();
+        if (!catalog) {
+            result.messages.push_back(Message(L"Open a catalog before using Save As.",
+                L"Save As", MB_OK | MB_ICONINFORMATION));
+        } else {
+            result.request.kind = RequestKind::ChooseSaveAsCatalog;
+        }
+    }
+    PopulatePresentation(result);
+    return result;
+}
+
+ControllerResult CatalogWorkflowController::SaveAsPathSelected(const std::optional<std::wstring>& path) {
+    if (!path) {
+        ControllerResult result;
+        PopulatePresentation(result);
+        return result;
+    }
+    if (session_.IsPathOpen(*path)) {
+        ControllerResult result;
+        result.messages.push_back(Message(
+            L"Unable to save because this catalog path is currently open in the application. "
+            L"Choose a different filename or close the opened catalog.",
+            L"Save As", MB_OK | MB_ICONERROR));
+        PopulatePresentation(result);
+        return result;
+    }
+    auto* catalog = ActiveCatalog();
+    if (!catalog) {
+        ControllerResult result;
+        PopulatePresentation(result);
+        return result;
+    }
+    const auto id = catalog->id;
+
+    // Save any pending changes to the current catalog first, so the copy is up-to-date.
+    if (catalog->HasPendingChanges()) {
+        auto saveResult = SaveCatalog(id);
+        if (!saveResult.messages.empty()) {
+            // Save failed; propagate the error and remain on the original catalog.
+            PopulatePresentation(saveResult);
+            return saveResult;
+        }
+    }
+
+    // The catalog's database is now clean; copy it to the new path.
+    std::wstring newPath = *path;
+    try {
+        newPath = std::filesystem::absolute(newPath).wstring();
+    } catch (...) {
+        ControllerResult result;
+        result.messages.push_back(Message(L"The selected file path is invalid.",
+            L"Save As", MB_OK | MB_ICONERROR));
+        PopulatePresentation(result);
+        return result;
+    }
+
+    // Create a new empty catalog at the target path, then copy content from the current database.
+    wit::storage::Database newDatabase;
+    if (!newDatabase.CreateNew(newPath, true)) {
+        ControllerResult result;
+        result.messages.push_back(Message(L"Unable to create the new catalog file.",
+            L"Save As", MB_OK | MB_ICONERROR));
+        PopulatePresentation(result);
+        return result;
+    }
+
+    if (!newDatabase.SaveCatalogDataFrom(catalog->database)) {
+        ControllerResult result;
+        result.messages.push_back(Message(L"Unable to save catalog data to the new file.",
+            L"Save As", MB_OK | MB_ICONERROR));
+        PopulatePresentation(result);
+        return result;
+    }
+    newDatabase.Close();
+
+    // Remove the current catalog from the session and reopen from the new path.
+    bool removedSaved{};
+    if (!session_.Remove(id, &removedSaved)) {
+        ControllerResult result;
+        result.messages.push_back(Message(L"Unable to update the catalog session.",
+            L"Save As", MB_OK | MB_ICONERROR));
+        PopulatePresentation(result);
+        return result;
+    }
+
+    bool alreadyOpen{};
+    bool settingsSaved{};
+    auto* reopened = session_.Open(newPath, false, true, settingsSaved, alreadyOpen);
+    if (!reopened) {
+        ControllerResult result;
+        result.messages.push_back(Message(L"The saved catalog file could not be reopened.",
+            L"Save As", MB_OK | MB_ICONERROR));
+        PopulatePresentation(result);
+        return result;
+    }
+
+    ControllerResult result;
+    result.browserEffects.push_back({BrowserEffectKind::RemoveCatalog, id});
+    result.browserEffects.push_back({BrowserEffectKind::AddCatalog, reopened->id, reopened->label,
+        reopened->WorkingDatabase(), true});
+    PopulatePresentation(result, true);
+    result.presentation.refreshBrowserStatus = true;
     return result;
 }
 

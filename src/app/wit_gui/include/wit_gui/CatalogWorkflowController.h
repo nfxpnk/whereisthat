@@ -50,6 +50,7 @@ enum class RequestKind {
     None,
     ChooseNewCatalog,
     ChooseOpenCatalog,
+    ChooseSaveAsCatalog,
     ConfirmCloseCatalog,
     ConfirmPendingChanges,
     ShowSearch,
@@ -124,6 +125,8 @@ public:
     ControllerResult CreateCatalogPathSelected(const std::optional<std::wstring>& path);
     ControllerResult OpenCatalogPathSelected(const std::optional<std::wstring>& path);
     ControllerResult RequestSave();
+    ControllerResult RequestSaveAs();
+    ControllerResult SaveAsPathSelected(const std::optional<std::wstring>& path);
     ControllerResult RequestCloseCatalog();
     ControllerResult AnswerCloseCatalog(int answer);
     ControllerResult AnswerPendingChanges(int answer);
@@ -177,3 +180,4 @@ private:
 };
 
 }
+

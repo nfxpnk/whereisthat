@@ -706,6 +706,23 @@ bool Database::MoveDiskGroupToGroup(std::int64_t diskGroupId, std::int64_t paren
     return sqlite3_step(statement.Raw()) == SQLITE_DONE && sqlite3_changes(connection_.Raw()) == 1;
 }
 
+bool Database::DeleteDiskGroup(std::int64_t diskGroupId) {
+    if (!editable_ || diskGroupId == 0) return false;
+    if (!DiskGroupExists(connection_.Raw(), diskGroupId)) return false;
+    // Check that the group is empty: no disks and no child groups.
+    SQLiteStatement countCheck(connection_.Raw(),
+        "SELECT (SELECT COUNT(*) FROM disks WHERE disk_group_id=?) + "
+        "(SELECT COUNT(*) FROM disk_groups WHERE parent_group_id=?);");
+    countCheck.BindInt64(1, diskGroupId);
+    countCheck.BindInt64(2, diskGroupId);
+    if (sqlite3_step(countCheck.Raw()) != SQLITE_ROW || sqlite3_column_int(countCheck.Raw(), 0) != 0) {
+        return false;
+    }
+    SQLiteStatement statement(connection_.Raw(), "DELETE FROM disk_groups WHERE id=?;");
+    statement.BindInt64(1, diskGroupId);
+    return sqlite3_step(statement.Raw()) == SQLITE_DONE && sqlite3_changes(connection_.Raw()) == 1;
+}
+
 bool Database::UpdateDisk(const wit::core::Disk& disk) {
     if (!editable_) return false;
     SQLiteStatement statement(connection_.Raw(),

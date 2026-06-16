@@ -105,6 +105,7 @@ private:
     void OpenFocusedItemInExplorer();
     void OnMoveSelectedItemToGroup(std::optional<wit::core::BrowserTarget> target = std::nullopt);
     void OnDeleteSelectedDisk(std::optional<wit::core::BrowserTarget> target = std::nullopt);
+    void OnDeleteSelectedDiskGroup(std::optional<wit::core::BrowserTarget> target = std::nullopt);
     LRESULT ShowTreeContextMenu();
     LRESULT ShowListContextMenu();
     void ApplyControllerResult(wit::app::ControllerResult result);

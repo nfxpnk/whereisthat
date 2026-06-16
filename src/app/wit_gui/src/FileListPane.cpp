@@ -46,7 +46,7 @@ constexpr std::array<ColumnDefinition, 9> kBrowserRootColumns{{
 constexpr std::array<ColumnDefinition, 5> kBrowserContentColumns{{
     { L"BrowserContent.Name", L"Name", 200, LVCFMT_LEFT },
     { L"BrowserContent.Type", L"Type", 80, LVCFMT_LEFT },
-    { L"BrowserContent.Size", L"Size", 100, LVCFMT_RIGHT },
+    { L"BrowserContent.Size", L"Size", 130, LVCFMT_RIGHT },
     { L"BrowserContent.Path", L"Path", 320, LVCFMT_LEFT },
     { L"BrowserContent.Modified", L"Modified", 180, LVCFMT_LEFT },
 }};
@@ -598,7 +598,7 @@ void FileListView::TextFor(int row, int column, wchar_t* buffer, std::size_t buf
             (file.isDirectory ? std::wstring_view(L"Folder") : std::wstring_view(file.extension)), buffer, bufferSize);
         return;
     case 2:
-        wit::core::FormatSizeToBuffer(file.size, buffer, bufferSize);
+        wit::core::FormatSizeRawBytesToBuffer(file.size, buffer, bufferSize);
         return;
     case 3:
         CopyText(file.parentPath, buffer, bufferSize);

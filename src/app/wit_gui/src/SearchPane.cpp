@@ -232,7 +232,7 @@ void SearchDialog::Initialize() {
     column.pszText = const_cast<LPWSTR>(L"Type");
     ListView_InsertColumn(results_, 1, &column);
     column.fmt = LVCFMT_RIGHT;
-    column.cx = 76;
+    column.cx = 110;
     column.pszText = const_cast<LPWSTR>(L"Size");
     ListView_InsertColumn(results_, 2, &column);
     column.fmt = LVCFMT_LEFT;
@@ -513,7 +513,7 @@ void SearchDialog::TextFor(int row, int column, wchar_t* buffer, std::size_t buf
             (file.isDirectory ? std::wstring_view(L"Folder") : std::wstring_view(file.extension)), buffer, bufferSize);
         return;
     case 2:
-        if (!file.isDirectory) wit::core::FormatSizeToBuffer(file.size, buffer, bufferSize);
+        wit::core::FormatSizeRawBytesToBuffer(file.size, buffer, bufferSize);
         return;
     case 3:
         CopyText(file.parentPath, buffer, bufferSize);

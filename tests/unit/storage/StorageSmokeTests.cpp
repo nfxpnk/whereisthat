@@ -968,7 +968,7 @@ TEST(StorageSmoke, SaveAsCopiesCatalogAndSwitchesActiveSession) {
     std::filesystem::remove_all(testRoot);
     std::filesystem::create_directories(testRoot);
     const auto originalPath = testRoot / L"original.db";
-    const auto saveAsPath = testRoot / L"saved-as.db";
+    const auto saveAsPath = testRoot / L"saved-as.sqlite";
     const auto normalizedSaveAsPath = std::filesystem::absolute(saveAsPath).wstring();
     std::filesystem::copy_file(sourceCatalogPath, originalPath, std::filesystem::copy_options::overwrite_existing);
     const auto originalDiskCount = ScalarInt(originalPath, "SELECT COUNT(*) FROM disks;");

@@ -1,13 +1,15 @@
 #include "wit_gui/CatalogFileDialog.h"
+#include <iterator>
 #include <shobjidl.h>
 
 namespace wit::ui {
 namespace {
 
 constexpr COMDLG_FILTERSPEC kCatalogFileTypes[] = {
-    {L"SQLite catalog database (*.db)", L"*.db"},
+    {L"SQLite catalog database (*.db; *.sqlite)", L"*.db;*.sqlite"},
     {L"All files (*.*)", L"*.*"}
 };
+constexpr UINT kCatalogFileTypeCount = static_cast<UINT>(std::size(kCatalogFileTypes));
 
 bool ItemFileSystemPath(IShellItem* item, std::wstring& path) {
     PWSTR selected{};
@@ -25,7 +27,7 @@ bool CatalogFileDialog::ChooseNewCatalogPath(HWND owner, std::wstring& path) con
         return false;
     }
     dialog->SetTitle(L"Create a new catalog database");
-    dialog->SetFileTypes(2, kCatalogFileTypes);
+    dialog->SetFileTypes(kCatalogFileTypeCount, kCatalogFileTypes);
     dialog->SetFileTypeIndex(1);
     dialog->SetDefaultExtension(L"db");
     DWORD options{};
@@ -49,7 +51,7 @@ bool CatalogFileDialog::ChooseCatalogToOpen(HWND owner, std::wstring& path) cons
         return false;
     }
     dialog->SetTitle(L"Open a catalog database");
-    dialog->SetFileTypes(2, kCatalogFileTypes);
+    dialog->SetFileTypes(kCatalogFileTypeCount, kCatalogFileTypes);
     dialog->SetFileTypeIndex(1);
     DWORD options{};
     dialog->GetOptions(&options);
@@ -72,7 +74,7 @@ bool CatalogFileDialog::ChooseSaveAsCatalogPath(HWND owner, std::wstring& path) 
         return false;
     }
     dialog->SetTitle(L"Save catalog as...");
-    dialog->SetFileTypes(2, kCatalogFileTypes);
+    dialog->SetFileTypes(kCatalogFileTypeCount, kCatalogFileTypes);
     dialog->SetFileTypeIndex(1);
     dialog->SetDefaultExtension(L"db");
     DWORD options{};

@@ -580,6 +580,7 @@ void MainFrame::HandleCommand(int id) {
     else if (id == ID_EDIT_ADDDISKIMAGE) ApplyControllerResult(controller_.RequestAddOrUpdateMedia());
     else if (id == ID_TREE_CONTEXT_MOVE_TO_GROUP) OnMoveSelectedItemToGroup();
     else if (id == ID_TREE_CONTEXT_DELETE_DISK_PLACEHOLDER) OnDeleteSelectedDisk();
+    else if (id == ID_TREE_CONTEXT_DELETE_GROUP_PLACEHOLDER) OnDeleteSelectedDiskGroup();
     else if (id == ID_ACTIONS_OPEN_EXPLORER) OpenFocusedItemInExplorer();
     else if (id == ID_TREE_CONTEXT_ADD_NEW_DISK_GROUP_PLACEHOLDER) {
         std::wstring name;
@@ -729,6 +730,50 @@ void MainFrame::OnDeleteSelectedDisk(std::optional<wit::core::BrowserTarget> tar
         wit::infra::ScopedSaveTimer totalTimer(profile.timingsNs.total);
         ApplyControllerResult(controller_.DeleteDisk(target->catalogId, target->location.sourceId));
     }
+        (void)wit::infra::WriteSaveProfileJson(profile);
+}
+
+void MainFrame::OnDeleteSelectedDiskGroup(std::optional<wit::core::BrowserTarget> target) {
+    if (!target) target = browser_.SelectedTreeTarget();
+    if (!target || !IsDiskGroupTarget(*target)) return;
+    WIT_LOG_INFO(std::format(L"delete selected disk group command catalogId={} groupId={}",
+        target->catalogId, target->location.diskGroupId));
+    auto* database = controller_.WorkingDatabase(target->catalogId);
+    if (!database || !database->IsEditable()) {
+        ::MessageBoxW(m_hWnd, L"Open an editable catalog before deleting this disk group.",
+            L"Delete Disk Group", MB_OK | MB_ICONINFORMATION);
+        return;
+    }
+
+    const auto groups = database->GetDiskGroups();
+    std::wstring groupName;
+    for (const auto& group : groups) {
+        if (group.id == target->location.diskGroupId) {
+            groupName = group.name;
+            break;
+        }
+    }
+    if (groupName.empty()) return;
+
+    const auto message = std::format(
+        L"Delete the disk group '{}'?\n\n"
+        L"This removes the group from the catalog. "
+        L"Disk images in this group will not be affected.",
+        groupName);
+    if (::MessageBoxW(m_hWnd, message.c_str(), L"Delete Disk Group",
+        MB_YESNO | MB_DEFBUTTON2 | MB_ICONWARNING) != IDYES) {
+        return;
+    }
+
+    wit::infra::SaveProfile profile;
+    profile.profileId = wit::infra::NextSaveProfileId();
+    profile.catalogId = target->catalogId;
+    profile.operation = L"deleteDiskGroup";
+    wit::infra::SaveProfileScope profileScope(profile);
+    {
+        wit::infra::ScopedSaveTimer totalTimer(profile.timingsNs.total);
+        ApplyControllerResult(controller_.DeleteDiskGroup(target->catalogId, target->location.diskGroupId));
+    }
     (void)wit::infra::WriteSaveProfileJson(profile);
 }
 
@@ -762,14 +807,23 @@ LRESULT MainFrame::ShowTreeContextMenu() {
         AppendMenuW(menu, MF_STRING, ID_EDIT_CATALOG_MANAGER, L"Catalog Manager");
         AppendMenuW(menu, MF_STRING, ID_EDIT_CATALOG_SETUP, L"Catalog Setup");
         AppendMenuW(menu, MF_STRING, ID_ACTIONS_PROPERTIES, L"Properties");
-    } else if (IsDiskGroupTarget(*target)) {
+        } else if (IsDiskGroupTarget(*target)) {
+        const bool groupEmpty = [&]() {
+            auto* db = controller_.WorkingDatabase(target->catalogId);
+            if (!db) return false;
+            return db->GetBrowserRootItemCount(target->location) == 0;
+        }();
         AppendMenuW(menu, MF_STRING, ID_TREE_CONTEXT_MOVE_TO_GROUP, L"Move to Group");
         AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
         AppendMenuW(menu, MF_STRING, ID_EDIT_ADDDISKIMAGE, L"Add New Disk Image");
         AppendMenuW(menu, MF_STRING, ID_TREE_CONTEXT_ADD_NEW_DISK_GROUP_PLACEHOLDER, L"Add New Disk Group");
         AppendDisabledMenuItem(menu, ID_TREE_CONTEXT_UPDATE_ALL_DISK_IMAGES_PLACEHOLDER, L"Update All Disk Images");
         AppendDisabledMenuItem(menu, ID_TREE_CONTEXT_RENUMBER_DISKS_PLACEHOLDER, L"Renumber Disks");
-        AppendDisabledMenuItem(menu, ID_TREE_CONTEXT_DELETE_GROUP_PLACEHOLDER, L"Delete Group");
+        if (groupEmpty) {
+            AppendMenuW(menu, MF_STRING, ID_TREE_CONTEXT_DELETE_GROUP_PLACEHOLDER, L"Delete Group");
+        } else {
+            AppendDisabledMenuItem(menu, ID_TREE_CONTEXT_DELETE_GROUP_PLACEHOLDER, L"Delete Group");
+        }
         AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
         AppendDisabledMenuItem(menu, ID_TREE_CONTEXT_FIND_IN_DISK_GROUP_PLACEHOLDER, L"Find in This Disk Group");
         AppendDisabledMenuItem(menu, ID_TREE_CONTEXT_USER_LIST_PLACEHOLDER, L"User List");
@@ -847,8 +901,9 @@ LRESULT MainFrame::ShowTreeContextMenu() {
     const auto command = TrackPopupMenuEx(menu, TPM_RETURNCMD | TPM_LEFTALIGN | TPM_TOPALIGN,
         screenPoint.x, screenPoint.y, m_hWnd, nullptr);
     DestroyMenu(menu);
-    if (command == ID_TREE_CONTEXT_MOVE_TO_GROUP) OnMoveSelectedItemToGroup(target);
+        if (command == ID_TREE_CONTEXT_MOVE_TO_GROUP) OnMoveSelectedItemToGroup(target);
     else if (command == ID_TREE_CONTEXT_DELETE_DISK_PLACEHOLDER) OnDeleteSelectedDisk(target);
+    else if (command == ID_TREE_CONTEXT_DELETE_GROUP_PLACEHOLDER) OnDeleteSelectedDiskGroup(target);
     else if (command == ID_ACTIONS_OPEN_EXPLORER && target) {
         OpenInExplorerOrAlert(m_hWnd, target->location.path, IsArchiveTreeItem(chrome_.TreeHandle(), item));
     }
@@ -877,14 +932,23 @@ LRESULT MainFrame::ShowListContextMenu() {
 
     const auto menu = CreatePopupMenu();
     if (!menu) return 0;
-    if (listTarget && IsDiskGroupTarget(*listTarget)) {
+        if (listTarget && IsDiskGroupTarget(*listTarget)) {
+        const bool groupEmpty = [&]() {
+            auto* db = controller_.WorkingDatabase(listTarget->catalogId);
+            if (!db) return false;
+            return db->GetBrowserRootItemCount(listTarget->location) == 0;
+        }();
         AppendMenuW(menu, MF_STRING, ID_TREE_CONTEXT_MOVE_TO_GROUP, L"Move to Group");
         AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
         AppendMenuW(menu, MF_STRING, ID_EDIT_ADDDISKIMAGE, L"Add New Disk Image");
         AppendMenuW(menu, MF_STRING, ID_TREE_CONTEXT_ADD_NEW_DISK_GROUP_PLACEHOLDER, L"Add New Disk Group");
         AppendDisabledMenuItem(menu, ID_TREE_CONTEXT_UPDATE_ALL_DISK_IMAGES_PLACEHOLDER, L"Update All Disk Images");
         AppendDisabledMenuItem(menu, ID_TREE_CONTEXT_RENUMBER_DISKS_PLACEHOLDER, L"Renumber Disks");
-        AppendDisabledMenuItem(menu, ID_TREE_CONTEXT_DELETE_GROUP_PLACEHOLDER, L"Delete Group");
+        if (groupEmpty) {
+            AppendMenuW(menu, MF_STRING, ID_TREE_CONTEXT_DELETE_GROUP_PLACEHOLDER, L"Delete Group");
+        } else {
+            AppendDisabledMenuItem(menu, ID_TREE_CONTEXT_DELETE_GROUP_PLACEHOLDER, L"Delete Group");
+        }
         AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
         AppendDisabledMenuItem(menu, ID_TREE_CONTEXT_FIND_IN_DISK_GROUP_PLACEHOLDER, L"Find in This Disk Group");
         AppendDisabledMenuItem(menu, ID_TREE_CONTEXT_USER_LIST_PLACEHOLDER, L"User List");
@@ -961,8 +1025,10 @@ LRESULT MainFrame::ShowListContextMenu() {
     DestroyMenu(menu);
     if (command == ID_TREE_CONTEXT_MOVE_TO_GROUP && listTarget) {
         OnMoveSelectedItemToGroup(listTarget);
-    } else if (command == ID_TREE_CONTEXT_DELETE_DISK_PLACEHOLDER && listTarget) {
+        } else if (command == ID_TREE_CONTEXT_DELETE_DISK_PLACEHOLDER && listTarget) {
         OnDeleteSelectedDisk(listTarget);
+    } else if (command == ID_TREE_CONTEXT_DELETE_GROUP_PLACEHOLDER && listTarget) {
+        OnDeleteSelectedDiskGroup(listTarget);
     } else if (command == ID_LIST_CONTEXT_GO_TO) {
         browser_.GoToFileListFolder(row);
         chrome_.UpdateSortToolbarButtons(browser_.ToolbarSort());

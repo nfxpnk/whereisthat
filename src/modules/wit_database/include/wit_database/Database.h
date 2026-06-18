@@ -52,6 +52,7 @@ public:
     [[nodiscard]] bool DeleteDisk(std::int64_t diskId);
     [[nodiscard]] bool MoveDiskToGroup(std::int64_t diskId, std::int64_t diskGroupId);
     [[nodiscard]] bool MoveDiskGroupToGroup(std::int64_t diskGroupId, std::int64_t parentGroupId);
+    [[nodiscard]] bool DeleteDiskGroup(std::int64_t diskGroupId);
     [[nodiscard]] bool UpdateDisk(const wit::core::Disk& disk);
     [[nodiscard]] bool UpdateDiskScanStatistics(const wit::core::DiskScanStatistics& statistics);
     int GetDiskCount();
@@ -93,4 +94,5 @@ private:
     bool editable_{};
 };
 }
+
 

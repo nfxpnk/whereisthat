@@ -572,7 +572,7 @@ void MainFrame::HandleCommand(int id) {
             wit::infra::ScopedSaveTimer commandTimer(profile.timingsNs.commandHandle);
             ApplyControllerResult(controller_.RequestSave());
         }
-                (void)wit::infra::WriteSaveProfileJson(profile);
+        (void)wit::infra::WriteSaveProfileJson(profile);
     } else if (id == ID_FILE_SAVEAS) {
         ApplyControllerResult(controller_.RequestSaveAs());
     }
@@ -1042,7 +1042,7 @@ void MainFrame::PerformRequest(const wit::app::RequestEffect& request) {
             accepted ? std::optional<std::wstring>(path) : std::nullopt));
         break;
     }
-        case wit::app::RequestKind::ChooseOpenCatalog: {
+    case wit::app::RequestKind::ChooseOpenCatalog: {
         std::wstring path;
         const wit::ui::CatalogFileDialog dialog;
         const bool accepted = dialog.ChooseCatalogToOpen(m_hWnd, path);

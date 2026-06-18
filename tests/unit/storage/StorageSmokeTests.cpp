@@ -955,6 +955,67 @@ TEST(StorageSmoke, DeleteDiskSavesAfterPendingMoveAndCascadesContents) {
     std::filesystem::remove_all(testRoot);
 }
 
+TEST(StorageSmoke, SaveAsCopiesCatalogAndSwitchesActiveSession) {
+    AppSettingsGuard settingsGuard;
+
+    const auto sourceCatalogPath = std::filesystem::current_path() / L"tests" / L"d-import-test.db";
+    if (!std::filesystem::exists(sourceCatalogPath)) {
+        GTEST_SKIP() << "tests\\d-import-test.db fixture is not available";
+    }
+
+    const auto testRoot = std::filesystem::temp_directory_path() /
+        (L"whereisthat-save-as-" + std::to_wstring(GetCurrentProcessId()));
+    std::filesystem::remove_all(testRoot);
+    std::filesystem::create_directories(testRoot);
+    const auto originalPath = testRoot / L"original.db";
+    const auto saveAsPath = testRoot / L"saved-as.db";
+    const auto normalizedSaveAsPath = std::filesystem::absolute(saveAsPath).wstring();
+    std::filesystem::copy_file(sourceCatalogPath, originalPath, std::filesystem::copy_options::overwrite_existing);
+    const auto originalDiskCount = ScalarInt(originalPath, "SELECT COUNT(*) FROM disks;");
+    ASSERT_GT(originalDiskCount, 0);
+
+    {
+        wit::app::CatalogWorkflowController controller;
+        auto openResult = controller.OpenCatalogPathSelected(originalPath.wstring());
+        ASSERT_TRUE(openResult.messages.empty()) << "original catalog opens through app controller";
+        ASSERT_FALSE(openResult.browserEffects.empty()) << "open publishes browser effect";
+        const auto originalCatalogId = openResult.browserEffects.front().catalogId;
+        ASSERT_NE(originalCatalogId, 0);
+
+        auto saveAsResult = controller.SaveAsPathSelected(saveAsPath.wstring());
+        ASSERT_TRUE(saveAsResult.messages.empty()) << "Save As succeeds";
+
+        bool removedOriginal = false;
+        wit::core::CatalogId savedCatalogId{};
+        for (const auto& effect : saveAsResult.browserEffects) {
+            if (effect.kind == wit::app::BrowserEffectKind::RemoveCatalog &&
+                effect.catalogId == originalCatalogId) {
+                removedOriginal = true;
+            }
+            if (effect.kind == wit::app::BrowserEffectKind::AddCatalog) {
+                savedCatalogId = effect.catalogId;
+                EXPECT_TRUE(effect.select);
+                EXPECT_NE(effect.database, nullptr);
+            }
+        }
+        EXPECT_TRUE(removedOriginal);
+        ASSERT_NE(savedCatalogId, 0);
+        EXPECT_NE(savedCatalogId, originalCatalogId);
+        EXPECT_EQ(controller.WorkingDatabase(originalCatalogId), nullptr);
+        EXPECT_NE(controller.WorkingDatabase(savedCatalogId), nullptr);
+        EXPECT_TRUE(saveAsResult.presentation.refreshBrowserStatus);
+
+        const auto savedSettings = wit::platform::LoadAppSettings();
+        ASSERT_EQ(savedSettings.openCatalogPaths.size(), 1u);
+        EXPECT_EQ(savedSettings.openCatalogPaths[0], normalizedSaveAsPath);
+        EXPECT_EQ(savedSettings.lastCatalogPath, normalizedSaveAsPath);
+    }
+
+    EXPECT_EQ(ScalarInt(saveAsPath, "SELECT COUNT(*) FROM disks;"), originalDiskCount);
+
+    std::filesystem::remove_all(testRoot);
+}
+
 TEST(StorageSmoke, ClosingLastCatalogClearsStartupRestorePath) {
     AppSettingsGuard settingsGuard;
 

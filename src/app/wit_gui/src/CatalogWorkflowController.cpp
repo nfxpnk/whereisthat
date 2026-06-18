@@ -317,7 +317,17 @@ ControllerResult CatalogWorkflowController::SaveAsPathSelected(const std::option
         PopulatePresentation(result);
         return result;
     }
-    if (session_.IsPathOpen(*path)) {
+    std::wstring newPath;
+    try {
+        newPath = std::filesystem::absolute(*path).wstring();
+    } catch (...) {
+        ControllerResult result;
+        result.messages.push_back(Message(L"The selected file path is invalid.",
+            L"Save As", MB_OK | MB_ICONERROR));
+        PopulatePresentation(result);
+        return result;
+    }
+    if (session_.IsPathOpen(newPath)) {
         ControllerResult result;
         result.messages.push_back(Message(
             L"Unable to save because this catalog path is currently open in the application. "
@@ -345,18 +355,6 @@ ControllerResult CatalogWorkflowController::SaveAsPathSelected(const std::option
     }
 
     // The catalog's database is now clean; copy it to the new path.
-    std::wstring newPath = *path;
-    try {
-        newPath = std::filesystem::absolute(newPath).wstring();
-    } catch (...) {
-        ControllerResult result;
-        result.messages.push_back(Message(L"The selected file path is invalid.",
-            L"Save As", MB_OK | MB_ICONERROR));
-        PopulatePresentation(result);
-        return result;
-    }
-
-    // Create a new empty catalog at the target path, then copy content from the current database.
     wit::storage::Database newDatabase;
     if (!newDatabase.CreateNew(newPath, true)) {
         ControllerResult result;
@@ -375,22 +373,21 @@ ControllerResult CatalogWorkflowController::SaveAsPathSelected(const std::option
     }
     newDatabase.Close();
 
-    // Remove the current catalog from the session and reopen from the new path.
-    bool removedSaved{};
-    if (!session_.Remove(id, &removedSaved)) {
-        ControllerResult result;
-        result.messages.push_back(Message(L"Unable to update the catalog session.",
-            L"Save As", MB_OK | MB_ICONERROR));
-        PopulatePresentation(result);
-        return result;
-    }
-
     bool alreadyOpen{};
     bool settingsSaved{};
     auto* reopened = session_.Open(newPath, false, true, settingsSaved, alreadyOpen);
     if (!reopened) {
         ControllerResult result;
         result.messages.push_back(Message(L"The saved catalog file could not be reopened.",
+            L"Save As", MB_OK | MB_ICONERROR));
+        PopulatePresentation(result);
+        return result;
+    }
+
+    bool removedSaved{};
+    if (!session_.Remove(id, &removedSaved)) {
+        ControllerResult result;
+        result.messages.push_back(Message(L"Unable to update the catalog session.",
             L"Save As", MB_OK | MB_ICONERROR));
         PopulatePresentation(result);
         return result;

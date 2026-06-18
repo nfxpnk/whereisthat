@@ -9,6 +9,7 @@ class CatalogFileDialog {
 public:
     bool ChooseNewCatalogPath(HWND owner, std::wstring& path) const;
     bool ChooseCatalogToOpen(HWND owner, std::wstring& path) const;
+    bool ChooseSaveAsCatalogPath(HWND owner, std::wstring& path) const;
 };
 
 }

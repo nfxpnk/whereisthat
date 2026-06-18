@@ -1,13 +1,15 @@
 #include "wit_gui/CatalogFileDialog.h"
+#include <iterator>
 #include <shobjidl.h>
 
 namespace wit::ui {
 namespace {
 
 constexpr COMDLG_FILTERSPEC kCatalogFileTypes[] = {
-    {L"SQLite catalog database (*.db)", L"*.db"},
+    {L"SQLite catalog database (*.db; *.sqlite)", L"*.db;*.sqlite"},
     {L"All files (*.*)", L"*.*"}
 };
+constexpr UINT kCatalogFileTypeCount = static_cast<UINT>(std::size(kCatalogFileTypes));
 
 bool ItemFileSystemPath(IShellItem* item, std::wstring& path) {
     PWSTR selected{};
@@ -25,7 +27,7 @@ bool CatalogFileDialog::ChooseNewCatalogPath(HWND owner, std::wstring& path) con
         return false;
     }
     dialog->SetTitle(L"Create a new catalog database");
-    dialog->SetFileTypes(2, kCatalogFileTypes);
+    dialog->SetFileTypes(kCatalogFileTypeCount, kCatalogFileTypes);
     dialog->SetFileTypeIndex(1);
     dialog->SetDefaultExtension(L"db");
     DWORD options{};
@@ -49,11 +51,35 @@ bool CatalogFileDialog::ChooseCatalogToOpen(HWND owner, std::wstring& path) cons
         return false;
     }
     dialog->SetTitle(L"Open a catalog database");
-    dialog->SetFileTypes(2, kCatalogFileTypes);
+    dialog->SetFileTypes(kCatalogFileTypeCount, kCatalogFileTypes);
     dialog->SetFileTypeIndex(1);
     DWORD options{};
     dialog->GetOptions(&options);
     dialog->SetOptions(options | FOS_FORCEFILESYSTEM | FOS_FILEMUSTEXIST | FOS_NOCHANGEDIR);
+    bool selected = false;
+    if (SUCCEEDED(dialog->Show(owner))) {
+        IShellItem* item{};
+        if (SUCCEEDED(dialog->GetResult(&item))) {
+            selected = ItemFileSystemPath(item, path);
+            item->Release();
+        }
+    }
+    dialog->Release();
+    return selected;
+}
+
+bool CatalogFileDialog::ChooseSaveAsCatalogPath(HWND owner, std::wstring& path) const {
+    IFileSaveDialog* dialog{};
+    if (FAILED(CoCreateInstance(CLSID_FileSaveDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dialog)))) {
+        return false;
+    }
+    dialog->SetTitle(L"Save catalog as...");
+    dialog->SetFileTypes(kCatalogFileTypeCount, kCatalogFileTypes);
+    dialog->SetFileTypeIndex(1);
+    dialog->SetDefaultExtension(L"db");
+    DWORD options{};
+    dialog->GetOptions(&options);
+    dialog->SetOptions(options | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST | FOS_NOCHANGEDIR | FOS_OVERWRITEPROMPT);
     bool selected = false;
     if (SUCCEEDED(dialog->Show(owner))) {
         IShellItem* item{};

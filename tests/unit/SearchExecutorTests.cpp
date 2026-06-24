@@ -16,7 +16,9 @@ public:
             "VALUES(1,1,NULL,'C:\\\\','alpha-folder',0,100,0,'directory'),"
             "(2,1,1,'C:\\\\alpha-folder','child',0,101,0,'directory');"
             "INSERT INTO files(id,disk_id,folder_id,name,extension,size,modified_at,attributes) "
-            "VALUES(1,1,1,'alpha-file.txt','txt',42,102,0),(2,1,1,'beta-file.txt','txt',43,103,0);");
+            "VALUES(1,1,1,'alpha-file.txt','txt',42,102,0),(2,1,1,'beta-file.txt','txt',43,103,0),"
+            "(3,1,1,'notes.txt.bak','bak',44,104,0),(4,1,1,'item10.txt','txt',45,105,0),"
+            "(5,1,1,'item2.txt','txt',46,106,0);");
     }
 
     ~MemoryDatabase() {
@@ -36,19 +38,19 @@ private:
     sqlite3* db_{};
 };
 
-int TraceFolderCount(unsigned int, void* context, void* statement, void*) {
+int TraceSearchCacheBuild(unsigned int, void* context, void* statement, void*) {
     const auto sql = std::string(sqlite3_sql(static_cast<sqlite3_stmt*>(statement)));
-    if (sql.find("SELECT COUNT(*) FROM folders WHERE name LIKE") != std::string::npos) {
+    if (sql.find("INSERT INTO wit_search_page_cache(is_directory,item_id) SELECT 1") != std::string::npos) {
         ++*static_cast<int*>(context);
     }
     return 0;
 }
 }
 
-TEST(SearchExecutor, PageByNameCachesFolderCountPerSearchTermAndDatabase) {
+TEST(SearchExecutor, PageByNameMaterializesEachSearchAndReusesItForPaging) {
     MemoryDatabase first;
     int firstFolderCountQueries{};
-    sqlite3_trace_v2(first.Raw(), SQLITE_TRACE_STMT, TraceFolderCount, &firstFolderCountQueries);
+    sqlite3_trace_v2(first.Raw(), SQLITE_TRACE_STMT, TraceSearchCacheBuild, &firstFolderCountQueries);
 
     wit::search::SqliteSearchExecutor executor(first.Raw());
     EXPECT_EQ(executor.PageByName(L"alpha", 0, 10).size(), 2u);
@@ -64,10 +66,32 @@ TEST(SearchExecutor, PageByNameCachesFolderCountPerSearchTermAndDatabase) {
 
     MemoryDatabase second;
     int secondFolderCountQueries{};
-    sqlite3_trace_v2(second.Raw(), SQLITE_TRACE_STMT, TraceFolderCount, &secondFolderCountQueries);
+    sqlite3_trace_v2(second.Raw(), SQLITE_TRACE_STMT, TraceSearchCacheBuild, &secondFolderCountQueries);
     executor.SetDatabase(second.Raw());
     EXPECT_EQ(executor.PageByName(L"beta", 0, 10).size(), 1u);
     EXPECT_EQ(secondFolderCountQueries, 1);
+}
+
+TEST(SearchExecutor, PageByNameSupportsAsteriskWildcards) {
+    MemoryDatabase database;
+    wit::search::SqliteSearchExecutor executor(database.Raw());
+
+    EXPECT_EQ(executor.CountByName(L"*"), 7);
+
+    const auto textFiles = executor.PageByName(L"*.txt", 0, 10);
+    ASSERT_EQ(textFiles.size(), 4u);
+    EXPECT_EQ(textFiles[0].name, L"alpha-file.txt");
+    EXPECT_EQ(textFiles[1].name, L"beta-file.txt");
+    EXPECT_EQ(textFiles[2].name, L"item2.txt");
+    EXPECT_EQ(textFiles[3].name, L"item10.txt");
+
+    EXPECT_EQ(executor.CountByName(L"alpha*"), 2);
+    EXPECT_EQ(executor.CountByName(L"alpha*txt"), 1);
+    EXPECT_EQ(executor.CountByName(L"**"), 7);
+    EXPECT_EQ(executor.CountByName(L"*file*"), 2);
+    EXPECT_EQ(executor.CountByName(L"alpha"), 2) << "terms without wildcards remain substring searches";
+    EXPECT_EQ(executor.CountByName(L"%"), 0) << "SQL LIKE metacharacters remain literal";
+    EXPECT_EQ(executor.CountByName(L"_"), 0) << "SQL LIKE metacharacters remain literal";
 }
 
 TEST(SearchExecutor, AdvancedSearchFiltersWithBoundCriteria) {

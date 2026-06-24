@@ -25,8 +25,7 @@ public:
 
 private:
     sqlite3* db_{};
-    std::wstring cachedFolderCountTerm_;
-    int cachedFolderCount_{};
-    bool hasCachedFolderCount_{};
+    std::string pageCacheKey_;
+    bool pageCacheValid_{};
 };
 }

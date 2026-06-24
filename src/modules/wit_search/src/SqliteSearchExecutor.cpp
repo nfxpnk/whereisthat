@@ -17,12 +17,19 @@ namespace wit::search {
 namespace {
 std::string ItemNameLikePattern(const std::wstring& term) {
     const auto utf8 = wit::platform::ToUtf8(term);
-    std::string pattern{"%"};
+    const bool hasWildcard = utf8.find('*') != std::string::npos;
+    std::string pattern;
+    if (!hasWildcard) pattern.push_back('%');
+
     for (const auto character : utf8) {
+        if (character == '*') {
+            if (pattern.empty() || pattern.back() != '%') pattern.push_back('%');
+            continue;
+        }
         if (character == '%' || character == '_' || character == '\\') pattern.push_back('\\');
         pattern.push_back(character);
     }
-    pattern.push_back('%');
+    if (!hasWildcard) pattern.push_back('%');
     return pattern;
 }
 
@@ -135,14 +142,12 @@ int CountAdvancedInTable(sqlite3* db, const AdvancedSearchExpression& expression
 }
 
 int NaturalNoCaseCollation(void*, int leftBytes, const void* leftValue, int rightBytes, const void* rightValue) {
-    const std::string leftUtf8(static_cast<const char*>(leftValue), static_cast<std::size_t>(leftBytes));
-    const std::string rightUtf8(static_cast<const char*>(rightValue), static_cast<std::size_t>(rightBytes));
-    const auto left = wit::platform::ToUtf16(leftUtf8);
-    const auto right = wit::platform::ToUtf16(rightUtf8);
+    const auto* left = static_cast<const wchar_t*>(leftValue);
+    const auto* right = static_cast<const wchar_t*>(rightValue);
     const int result = CompareStringEx(LOCALE_NAME_USER_DEFAULT,
         LINGUISTIC_IGNORECASE | SORT_DIGITSASNUMBERS,
-        left.c_str(), static_cast<int>(left.size()),
-        right.c_str(), static_cast<int>(right.size()),
+        left, leftBytes / static_cast<int>(sizeof(wchar_t)),
+        right, rightBytes / static_cast<int>(sizeof(wchar_t)),
         nullptr, nullptr, 0);
     if (result == CSTR_LESS_THAN) return -1;
     if (result == CSTR_GREATER_THAN) return 1;
@@ -151,7 +156,7 @@ int NaturalNoCaseCollation(void*, int leftBytes, const void* leftValue, int righ
 
 void EnsureNaturalNoCaseCollation(sqlite3* db) {
     if (!db) return;
-    sqlite3_create_collation_v2(db, "WIN_NATURAL_NOCASE", SQLITE_UTF8, nullptr,
+    sqlite3_create_collation_v2(db, "WIN_NATURAL_NOCASE", SQLITE_UTF16LE, nullptr,
         NaturalNoCaseCollation, nullptr);
 }
 
@@ -180,18 +185,146 @@ std::string OrderByFor(wit::core::FileSort sort, bool folders) {
         : " f.name COLLATE WIN_NATURAL_NOCASE ASC,f.id ASC ";
     return order;
 }
+
+bool ExecSql(sqlite3* db, const char* sql) {
+    return db && sqlite3_exec(db, sql, nullptr, nullptr, nullptr) == SQLITE_OK;
+}
+
+std::string SortCacheKey(wit::core::FileSort sort) {
+    return std::to_string(static_cast<int>(sort.column)) + (sort.ascending ? ":a" : ":d");
+}
+
+std::string NameCacheKey(const std::wstring& nameTerm, wit::core::FileSort sort) {
+    const auto term = wit::platform::ToUtf8(nameTerm);
+    return "name:" + std::to_string(term.size()) + ":" + term + ":" + SortCacheKey(sort);
+}
+
+std::string AdvancedCacheKey(const AdvancedSearchExpression& expression, wit::core::FileSort sort) {
+    std::string key{"advanced:"};
+    for (std::size_t index = 0; index < expression.criteria.size(); ++index) {
+        const auto& criterion = expression.criteria[index];
+        key += std::to_string(static_cast<int>(criterion.field)) + ":";
+        key += std::to_string(static_cast<int>(criterion.comparison)) + ":";
+        const auto text = wit::platform::ToUtf8(criterion.textValue);
+        key += std::to_string(text.size()) + ":" + text + ":";
+        key += std::to_string(criterion.sizeValue) + ";";
+        if (index < expression.logicalOperators.size()) {
+            key += std::to_string(static_cast<int>(expression.logicalOperators[index])) + ";";
+        }
+    }
+    return key + SortCacheKey(sort);
+}
+
+bool ResetPageCache(sqlite3* db) {
+    return ExecSql(db,
+        "CREATE TEMP TABLE IF NOT EXISTS wit_search_page_cache("
+        "position INTEGER PRIMARY KEY,is_directory INTEGER NOT NULL,item_id INTEGER NOT NULL);") &&
+        ExecSql(db, "DELETE FROM wit_search_page_cache;");
+}
+
+bool FinishPageCache(sqlite3* db, bool success) {
+    if (success) return ExecSql(db, "RELEASE wit_search_cache;");
+    ExecSql(db, "ROLLBACK TO wit_search_cache;");
+    ExecSql(db, "RELEASE wit_search_cache;");
+    return false;
+}
+
+bool BuildNamePageCache(sqlite3* db, const std::wstring& nameTerm, wit::core::FileSort sort) {
+    if (!ExecSql(db, "SAVEPOINT wit_search_cache;") || !ResetPageCache(db)) {
+        return FinishPageCache(db, false);
+    }
+
+    const auto pattern = ItemNameLikePattern(nameTerm);
+    const auto folderSql = std::string(
+        "INSERT INTO wit_search_page_cache(is_directory,item_id) "
+        "SELECT 1,c.id FROM folders c LEFT JOIN folders p ON c.parent_folder_id=p.id "
+        "WHERE c.name LIKE ? ESCAPE '\\' ") + OrderByFor(sort, true) + ";";
+    wit::storage::SQLiteStatement folders(db, folderSql.c_str());
+    folders.BindText(1, pattern);
+    bool success = sqlite3_step(folders.Raw()) == SQLITE_DONE;
+
+    if (success) {
+        const auto fileSql = std::string(
+            "INSERT INTO wit_search_page_cache(is_directory,item_id) "
+            "SELECT 0,f.id FROM files f JOIN folders p ON f.folder_id=p.id "
+            "WHERE f.name LIKE ? ESCAPE '\\' ") + OrderByFor(sort, false) + ";";
+        wit::storage::SQLiteStatement files(db, fileSql.c_str());
+        files.BindText(1, pattern);
+        success = sqlite3_step(files.Raw()) == SQLITE_DONE;
+    }
+    return FinishPageCache(db, success);
+}
+
+bool BuildAdvancedPageCache(
+    sqlite3* db, const AdvancedSearchExpression& expression, wit::core::FileSort sort) {
+    if (!ExecSql(db, "SAVEPOINT wit_search_cache;") || !ResetPageCache(db)) {
+        return FinishPageCache(db, false);
+    }
+
+    auto folderWhere = BuildAdvancedWhere(expression, true);
+    const auto folderSql = std::string(
+        "INSERT INTO wit_search_page_cache(is_directory,item_id) "
+        "SELECT 1,c.id FROM folders c LEFT JOIN folders p ON c.parent_folder_id=p.id WHERE ") +
+        folderWhere.whereClause + " " + OrderByFor(sort, true) + ";";
+    wit::storage::SQLiteStatement folders(db, folderSql.c_str());
+    BindAdvancedParams(folders, folderWhere.params);
+    bool success = sqlite3_step(folders.Raw()) == SQLITE_DONE;
+
+    if (success) {
+        auto fileWhere = BuildAdvancedWhere(expression, false);
+        const auto fileSql = std::string(
+            "INSERT INTO wit_search_page_cache(is_directory,item_id) "
+            "SELECT 0,f.id FROM files f JOIN folders p ON f.folder_id=p.id WHERE ") +
+            fileWhere.whereClause + " " + OrderByFor(sort, false) + ";";
+        wit::storage::SQLiteStatement files(db, fileSql.c_str());
+        BindAdvancedParams(files, fileWhere.params);
+        success = sqlite3_step(files.Raw()) == SQLITE_DONE;
+    }
+    return FinishPageCache(db, success);
+}
+
+std::vector<wit::core::FileEntry> ReadPageCache(sqlite3* db, int offset, int limit) {
+    std::vector<wit::core::FileEntry> entries;
+    if (!db || offset < 0 || limit <= 0) return entries;
+
+    constexpr const char* sql =
+        "SELECT id,disk_id,parent_path,name,extension,size,modified_at,attributes,is_directory,entry_type FROM ("
+        "SELECT r.position,c.id,c.disk_id,COALESCE(p.path,'') AS parent_path,c.name,'' AS extension,"
+        "c.content_size AS size,c.modified_at,c.attributes,1 AS is_directory,c.entry_type "
+        "FROM wit_search_page_cache r JOIN folders c ON r.is_directory=1 AND c.id=r.item_id "
+        "LEFT JOIN folders p ON c.parent_folder_id=p.id WHERE r.position>? AND r.position<=? "
+        "UNION ALL "
+        "SELECT r.position,f.id,f.disk_id,p.path AS parent_path,f.name,f.extension,f.size,"
+        "f.modified_at,f.attributes,0 AS is_directory,'file' AS entry_type "
+        "FROM wit_search_page_cache r JOIN files f ON r.is_directory=0 AND f.id=r.item_id "
+        "JOIN folders p ON f.folder_id=p.id WHERE r.position>? AND r.position<=?"
+        ") ORDER BY position;";
+    wit::storage::SQLiteStatement statement(db, sql);
+    const auto end = static_cast<long long>(offset) + limit;
+    statement.BindInt64(1, offset);
+    statement.BindInt64(2, end);
+    statement.BindInt64(3, offset);
+    statement.BindInt64(4, end);
+    entries.reserve(static_cast<std::size_t>(limit));
+    while (sqlite3_step(statement.Raw()) == SQLITE_ROW) {
+        wit::core::FileEntry entry;
+        PopulateDisplayEntry(entry, statement.Raw());
+        entries.push_back(std::move(entry));
+    }
+    return entries;
+}
 }
 
 SqliteSearchExecutor::SqliteSearchExecutor(sqlite3* db) : db_(db) {}
 
 void SqliteSearchExecutor::SetDatabase(sqlite3* db) {
-    cachedFolderCountTerm_.clear();
-    cachedFolderCount_ = 0;
-    hasCachedFolderCount_ = false;
+    pageCacheKey_.clear();
+    pageCacheValid_ = false;
     db_ = db;
 }
 
 int SqliteSearchExecutor::CountByName(const std::wstring& nameTerm) {
+    pageCacheValid_ = false;
     wit::storage::SQLiteStatement statement(db_,
         "SELECT (SELECT COUNT(*) FROM files WHERE name LIKE ? ESCAPE '\\') + "
         "(SELECT COUNT(*) FROM folders WHERE name LIKE ? ESCAPE '\\');");
@@ -203,106 +336,33 @@ int SqliteSearchExecutor::CountByName(const std::wstring& nameTerm) {
 
 std::vector<wit::core::FileEntry> SqliteSearchExecutor::PageByName(
     const std::wstring& nameTerm, int offset, int limit, wit::core::FileSort sort) {
-    std::vector<wit::core::FileEntry> files;
-    const auto pattern = ItemNameLikePattern(nameTerm);
+    if (!db_ || limit <= 0) return {};
     EnsureNaturalNoCaseCollation(db_);
 
-    if (!hasCachedFolderCount_ || cachedFolderCountTerm_ != nameTerm) {
-        wit::storage::SQLiteStatement folderCountStatement(db_,
-            "SELECT COUNT(*) FROM folders WHERE name LIKE ? ESCAPE '\\';");
-        folderCountStatement.BindText(1, pattern);
-        cachedFolderCount_ = sqlite3_step(folderCountStatement.Raw()) == SQLITE_ROW
-            ? sqlite3_column_int(folderCountStatement.Raw(), 0) : 0;
-        cachedFolderCountTerm_ = nameTerm;
-        hasCachedFolderCount_ = true;
+    const auto key = NameCacheKey(nameTerm, sort);
+    if (!pageCacheValid_ || pageCacheKey_ != key) {
+        pageCacheValid_ = BuildNamePageCache(db_, nameTerm, sort);
+        pageCacheKey_ = pageCacheValid_ ? key : std::string{};
     }
-    const int folderCount = cachedFolderCount_;
-
-    if (offset < folderCount && limit > 0) {
-        const auto sql = std::string(
-            "SELECT c.id,c.disk_id,COALESCE(p.path,''),c.name,'',c.content_size,c.modified_at,c.attributes,1,c.entry_type "
-            "FROM folders c LEFT JOIN folders p ON c.parent_folder_id=p.id "
-            "WHERE c.name LIKE ? ESCAPE '\\' ") + OrderByFor(sort, true) + "LIMIT ? OFFSET ?;";
-        wit::storage::SQLiteStatement folderStatement(db_, sql.c_str());
-        folderStatement.BindText(1, pattern);
-        folderStatement.BindInt64(2, limit);
-        folderStatement.BindInt64(3, offset);
-        while (sqlite3_step(folderStatement.Raw()) == SQLITE_ROW) {
-            wit::core::FileEntry file;
-            PopulateDisplayEntry(file, folderStatement.Raw());
-            files.push_back(file);
-        }
-    }
-
-    const int remaining = limit - static_cast<int>(files.size());
-    if (remaining > 0) {
-        const int fileOffset = (std::max)(0, offset - folderCount);
-        const auto sql = std::string(
-            "SELECT f.id,f.disk_id,p.path,f.name,f.extension,f.size,f.modified_at,f.attributes,0,'file' "
-            "FROM files f JOIN folders p ON f.folder_id=p.id "
-            "WHERE f.name LIKE ? ESCAPE '\\' ") + OrderByFor(sort, false) + "LIMIT ? OFFSET ?;";
-        wit::storage::SQLiteStatement fileStatement(db_, sql.c_str());
-        fileStatement.BindText(1, pattern);
-        fileStatement.BindInt64(2, remaining);
-        fileStatement.BindInt64(3, fileOffset);
-        while (sqlite3_step(fileStatement.Raw()) == SQLITE_ROW) {
-            wit::core::FileEntry file;
-            PopulateDisplayEntry(file, fileStatement.Raw());
-            files.push_back(file);
-        }
-    }
-    return files;
+    return pageCacheValid_ ? ReadPageCache(db_, offset, limit) : std::vector<wit::core::FileEntry>{};
 }
 
 int SqliteSearchExecutor::CountAdvanced(const AdvancedSearchExpression& expression) {
+    pageCacheValid_ = false;
     if (!db_ || expression.criteria.empty()) return 0;
     return CountAdvancedInTable(db_, expression, true) + CountAdvancedInTable(db_, expression, false);
 }
 
 std::vector<wit::core::FileEntry> SqliteSearchExecutor::PageAdvanced(
     const AdvancedSearchExpression& expression, int offset, int limit, wit::core::FileSort sort) {
-    std::vector<wit::core::FileEntry> files;
-    if (!db_ || expression.criteria.empty() || limit <= 0) return files;
+    if (!db_ || expression.criteria.empty() || limit <= 0) return {};
     EnsureNaturalNoCaseCollation(db_);
 
-    const int folderCount = CountAdvancedInTable(db_, expression, true);
-    if (offset < folderCount) {
-        auto folderSql = BuildAdvancedWhere(expression, true);
-        const std::string statementSql =
-            "SELECT c.id,c.disk_id,COALESCE(p.path,''),c.name,'',c.content_size,c.modified_at,c.attributes,1,c.entry_type "
-            "FROM folders c LEFT JOIN folders p ON c.parent_folder_id=p.id "
-            "WHERE " + folderSql.whereClause + " " + OrderByFor(sort, true) + "LIMIT ? OFFSET ?;";
-        wit::storage::SQLiteStatement folderStatement(db_, statementSql.c_str());
-        BindAdvancedParams(folderStatement, folderSql.params);
-        const int paramStart = static_cast<int>(folderSql.params.size()) + 1;
-        folderStatement.BindInt64(paramStart, limit);
-        folderStatement.BindInt64(paramStart + 1, offset);
-        while (sqlite3_step(folderStatement.Raw()) == SQLITE_ROW) {
-            wit::core::FileEntry file;
-            PopulateDisplayEntry(file, folderStatement.Raw());
-            files.push_back(file);
-        }
+    const auto key = AdvancedCacheKey(expression, sort);
+    if (!pageCacheValid_ || pageCacheKey_ != key) {
+        pageCacheValid_ = BuildAdvancedPageCache(db_, expression, sort);
+        pageCacheKey_ = pageCacheValid_ ? key : std::string{};
     }
-
-    const int remaining = limit - static_cast<int>(files.size());
-    if (remaining > 0) {
-        const int fileOffset = (std::max)(0, offset - folderCount);
-        auto fileSql = BuildAdvancedWhere(expression, false);
-        const std::string statementSql =
-            "SELECT f.id,f.disk_id,p.path,f.name,f.extension,f.size,f.modified_at,f.attributes,0,'file' "
-            "FROM files f JOIN folders p ON f.folder_id=p.id "
-            "WHERE " + fileSql.whereClause + " " + OrderByFor(sort, false) + "LIMIT ? OFFSET ?;";
-        wit::storage::SQLiteStatement fileStatement(db_, statementSql.c_str());
-        BindAdvancedParams(fileStatement, fileSql.params);
-        const int paramStart = static_cast<int>(fileSql.params.size()) + 1;
-        fileStatement.BindInt64(paramStart, remaining);
-        fileStatement.BindInt64(paramStart + 1, fileOffset);
-        while (sqlite3_step(fileStatement.Raw()) == SQLITE_ROW) {
-            wit::core::FileEntry file;
-            PopulateDisplayEntry(file, fileStatement.Raw());
-            files.push_back(file);
-        }
-    }
-    return files;
+    return pageCacheValid_ ? ReadPageCache(db_, offset, limit) : std::vector<wit::core::FileEntry>{};
 }
 }

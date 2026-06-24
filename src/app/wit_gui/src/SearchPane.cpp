@@ -280,7 +280,7 @@ void SearchDialog::Initialize() {
     ListView_InsertColumn(results_, 4, &column);
     UpdateSortIndicators();
 
-    SetDlgItemTextW(IDC_SEARCH_SUMMARY, L"Enter part of a file or folder name to search.");
+    SetDlgItemTextW(IDC_SEARCH_SUMMARY, L"Enter a name to search for. Use * to match any characters.");
 }
 
 std::wstring SearchDialog::DialogText(int controlId) const {
@@ -305,7 +305,7 @@ void SearchDialog::ShowTabPage(int index) {
     for (int control : quickControls) ::ShowWindow(GetDlgItem(control), advanced ? SW_HIDE : SW_SHOW);
     for (int control : advancedControls) ::ShowWindow(GetDlgItem(control), advanced ? SW_SHOW : SW_HIDE);
     SetDlgItemTextW(IDC_SEARCH_SUMMARY,
-        advanced ? L"Enter advanced search criteria." : L"Enter part of a file or folder name to search.");
+        advanced ? L"Enter advanced search criteria." : L"Enter a name to search for. Use * to match any characters.");
 }
 
 void SearchDialog::Search() {
@@ -407,8 +407,8 @@ void SearchDialog::PreloadRange(int firstRow, int lastRow) {
     firstRow = std::clamp(firstRow, 0, total_ - 1);
     lastRow = std::clamp(lastRow, firstRow, total_ - 1);
 
-    const int firstPage = (std::max)(0, (firstRow / PageSize) - 1);
-    const int lastPage = (std::min)((total_ - 1) / PageSize, (lastRow / PageSize) + 1);
+    const int firstPage = firstRow / PageSize;
+    const int lastPage = lastRow / PageSize;
     for (int page = firstPage; page <= lastPage; ++page) {
         CachePage(page * PageSize);
     }

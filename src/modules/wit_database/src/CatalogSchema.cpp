@@ -50,10 +50,6 @@ bool ExecSqlResource(SqliteConnection& connection, int resourceId) {
     return !sql.empty() && connection.Exec(sql.c_str());
 }
 
-bool EnsureDiskGroupParentColumn(SqliteConnection& connection) {
-    if (TableHasColumn(connection.Raw(), "disk_groups", "parent_group_id")) return true;
-    return connection.Exec("ALTER TABLE disk_groups ADD COLUMN parent_group_id INTEGER;");
-}
 }
 
 bool CatalogSchema::Initialize(SqliteConnection& connection) {
@@ -62,7 +58,6 @@ bool CatalogSchema::Initialize(SqliteConnection& connection) {
         if (!ExecSqlResource(connection, tableResource)) return false;
     }
     return connection.Exec("INSERT OR IGNORE INTO catalog_metadata(id,description) VALUES(1,'');") &&
-        EnsureDiskGroupParentColumn(connection) &&
         EnsureIndexes(connection);
 }
 

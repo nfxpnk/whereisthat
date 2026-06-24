@@ -1,9 +1,12 @@
 #include "wit_gui/BrowserController.h"
 #include <algorithm>
 #include <format>
+#include <optional>
 #include <wit_infra/ScopeGuard.h>
+#include <wit_infra/AppSettings.h>
 #include <wit_infra/Logging.h>
 #include <wit_infra/PathHelpers.h>
+#include <wit_infra/SaveProfiler.h>
 #include "wit_infra/StringUtils.h"
 #include <wit_infra/Win32Helpers.h>
 
@@ -20,6 +23,40 @@ std::wstring CompactSize(std::uint64_t bytes) {
         if (end == decimal + 1) result.erase(decimal, 1);
     }
     return result;
+}
+
+int SettingsColumnFor(wit::core::FileSortColumn column) {
+    switch (column) {
+    case wit::core::FileSortColumn::Type: return 1;
+    case wit::core::FileSortColumn::Size: return 2;
+    case wit::core::FileSortColumn::Path: return 3;
+    case wit::core::FileSortColumn::Modified: return 4;
+    case wit::core::FileSortColumn::Name:
+    default: return 0;
+    }
+}
+
+std::optional<int> RootColumnForToolbarSort(wit::core::FileSortColumn column) {
+    switch (column) {
+    case wit::core::FileSortColumn::Name: return 0;
+    case wit::core::FileSortColumn::Type: return 1;
+    case wit::core::FileSortColumn::Size: return 2;
+    case wit::core::FileSortColumn::Modified: return 4;
+    default: return std::nullopt;
+    }
+}
+
+wit::core::FileSort ToolbarSortFromRootSort(wit::core::BrowserRootSort sort) {
+    wit::core::FileSort toolbarSort{};
+    toolbarSort.ascending = sort.ascending;
+    switch (sort.column) {
+    case 0: toolbarSort.column = wit::core::FileSortColumn::Name; break;
+    case 1: toolbarSort.column = wit::core::FileSortColumn::Type; break;
+    case 2: toolbarSort.column = wit::core::FileSortColumn::Size; break;
+    case 4: toolbarSort.column = wit::core::FileSortColumn::Modified; break;
+    default: toolbarSort.column = wit::core::FileSortColumn::Path; break;
+    }
+    return toolbarSort;
 }
 
 }
@@ -101,6 +138,10 @@ void BrowserController::AddCatalog(wit::core::CatalogId id, const std::wstring& 
 
 void BrowserController::RefreshCatalog(wit::core::CatalogId id, const std::wstring& label,
     wit::storage::Database* database, bool select) {
+    const auto timer = wit::infra::CurrentSaveProfile()
+        ? std::make_optional<wit::infra::ScopedSaveTimer>(
+            wit::infra::CurrentSaveProfile()->timingsNs.browserRefreshCatalog)
+        : std::nullopt;
     if (!database || !database->IsOpen()) return;
     if (hasTarget_ && currentTarget_.catalogId == id) {
         files_.SetLocation({}, nullptr);
@@ -110,9 +151,11 @@ void BrowserController::RefreshCatalog(wit::core::CatalogId id, const std::wstri
 }
 
 void BrowserController::MoveDiskToGroup(wit::core::CatalogId id, std::int64_t diskId,
-    std::int64_t diskGroupId, wit::storage::Database* database) {
+    std::int64_t diskGroupId, wit::storage::Database* database, bool databaseReflectsChange) {
     if (!database || !database->IsOpen()) return;
-    if (hasTarget_ && currentTarget_.catalogId == id) {
+    const bool clearCurrentList = hasTarget_ && currentTarget_.catalogId == id &&
+        (currentTarget_.location.isRoot || currentTarget_.location.isDiskGroup);
+    if (clearCurrentList) {
         files_.SetLocation({}, nullptr);
     }
     std::wstring diskGroupName;
@@ -134,8 +177,33 @@ void BrowserController::MoveDiskToGroup(wit::core::CatalogId id, std::int64_t di
         return;
     }
     UpdateMovedDiskTargets(id, diskId, diskGroupId, diskGroupName);
-    if (hasTarget_ && currentTarget_.catalogId == id) {
+    if (databaseReflectsChange && hasTarget_ && currentTarget_.catalogId == id) {
         files_.SetLocation(currentTarget_.location, &database->BrowserRepository());
+        const auto address = AddressFor(currentTarget_);
+        SetWindowTextW(addressHandle_, address.c_str());
+    } else if (hasTarget_ && currentTarget_.catalogId == id) {
+        const auto address = AddressFor(currentTarget_);
+        SetWindowTextW(addressHandle_, address.c_str());
+    }
+}
+
+void BrowserController::MoveDiskGroupToGroup(wit::core::CatalogId id, std::int64_t diskGroupId,
+    std::int64_t parentGroupId, bool databaseReflectsChange) {
+    const bool clearCurrentList = hasTarget_ && currentTarget_.catalogId == id &&
+        (currentTarget_.location.isRoot || currentTarget_.location.isDiskGroup);
+    if (clearCurrentList) {
+        files_.SetLocation({}, nullptr);
+    }
+    if (!tree_.MoveDiskGroupToGroup(id, diskGroupId, parentGroupId)) {
+        WIT_LOG_DEBUG(std::format(L"move disk group tree update skipped catalogId={} groupId={} targetParentGroupId={}",
+            id, diskGroupId, parentGroupId));
+    }
+    if (databaseReflectsChange && hasTarget_ && currentTarget_.catalogId == id) {
+        auto* database = databaseResolver_ ? databaseResolver_(id) : nullptr;
+        if (database && database->IsOpen()) files_.SetLocation(currentTarget_.location, &database->BrowserRepository());
+        const auto address = AddressFor(currentTarget_);
+        SetWindowTextW(addressHandle_, address.c_str());
+    } else if (hasTarget_ && currentTarget_.catalogId == id) {
         const auto address = AddressFor(currentTarget_);
         SetWindowTextW(addressHandle_, address.c_str());
     }
@@ -269,21 +337,130 @@ LRESULT BrowserController::OnFileCacheHint(LPNMHDR header) {
     return 0;
 }
 
+wit::core::FileSort BrowserController::ContentSort() const {
+    return files_.Sort();
+}
+
+wit::core::FileSort BrowserController::ToolbarSort() const {
+    return files_.ShowsBrowserItems() ? ToolbarSortFromRootSort(files_.RootSort()) : files_.Sort();
+}
+
+bool BrowserController::SetContentSort(wit::core::FileSort sort, bool persist) {
+    const bool applied = files_.SetSort(sort);
+    if (persist) SaveContentSortPreference(files_.Sort());
+    return applied;
+}
+
+bool BrowserController::SetToolbarSort(wit::core::FileSort sort, bool persist) {
+    if (!files_.ShowsBrowserItems()) return SetContentSort(sort, persist);
+    auto rootSort = files_.RootSort();
+    if (const auto rootColumn = RootColumnForToolbarSort(sort.column)) {
+        rootSort.column = *rootColumn;
+    }
+    rootSort.ascending = sort.ascending;
+    return files_.SetRootSort(rootSort);
+}
+
+void BrowserController::SaveContentSortPreference(wit::core::FileSort sort) const {
+    auto settings = wit::platform::LoadAppSettings();
+    settings.contentSortColumn = SettingsColumnFor(sort.column);
+    settings.contentSortReverse = !sort.ascending;
+    (void)wit::platform::SaveAppSettings(settings);
+}
+
+LRESULT BrowserController::OnFileColumnClick(LPNMHDR header) {
+    const auto* click = reinterpret_cast<NMLISTVIEW*>(header);
+    if (click && files_.ToggleSortForColumn(click->iSubItem)) {
+        if (!files_.ShowsBrowserItems()) SaveContentSortPreference(files_.Sort());
+        return 0;
+    }
+    return 0;
+}
+
 LRESULT BrowserController::OnFileActivate(LPNMHDR header) {
     if (!hasTarget_) return 0;
     const auto* activation = reinterpret_cast<NMITEMACTIVATE*>(header);
     if (activation->iItem < 0) return 0;
+    if (GoToFileListFolder(activation->iItem)) return 0;
+    return 0;
+}
+
+bool BrowserController::IsFileListFolder(int row) {
+    if (!hasTarget_ || currentTarget_.location.isRoot || currentTarget_.location.isDiskGroup) return false;
+    const auto* entry = files_.EntryAt(row);
+    return entry && entry->isDirectory && !entry->isArchive;
+}
+
+bool BrowserController::IsFileListFile(int row) {
+    if (!hasTarget_ || currentTarget_.location.isRoot || currentTarget_.location.isDiskGroup) return false;
+    const auto* entry = files_.EntryAt(row);
+    return entry && !entry->isDirectory;
+}
+
+std::optional<wit::core::BrowserTarget> BrowserController::FileListBrowserTargetForRow(int row) {
+    if (!hasTarget_ || row < 0 || (!currentTarget_.location.isRoot && !currentTarget_.location.isDiskGroup)) {
+        return std::nullopt;
+    }
+
+    const auto* item = files_.BrowserItemAt(row);
+    if (!item) return std::nullopt;
+
+    auto target = currentTarget_;
+    target.location.isRoot = false;
+    if (item->type == wit::core::BrowserItemType::DiskGroup) {
+        target.location.isDiskGroup = true;
+        target.location.diskGroupId = item->group.id;
+        target.location.diskGroupName = item->group.name;
+        return target;
+    }
+
+    const auto& disk = item->disk;
+    target.location.isDiskGroup = false;
+    target.location.diskGroupId = currentTarget_.location.isDiskGroup ? currentTarget_.location.diskGroupId : 0;
+    target.location.diskGroupName = currentTarget_.location.isDiskGroup ? currentTarget_.location.diskGroupName : L"";
+    target.location.sourceId = disk.id;
+    target.location.sourceName = disk.diskName;
+    target.location.sourceRoot = disk.sourcePath;
+    target.location.path = disk.sourcePath;
+    return target;
+}
+
+std::optional<std::wstring> BrowserController::ExplorerTargetForFocusedItem(bool& selectItem) {
+    selectItem = false;
+    const int row = filesHandle_ ? ListView_GetNextItem(filesHandle_, -1, LVNI_FOCUSED) : -1;
+    if (row >= 0) {
+        if (const auto* item = files_.BrowserItemAt(row)) {
+            return item->type == wit::core::BrowserItemType::Disk ? std::optional(item->disk.sourcePath) : std::nullopt;
+        }
+        if (const auto* entry = files_.EntryAt(row)) {
+            if (entry->isDirectory && !entry->isArchive) {
+                return wit::platform::Join(entry->parentPath, entry->name);
+            }
+            selectItem = true;
+            return wit::platform::Join(entry->parentPath, entry->name);
+        }
+    }
+
+    const auto target = SelectedTreeTarget();
+    if (!target || target->location.isRoot || target->location.isDiskGroup || target->location.path.empty()) {
+        return std::nullopt;
+    }
+    return target->location.path;
+}
+
+bool BrowserController::GoToFileListFolder(int row) {
+    if (!hasTarget_ || row < 0) return false;
     auto next = currentTarget_;
     next.location.isRoot = false;
     if (currentTarget_.location.isRoot || currentTarget_.location.isDiskGroup) {
-        const auto* item = files_.BrowserItemAt(activation->iItem);
-        if (!item) return 0;
+        const auto* item = files_.BrowserItemAt(row);
+        if (!item) return false;
         if (item->type == wit::core::BrowserItemType::DiskGroup) {
             next.location.isDiskGroup = true;
             next.location.diskGroupId = item->group.id;
             next.location.diskGroupName = item->group.name;
             NavigateTo(next, true);
-            return 0;
+            return true;
         }
         const auto* disk = &item->disk;
         next.location.isDiskGroup = false;
@@ -292,13 +469,13 @@ LRESULT BrowserController::OnFileActivate(LPNMHDR header) {
         next.location.sourceRoot = disk->sourcePath;
         next.location.path = disk->sourcePath;
     } else {
-        const auto* entry = files_.EntryAt(activation->iItem);
-        if (!entry || !entry->isDirectory) return 0;
+        const auto* entry = files_.EntryAt(row);
+        if (!entry || !entry->isDirectory) return false;
         next.location = currentTarget_.location;
         next.location.path = wit::platform::Join(currentTarget_.location.path, entry->name);
     }
     NavigateTo(next, true);
-    return 0;
+    return true;
 }
 
 bool BrowserController::FileItemStateChanged(LPNMHDR header) const {

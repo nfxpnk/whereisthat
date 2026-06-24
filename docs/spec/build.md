@@ -41,11 +41,23 @@ SQLite must remain dynamically deployed:
 - Do not statically compile SQLite into `WhereIsThat.exe`.
 - Embed the root `sql` schema files into `WhereIsThat.exe` as resources at build time.
 
+## libarchive Link And Deployment Rule
+
+libarchive is the supported native archive reader for opt-in archive scanning:
+
+- Include `third_party/libarchive/include/archive.h` and related headers when compiling archive scan code.
+- Link with `third_party/libarchive/lib/archive.lib` as the MSVC import library.
+- Keep the libarchive runtime DLLs under `third_party/libarchive/bin` as separately deployed DLLs.
+- Copy the libarchive runtime DLLs next to `WhereIsThat.exe` after every successful build.
+- Do not make archive scanning depend on vcpkg, CMake, or a system-wide libarchive installation.
+
 The expected release runtime output includes:
 
 ```text
 x64/Release/WhereIsThat.exe
 x64/Release/sqlite3.dll
+x64/Release/archive.dll
+x64/Release/<libarchive dependency DLLs>
 ```
 
 ## Build Acceptance
@@ -54,7 +66,8 @@ A build is acceptable when all of the following are true:
 
 - The solution builds successfully with MSBuild using `Release|x64` and MSVC v143.
 - The project compiles as C++20 and targets the Windows desktop x64 platform only.
-- The output contains `WhereIsThat.exe` and a separate `sqlite3.dll` in the same directory.
+- The output contains `WhereIsThat.exe`, a separate `sqlite3.dll`, and the libarchive runtime DLLs in the same directory.
 - Linking resolves SQLite through `sqlite3.lib`, and application storage compilation uses `sqlite3.h`.
+- Linking resolves libarchive through `archive.lib`, and archive scan compilation uses the vendored libarchive headers.
 - The application starts on a supported Windows x64 system with no framework runtime such as .NET, WPF, Qt, Electron, or Python required; WTL/ATL integration adds no separate deployed UI runtime.
 - No CMake or vcpkg files or steps become required for the supported build.

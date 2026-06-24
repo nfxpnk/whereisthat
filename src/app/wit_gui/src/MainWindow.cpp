@@ -4,11 +4,14 @@
 #include <format>
 #include <optional>
 #include <utility>
+#include <Shellapi.h>
 #include "wit_gui/AddDiskDialog.h"
 #include "wit_gui/AboutDialog.h"
+#include "wit_gui/BrowserItemIcons.h"
 #include "wit_gui/CatalogFileDialog.h"
 #include "wit_gui/GeneralSettingsDialog.h"
 #include <wit_infra/Logging.h>
+#include <wit_infra/SaveProfiler.h>
 #include "wit_scanner/ScanRequest.h"
 #include "resource.h"
 
@@ -19,6 +22,21 @@ bool IsBlank(const std::wstring& value) {
         if (!iswspace(character)) return false;
     }
     return true;
+}
+
+std::optional<wit::core::FileSortColumn> SortColumnForToolbarCommand(int id) {
+    switch (id) {
+    case ID_TOOLBAR_SORT_NAME:
+        return wit::core::FileSortColumn::Name;
+    case ID_TOOLBAR_SORT_EXTENSION:
+        return wit::core::FileSortColumn::Type;
+    case ID_TOOLBAR_SORT_SIZE:
+        return wit::core::FileSortColumn::Size;
+    case ID_TOOLBAR_SORT_DATE:
+        return wit::core::FileSortColumn::Modified;
+    default:
+        return std::nullopt;
+    }
 }
 
 INT_PTR CALLBACK DiskGroupDialogProc(HWND dialog, UINT message, WPARAM wparam, LPARAM lparam) {
@@ -80,6 +98,63 @@ wit::core::ScanRequest ToScanRequest(const wit::ui::AddNewDiskMediaResult& media
     };
 }
 
+void CenterWindowOnMonitor(HWND hwnd) {
+    if (!::IsWindow(hwnd)) return;
+
+    RECT windowRect{};
+    if (!::GetWindowRect(hwnd, &windowRect)) return;
+
+    const int width = windowRect.right - windowRect.left;
+    const int height = windowRect.bottom - windowRect.top;
+
+    const HWND owner = ::GetWindow(hwnd, GW_OWNER);
+    HWND centerOn = nullptr;
+    if (owner && ::IsWindow(owner) && !::IsIconic(owner)) {
+        centerOn = owner;
+    }
+
+    RECT centerRect{};
+    HMONITOR monitor{};
+    if (centerOn) {
+        ::GetWindowRect(centerOn, &centerRect);
+        monitor = ::MonitorFromWindow(centerOn, MONITOR_DEFAULTTONEAREST);
+    } else {
+        monitor = ::MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+    }
+
+    MONITORINFO monitorInfo{};
+    monitorInfo.cbSize = sizeof(monitorInfo);
+    if (!monitor || !::GetMonitorInfoW(monitor, &monitorInfo)) return;
+
+    const RECT area = monitorInfo.rcWork;
+    if (!centerOn) {
+        centerRect = area;
+    }
+
+    int x = ((centerRect.left + centerRect.right) / 2) - (width / 2);
+    int y = ((centerRect.top + centerRect.bottom) / 2) - (height / 2);
+
+    const int areaWidth = area.right - area.left;
+    if (width >= areaWidth) {
+        x = area.left;
+    } else if (x < area.left) {
+        x = area.left;
+    } else if (x + width > area.right) {
+        x = area.right - width;
+    }
+
+    const int areaHeight = area.bottom - area.top;
+    if (height >= areaHeight) {
+        y = area.top;
+    } else if (y < area.top) {
+        y = area.top;
+    } else if (y + height > area.bottom) {
+        y = area.bottom - height;
+    }
+
+    ::SetWindowPos(hwnd, nullptr, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+}
+
 std::vector<wit::ui::CatalogChoice> ToDialogCatalogChoices(const std::vector<wit::app::CatalogChoice>& choices) {
     std::vector<wit::ui::CatalogChoice> dialogChoices;
     dialogChoices.reserve(choices.size());
@@ -111,6 +186,24 @@ bool IsDiskMediaTarget(const wit::core::BrowserTarget& target) {
 
 bool IsDiskGroupTarget(const wit::core::BrowserTarget& target) {
     return !target.location.isRoot && target.location.isDiskGroup && target.location.diskGroupId != 0;
+}
+
+bool IsFolderTarget(const wit::core::BrowserTarget& target) {
+    const auto& location = target.location;
+    return !location.isRoot && !location.isDiskGroup && location.sourceId != 0 &&
+        location.path != location.sourceRoot;
+}
+
+bool IsArchiveTreeItem(HWND tree, HTREEITEM item) {
+    TVITEMW treeItem{};
+    treeItem.mask = TVIF_IMAGE;
+    treeItem.hItem = item;
+    return TreeView_GetItem(tree, &treeItem) &&
+        treeItem.iImage == wit::ui::BrowserArchiveImage;
+}
+
+void AppendDisabledMenuItem(HMENU menu, UINT_PTR id, LPCWSTR text) {
+    AppendMenuW(menu, MF_STRING | MF_GRAYED, id, text);
 }
 
 bool IsDescendantGroup(const std::vector<wit::core::DiskGroup>& groups, std::int64_t groupId,
@@ -181,6 +274,58 @@ bool PromptMoveDiskToGroup(HWND owner, const std::vector<wit::core::DiskGroup>& 
     return accepted;
 }
 
+bool DirectoryExists(const std::wstring& path) {
+    const DWORD attributes = ::GetFileAttributesW(path.c_str());
+    return attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+}
+
+std::wstring QuoteExplorerPath(const std::wstring& path) {
+    return L"\"" + path + L"\"";
+}
+
+void ShowFolderNotFound(HWND owner) {
+    ::MessageBoxW(owner,
+        L"Sorry, this folder does not exist any more on the media.\nPlease update data for this media.",
+        L"Folder not found", MB_OK | MB_ICONWARNING);
+}
+
+void ShowFileNotFound(HWND owner) {
+    ::MessageBoxW(owner,
+        L"Sorry, this file does not exist any more on the media.\nPlease update data for this media.",
+        L"File not found", MB_OK | MB_ICONWARNING);
+}
+
+void OpenFolderInExplorerOrAlert(HWND owner, const std::wstring& folder) {
+    if (folder.empty() || !DirectoryExists(folder)) {
+        ShowFolderNotFound(owner);
+        return;
+    }
+    const auto parameters = QuoteExplorerPath(folder);
+    const auto result = reinterpret_cast<INT_PTR>(
+        ::ShellExecuteW(owner, L"open", L"explorer.exe", parameters.c_str(), nullptr, SW_SHOWNORMAL));
+    if (result <= 32) ShowFolderNotFound(owner);
+}
+
+bool FileExists(const std::wstring& path) {
+    const DWORD attributes = ::GetFileAttributesW(path.c_str());
+    return attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_DIRECTORY) == 0;
+}
+
+void OpenInExplorerOrAlert(HWND owner, const std::wstring& path, bool selectItem) {
+    if (selectItem) {
+        if (path.empty() || !FileExists(path)) {
+            ShowFileNotFound(owner);
+            return;
+        }
+        const auto parameters = L"/select," + QuoteExplorerPath(path);
+        const auto result = reinterpret_cast<INT_PTR>(
+            ::ShellExecuteW(owner, L"open", L"explorer.exe", parameters.c_str(), nullptr, SW_SHOWNORMAL));
+        if (result <= 32) ShowFileNotFound(owner);
+        return;
+    }
+    OpenFolderInExplorerOrAlert(owner, path);
+}
+
 }
 
 bool MainFrame::Create() {
@@ -190,6 +335,7 @@ bool MainFrame::Create() {
         return false;
     }
     SetWindowPos(nullptr, 0, 0, 1100, 720, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+    CenterWindowOnMonitor(m_hWnd);
     m_hAccel = LoadAcceleratorsW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDR_MAINACCEL));
     return true;
 }
@@ -283,6 +429,7 @@ LRESULT MainFrame::OnDestroy(UINT, WPARAM, LPARAM, BOOL&) {
 
 LRESULT MainFrame::OnTreeSelectionChanged(int, LPNMHDR header, BOOL&) {
     ApplyControllerResult(controller_.SelectCatalog(browser_.OnTreeSelectionChanged(header)));
+    chrome_.UpdateSortToolbarButtons(browser_.ToolbarSort());
     return 0;
 }
 
@@ -302,8 +449,15 @@ LRESULT MainFrame::OnFileCacheHint(int, LPNMHDR header, BOOL&) {
     return browser_.OnFileCacheHint(header);
 }
 
+LRESULT MainFrame::OnFileColumnClick(int, LPNMHDR header, BOOL&) {
+    const auto result = browser_.OnFileColumnClick(header);
+    chrome_.UpdateSortToolbarButtons(browser_.ToolbarSort());
+    return result;
+}
+
 LRESULT MainFrame::OnFileActivate(int, LPNMHDR header, BOOL&) {
     const auto result = browser_.OnFileActivate(header);
+    chrome_.UpdateSortToolbarButtons(browser_.ToolbarSort());
     UpdateBrowserStatus();
     return result;
 }
@@ -313,6 +467,10 @@ MainFrame::MainFrame(std::wstring startupCatalogPath) : startupCatalogPath_(std:
 LRESULT MainFrame::OnFileItemChanged(int, LPNMHDR header, BOOL&) {
     if (browser_.FileItemStateChanged(header)) UpdateBrowserStatus();
     return 0;
+}
+
+LRESULT MainFrame::OnFileRightClick(int, LPNMHDR, BOOL&) {
+    return ShowListContextMenu();
 }
 
 LRESULT MainFrame::OnFileHeaderWidthChanged(int, LPNMHDR header, BOOL& handled) {
@@ -346,10 +504,13 @@ bool MainFrame::InitializeFrame() {
         chrome_.ForwardHandle(), chrome_.AddressHandle(),
         [this](wit::core::CatalogId id) { return controller_.WorkingDatabase(id); },
         [this](wit::core::CatalogId id) { return controller_.CatalogLabel(id); });
+    chrome_.UpdateSortToolbarButtons(browser_.ToolbarSort());
     browser_.Clear();
     ApplyControllerResult(std::move(initial));
+    chrome_.UpdateSortToolbarButtons(browser_.ToolbarSort());
     if (!startupCatalogPath_.empty()) {
         ApplyControllerResult(controller_.OpenCatalogPathSelected(startupCatalogPath_));
+        chrome_.UpdateSortToolbarButtons(browser_.ToolbarSort());
     }
     chrome_.UpdateProgramStatusLights();
     WIT_LOG_INFO(L"main frame initialization completed");
@@ -385,26 +546,75 @@ void MainFrame::OnAbout() {
     dialog.Show(m_hWnd);
 }
 
+void MainFrame::OpenFocusedItemInExplorer() {
+    bool selectItem{};
+    const auto target = browser_.ExplorerTargetForFocusedItem(selectItem);
+    if (!target) {
+        ShowFolderNotFound(m_hWnd);
+        return;
+    }
+    OpenInExplorerOrAlert(m_hWnd, *target, selectItem);
+}
+
 void MainFrame::HandleCommand(int id) {
     if (id == ID_FILE_NEWCATALOG) ApplyControllerResult(controller_.RequestNewCatalog());
     else if (id == ID_WIT_FILE_OPEN) ApplyControllerResult(controller_.RequestOpenCatalog());
     else if (id >= ID_FILE_RECENT_FIRST && id <= ID_FILE_RECENT_LAST) {
         ApplyControllerResult(controller_.RequestOpenRecentCatalog(
             static_cast<std::size_t>(id - ID_FILE_RECENT_FIRST)));
-    } else if (id == ID_WIT_FILE_SAVE) ApplyControllerResult(controller_.RequestSave());
+    } else if (id == ID_WIT_FILE_SAVE) {
+        wit::infra::SaveProfile profile;
+        profile.profileId = wit::infra::NextSaveProfileId();
+        profile.operation = L"saveCommand";
+        wit::infra::SaveProfileScope profileScope(profile);
+        {
+            wit::infra::ScopedSaveTimer totalTimer(profile.timingsNs.total);
+            wit::infra::ScopedSaveTimer commandTimer(profile.timingsNs.commandHandle);
+            ApplyControllerResult(controller_.RequestSave());
+        }
+        (void)wit::infra::WriteSaveProfileJson(profile);
+    } else if (id == ID_FILE_SAVEAS) {
+        ApplyControllerResult(controller_.RequestSaveAs());
+    }
     else if (id == ID_WIT_FILE_CLOSE) ApplyControllerResult(controller_.RequestCloseCatalog());
     else if (id == ID_EDIT_ADDDISKIMAGE) ApplyControllerResult(controller_.RequestAddOrUpdateMedia());
     else if (id == ID_TREE_CONTEXT_MOVE_TO_GROUP) OnMoveSelectedItemToGroup();
+    else if (id == ID_TREE_CONTEXT_DELETE_DISK_PLACEHOLDER) OnDeleteSelectedDisk();
+    else if (id == ID_TREE_CONTEXT_DELETE_GROUP_PLACEHOLDER) OnDeleteSelectedDiskGroup();
+    else if (id == ID_ACTIONS_OPEN_EXPLORER) OpenFocusedItemInExplorer();
     else if (id == ID_TREE_CONTEXT_ADD_NEW_DISK_GROUP_PLACEHOLDER) {
         std::wstring name;
-        if (PromptDiskGroupName(m_hWnd, name)) ApplyControllerResult(controller_.CreateDiskGroup(name));
+        if (PromptDiskGroupName(m_hWnd, name)) {
+            wit::infra::SaveProfile profile;
+            profile.profileId = wit::infra::NextSaveProfileId();
+            profile.operation = L"createDiskGroup";
+            wit::infra::SaveProfileScope profileScope(profile);
+            {
+                wit::infra::ScopedSaveTimer totalTimer(profile.timingsNs.total);
+                ApplyControllerResult(controller_.CreateDiskGroup(name));
+            }
+            (void)wit::infra::WriteSaveProfileJson(profile);
+        }
     }
     else if (id == ID_SEARCH_FOR_ITEMS) ApplyControllerResult(controller_.RequestSearch());
+    else if (const auto sortColumn = SortColumnForToolbarCommand(id)) {
+        auto sort = browser_.ToolbarSort();
+        sort.column = *sortColumn;
+        browser_.SetToolbarSort(sort, true);
+        chrome_.UpdateSortToolbarButtons(browser_.ToolbarSort());
+    } else if (id == ID_TOOLBAR_SORT_REVERSE) {
+        auto sort = browser_.ToolbarSort();
+        sort.ascending = !sort.ascending;
+        browser_.SetToolbarSort(sort, true);
+        chrome_.UpdateSortToolbarButtons(browser_.ToolbarSort());
+    }
     else if (id == IDC_BROWSER_BACK) {
         browser_.NavigateBack();
+        chrome_.UpdateSortToolbarButtons(browser_.ToolbarSort());
         UpdateBrowserStatus();
     } else if (id == IDC_BROWSER_FORWARD) {
         browser_.NavigateForward();
+        chrome_.UpdateSortToolbarButtons(browser_.ToolbarSort());
         UpdateBrowserStatus();
     } else if (id >= ID_OPTIONS_GENERAL_SETTINGS && id <= ID_OPTIONS_DESCRIPTION_SETTINGS) {
         switch (id) {
@@ -453,8 +663,17 @@ void MainFrame::OnMoveSelectedItemToGroup(std::optional<wit::core::BrowserTarget
     if (IsDiskMediaTarget(*target)) {
         if (!PromptMoveDiskToGroup(m_hWnd, groups, target->location.diskGroupId, 0, selectedGroupId)) return;
         if (selectedGroupId == target->location.diskGroupId) return;
-        ApplyControllerResult(controller_.MoveDiskToGroup(target->catalogId,
-            target->location.sourceId, selectedGroupId));
+        wit::infra::SaveProfile profile;
+        profile.profileId = wit::infra::NextSaveProfileId();
+        profile.catalogId = target->catalogId;
+        profile.operation = L"moveDiskToGroup";
+        wit::infra::SaveProfileScope profileScope(profile);
+        {
+            wit::infra::ScopedSaveTimer totalTimer(profile.timingsNs.total);
+            ApplyControllerResult(controller_.MoveDiskToGroup(target->catalogId,
+                target->location.sourceId, selectedGroupId));
+        }
+        (void)wit::infra::WriteSaveProfileJson(profile);
         return;
     }
 
@@ -468,8 +687,94 @@ void MainFrame::OnMoveSelectedItemToGroup(std::optional<wit::core::BrowserTarget
     if (!PromptMoveDiskToGroup(m_hWnd, groups, currentParentGroupId,
         target->location.diskGroupId, selectedGroupId)) return;
     if (selectedGroupId == currentParentGroupId) return;
-    ApplyControllerResult(controller_.MoveDiskGroupToGroup(target->catalogId,
-        target->location.diskGroupId, selectedGroupId));
+    wit::infra::SaveProfile profile;
+    profile.profileId = wit::infra::NextSaveProfileId();
+    profile.catalogId = target->catalogId;
+    profile.operation = L"moveDiskGroupToGroup";
+    wit::infra::SaveProfileScope profileScope(profile);
+    {
+        wit::infra::ScopedSaveTimer totalTimer(profile.timingsNs.total);
+        ApplyControllerResult(controller_.MoveDiskGroupToGroup(target->catalogId,
+            target->location.diskGroupId, selectedGroupId));
+    }
+    (void)wit::infra::WriteSaveProfileJson(profile);
+}
+
+void MainFrame::OnDeleteSelectedDisk(std::optional<wit::core::BrowserTarget> target) {
+    if (!target) target = browser_.SelectedTreeTarget();
+    if (!target || !IsDiskMediaTarget(*target)) return;
+    WIT_LOG_INFO(std::format(L"delete selected disk command catalogId={} diskId={}",
+        target->catalogId, target->location.sourceId));
+    auto* database = controller_.WorkingDatabase(target->catalogId);
+    if (!database || !database->IsEditable()) {
+        ::MessageBoxW(m_hWnd, L"Open an editable catalog before deleting this disk image.",
+            L"Delete Disk", MB_OK | MB_ICONINFORMATION);
+        return;
+    }
+
+    const auto message = std::format(
+        L"Delete '{}' from the catalog?\n\nThis removes the disk and all cataloged files, folders, "
+        L"and archive contents from the database. The original media files are not deleted.",
+        target->location.sourceName);
+    if (::MessageBoxW(m_hWnd, message.c_str(), L"Delete Disk",
+        MB_YESNO | MB_DEFBUTTON2 | MB_ICONWARNING) != IDYES) {
+        return;
+    }
+
+    wit::infra::SaveProfile profile;
+    profile.profileId = wit::infra::NextSaveProfileId();
+    profile.catalogId = target->catalogId;
+    profile.operation = L"deleteDisk";
+    wit::infra::SaveProfileScope profileScope(profile);
+    {
+        wit::infra::ScopedSaveTimer totalTimer(profile.timingsNs.total);
+        ApplyControllerResult(controller_.DeleteDisk(target->catalogId, target->location.sourceId));
+    }
+        (void)wit::infra::WriteSaveProfileJson(profile);
+}
+
+void MainFrame::OnDeleteSelectedDiskGroup(std::optional<wit::core::BrowserTarget> target) {
+    if (!target) target = browser_.SelectedTreeTarget();
+    if (!target || !IsDiskGroupTarget(*target)) return;
+    WIT_LOG_INFO(std::format(L"delete selected disk group command catalogId={} groupId={}",
+        target->catalogId, target->location.diskGroupId));
+    auto* database = controller_.WorkingDatabase(target->catalogId);
+    if (!database || !database->IsEditable()) {
+        ::MessageBoxW(m_hWnd, L"Open an editable catalog before deleting this disk group.",
+            L"Delete Disk Group", MB_OK | MB_ICONINFORMATION);
+        return;
+    }
+
+    const auto groups = database->GetDiskGroups();
+    std::wstring groupName;
+    for (const auto& group : groups) {
+        if (group.id == target->location.diskGroupId) {
+            groupName = group.name;
+            break;
+        }
+    }
+    if (groupName.empty()) return;
+
+    const auto message = std::format(
+        L"Delete the disk group '{}'?\n\n"
+        L"This removes the group from the catalog. "
+        L"Disk images in this group will not be affected.",
+        groupName);
+    if (::MessageBoxW(m_hWnd, message.c_str(), L"Delete Disk Group",
+        MB_YESNO | MB_DEFBUTTON2 | MB_ICONWARNING) != IDYES) {
+        return;
+    }
+
+    wit::infra::SaveProfile profile;
+    profile.profileId = wit::infra::NextSaveProfileId();
+    profile.catalogId = target->catalogId;
+    profile.operation = L"deleteDiskGroup";
+    wit::infra::SaveProfileScope profileScope(profile);
+    {
+        wit::infra::ScopedSaveTimer totalTimer(profile.timingsNs.total);
+        ApplyControllerResult(controller_.DeleteDiskGroup(target->catalogId, target->location.diskGroupId));
+    }
+    (void)wit::infra::WriteSaveProfileJson(profile);
 }
 
 LRESULT MainFrame::ShowTreeContextMenu() {
@@ -480,40 +785,265 @@ LRESULT MainFrame::ShowTreeContextMenu() {
     TVHITTESTINFO hitTest{};
     hitTest.pt = treePoint;
     const auto item = TreeView_HitTest(chrome_.TreeHandle(), &hitTest);
-    if (!item) return 0;
-    const auto target = browser_.TargetForTreeItem(item);
+    const auto target = item ? browser_.TargetForTreeItem(item) : std::nullopt;
     const auto menu = CreatePopupMenu();
     if (!menu) return 0;
-    if (target && (IsDiskMediaTarget(*target) || IsDiskGroupTarget(*target))) {
+
+    if (!target) {
+        AppendMenuW(menu, MF_STRING, ID_FILE_NEWCATALOG, L"Add New Catalog");
+        AppendMenuW(menu, MF_STRING, ID_WIT_FILE_OPEN, L"Open Catalog");
+    } else if (browser_.IsCatalogRoot(item)) {
+        AppendMenuW(menu, MF_STRING, ID_SEARCH_FIND_IN_CATALOG, L"Find in This Catalog");
+        AppendDisabledMenuItem(menu, ID_TREE_CONTEXT_USER_LIST_PLACEHOLDER, L"User List");
+        AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+        AppendMenuW(menu, MF_STRING, ID_ACTIONS_EDIT_DESCRIPTION, L"Edit Description");
+        AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+        AppendMenuW(menu, MF_STRING, ID_FILE_NEWCATALOG, L"Add New Catalog");
+        AppendMenuW(menu, MF_STRING, ID_WIT_FILE_OPEN, L"Open Catalog");
+        AppendMenuW(menu, MF_STRING, ID_WIT_FILE_SAVE, L"Save Catalog");
+        AppendMenuW(menu, MF_STRING, ID_FILE_REBUILD_DATABASE, L"Rebuild Catalog File");
+        AppendMenuW(menu, MF_STRING, ID_WIT_FILE_CLOSE, L"Close Catalog");
+        AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+        AppendMenuW(menu, MF_STRING, ID_EDIT_CATALOG_MANAGER, L"Catalog Manager");
+        AppendMenuW(menu, MF_STRING, ID_EDIT_CATALOG_SETUP, L"Catalog Setup");
+        AppendMenuW(menu, MF_STRING, ID_ACTIONS_PROPERTIES, L"Properties");
+        } else if (IsDiskGroupTarget(*target)) {
+        const bool groupEmpty = [&]() {
+            auto* db = controller_.WorkingDatabase(target->catalogId);
+            if (!db) return false;
+            return db->GetBrowserRootItemCount(target->location) == 0;
+        }();
         AppendMenuW(menu, MF_STRING, ID_TREE_CONTEXT_MOVE_TO_GROUP, L"Move to Group");
         AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+        AppendMenuW(menu, MF_STRING, ID_EDIT_ADDDISKIMAGE, L"Add New Disk Image");
+        AppendMenuW(menu, MF_STRING, ID_TREE_CONTEXT_ADD_NEW_DISK_GROUP_PLACEHOLDER, L"Add New Disk Group");
+        AppendDisabledMenuItem(menu, ID_TREE_CONTEXT_UPDATE_ALL_DISK_IMAGES_PLACEHOLDER, L"Update All Disk Images");
+        AppendDisabledMenuItem(menu, ID_TREE_CONTEXT_RENUMBER_DISKS_PLACEHOLDER, L"Renumber Disks");
+        if (groupEmpty) {
+            AppendMenuW(menu, MF_STRING, ID_TREE_CONTEXT_DELETE_GROUP_PLACEHOLDER, L"Delete Group");
+        } else {
+            AppendDisabledMenuItem(menu, ID_TREE_CONTEXT_DELETE_GROUP_PLACEHOLDER, L"Delete Group");
+        }
+        AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+        AppendDisabledMenuItem(menu, ID_TREE_CONTEXT_FIND_IN_DISK_GROUP_PLACEHOLDER, L"Find in This Disk Group");
+        AppendDisabledMenuItem(menu, ID_TREE_CONTEXT_USER_LIST_PLACEHOLDER, L"User List");
+        AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+        AppendDisabledMenuItem(menu, ID_TREE_CONTEXT_RENAME_PLACEHOLDER, L"Rename");
+        AppendDisabledMenuItem(menu, ID_TREE_CONTEXT_CHANGE_ICON_PLACEHOLDER, L"Change Icon");
+        AppendMenuW(menu, MF_STRING, ID_ACTIONS_EDIT_DESCRIPTION, L"Edit Description");
+        AppendDisabledMenuItem(menu, ID_TREE_CONTEXT_PLUGINS_PLACEHOLDER, L"Plugins");
+        AppendDisabledMenuItem(menu, ID_TREE_CONTEXT_ASSIGN_DISK_PICTURE_PLACEHOLDER, L"Assign Disk Picture");
+        AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+        AppendMenuW(menu, MF_STRING, ID_ACTIONS_PROPERTIES, L"Properties");
+    } else if (IsDiskMediaTarget(*target)) {
+        AppendMenuW(menu, MF_STRING, ID_TREE_CONTEXT_MOVE_TO_GROUP, L"Move to Group");
+        AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+        AppendMenuW(menu, MF_STRING, ID_TREE_CONTEXT_ADD_NEW_DISK_GROUP_PLACEHOLDER, L"Add New Disk Group");
+        AppendMenuW(menu, MF_STRING, ID_EDIT_ADDDISKIMAGE, L"Update Disk Image");
+        AppendDisabledMenuItem(menu, ID_TREE_CONTEXT_UPDATE_ALL_DISK_IMAGES_PLACEHOLDER, L"Update All Disk Images");
+        AppendDisabledMenuItem(menu, ID_SEARCH_COMPARE_MEDIA, L"Compare to Media");
+        AppendDisabledMenuItem(menu, ID_SEARCH_COMPARE_CATALOGED_DATA, L"Compare Cataloged Data");
+        AppendDisabledMenuItem(menu, ID_TREE_CONTEXT_RENUMBER_DISKS_PLACEHOLDER, L"Renumber Disks");
+        AppendMenuW(menu, MF_STRING, ID_TREE_CONTEXT_DELETE_DISK_PLACEHOLDER, L"Delete Disk");
+        AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+        AppendMenuW(menu, MF_STRING, ID_ACTIONS_OPEN_EXPLORER, L"Open in Explorer");
+        AppendDisabledMenuItem(menu, ID_TREE_CONTEXT_FIND_ON_DISK_PLACEHOLDER, L"Find on This Disk");
+        AppendDisabledMenuItem(menu, ID_SEARCH_FIND_SELECTED_ITEMS, L"Find Selected Items");
+        AppendDisabledMenuItem(menu, ID_TREE_CONTEXT_USER_LIST_PLACEHOLDER, L"User List");
+        AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+        AppendDisabledMenuItem(menu, ID_TREE_CONTEXT_RENAME_PLACEHOLDER, L"Rename");
+        AppendDisabledMenuItem(menu, ID_TREE_CONTEXT_CHANGE_VOLUME_LABEL_PLACEHOLDER, L"Change Volume Label");
+        AppendDisabledMenuItem(menu, ID_TREE_CONTEXT_CHANGE_ICON_PLACEHOLDER, L"Change Icon");
+        AppendMenuW(menu, MF_STRING, ID_ACTIONS_EDIT_DESCRIPTION, L"Edit Description");
+        AppendDisabledMenuItem(menu, ID_TREE_CONTEXT_PLUGINS_PLACEHOLDER, L"Plugins");
+        AppendDisabledMenuItem(menu, ID_TREE_CONTEXT_ASSIGN_DISK_PICTURE_PLACEHOLDER, L"Assign Disk Picture");
+        AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+        AppendMenuW(menu, MF_STRING, ID_ACTIONS_PROPERTIES, L"Properties");
+    } else if (IsFolderTarget(*target) && IsArchiveTreeItem(chrome_.TreeHandle(), item)) {
+        AppendDisabledMenuItem(menu, ID_SEARCH_COMPARE_CATALOGED_DATA, L"Compare Cataloged Data");
+        AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+        AppendDisabledMenuItem(menu, ID_ACTIONS_VIEW_FILE, L"View File");
+        AppendDisabledMenuItem(menu, ID_ACTIONS_LAUNCH_FILE, L"Launch File");
+        AppendMenuW(menu, MF_STRING, ID_ACTIONS_OPEN_EXPLORER, L"Open in Explorer");
+        AppendDisabledMenuItem(menu, ID_ACTIONS_FILE_MANAGEMENT, L"File Management");
+        AppendDisabledMenuItem(menu, ID_TREE_CONTEXT_FIND_IN_FOLDER_PLACEHOLDER, L"Find in This Folder");
+        AppendDisabledMenuItem(menu, ID_SEARCH_FIND_SELECTED_ITEMS, L"Find Selected Items");
+        AppendDisabledMenuItem(menu, ID_ACTIONS_REMOVE_FROM_CATALOG, L"Remove from Catalog");
+        AppendDisabledMenuItem(menu, ID_ACTIONS_REMOVE_ARCHIVE_CONTENTS, L"Remove Archive Contents");
+        AppendDisabledMenuItem(menu, ID_TREE_CONTEXT_USER_LIST_PLACEHOLDER, L"User List");
+        AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+        AppendDisabledMenuItem(menu, ID_TREE_CONTEXT_RENAME_IN_CATALOG_PLACEHOLDER, L"Rename in Catalog");
+        AppendDisabledMenuItem(menu, ID_TREE_CONTEXT_CHANGE_ICON_PLACEHOLDER, L"Change Icon");
+        AppendMenuW(menu, MF_STRING, ID_ACTIONS_EDIT_DESCRIPTION, L"Edit Description");
+        AppendDisabledMenuItem(menu, ID_TREE_CONTEXT_PLUGINS_PLACEHOLDER, L"Plugins");
+        AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+        AppendMenuW(menu, MF_STRING, ID_ACTIONS_PROPERTIES, L"Properties");
+    } else if (IsFolderTarget(*target)) {
+        AppendDisabledMenuItem(menu, ID_TREE_CONTEXT_UPDATE_THIS_FOLDER_PLACEHOLDER, L"Update This Folder");
+        AppendDisabledMenuItem(menu, ID_SEARCH_COMPARE_MEDIA, L"Compare to Media");
+        AppendDisabledMenuItem(menu, ID_SEARCH_COMPARE_CATALOGED_DATA, L"Compare Cataloged Data");
+        AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+        AppendMenuW(menu, MF_STRING, ID_ACTIONS_OPEN_EXPLORER, L"Open in Explorer");
+        AppendDisabledMenuItem(menu, ID_ACTIONS_FILE_MANAGEMENT, L"File Management");
+        AppendDisabledMenuItem(menu, ID_TREE_CONTEXT_FIND_IN_FOLDER_PLACEHOLDER, L"Find in This Folder");
+        AppendDisabledMenuItem(menu, ID_SEARCH_FIND_SELECTED_ITEMS, L"Find Selected Items");
+        AppendDisabledMenuItem(menu, ID_ACTIONS_REMOVE_FROM_CATALOG, L"Remove from Catalog");
+        AppendDisabledMenuItem(menu, ID_TREE_CONTEXT_USER_LIST_PLACEHOLDER, L"User List");
+        AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+        AppendDisabledMenuItem(menu, ID_TREE_CONTEXT_RENAME_IN_CATALOG_PLACEHOLDER, L"Rename in Catalog");
+        AppendDisabledMenuItem(menu, ID_TREE_CONTEXT_CHANGE_ICON_PLACEHOLDER, L"Change Icon");
+        AppendMenuW(menu, MF_STRING, ID_ACTIONS_EDIT_DESCRIPTION, L"Edit Description");
+        AppendDisabledMenuItem(menu, ID_TREE_CONTEXT_PLUGINS_PLACEHOLDER, L"Plugins");
+        AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+        AppendMenuW(menu, MF_STRING, ID_ACTIONS_PROPERTIES, L"Properties");
     }
-    AppendMenuW(menu, MF_STRING, ID_EDIT_ADDDISKIMAGE, L"Add New Disk Image");
-    AppendMenuW(menu, MF_STRING, ID_TREE_CONTEXT_ADD_NEW_DISK_GROUP_PLACEHOLDER, L"Add New Disk Group");
-    AppendMenuW(menu, MF_STRING, ID_TREE_CONTEXT_UPDATE_ALL_DISK_IMAGES_PLACEHOLDER, L"Update All Disk Images");
-    AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-    AppendMenuW(menu, MF_STRING, ID_SEARCH_FIND_IN_CATALOG, L"Find in This Catalog");
-    AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-    AppendMenuW(menu, MF_STRING, ID_ACTIONS_EDIT_DESCRIPTION, L"Edit Description");
-    AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-    AppendMenuW(menu, MF_STRING, ID_FILE_NEWCATALOG, L"Add New Catalog");
-    AppendMenuW(menu, MF_STRING, ID_WIT_FILE_OPEN, L"Open Catalog");
-    AppendMenuW(menu, MF_STRING, ID_WIT_FILE_SAVE, L"Save Catalog");
-    AppendMenuW(menu, MF_STRING, ID_FILE_REBUILD_DATABASE, L"Rebuild Catalog File");
-    if (browser_.IsCatalogRoot(item)) AppendMenuW(menu, MF_STRING, ID_WIT_FILE_CLOSE, L"Close Catalog");
-    AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-    AppendMenuW(menu, MF_STRING, ID_EDIT_CATALOG_MANAGER, L"Catalog Manager");
-    AppendMenuW(menu, MF_STRING, ID_EDIT_CATALOG_SETUP, L"Catalog Setup");
-    AppendMenuW(menu, MF_STRING, ID_ACTIONS_PROPERTIES, L"Properties");
+
     const auto command = TrackPopupMenuEx(menu, TPM_RETURNCMD | TPM_LEFTALIGN | TPM_TOPALIGN,
         screenPoint.x, screenPoint.y, m_hWnd, nullptr);
     DestroyMenu(menu);
-    if (command == ID_TREE_CONTEXT_MOVE_TO_GROUP) OnMoveSelectedItemToGroup(target);
+        if (command == ID_TREE_CONTEXT_MOVE_TO_GROUP) OnMoveSelectedItemToGroup(target);
+    else if (command == ID_TREE_CONTEXT_DELETE_DISK_PLACEHOLDER) OnDeleteSelectedDisk(target);
+    else if (command == ID_TREE_CONTEXT_DELETE_GROUP_PLACEHOLDER) OnDeleteSelectedDiskGroup(target);
+    else if (command == ID_ACTIONS_OPEN_EXPLORER && target) {
+        OpenInExplorerOrAlert(m_hWnd, target->location.path, IsArchiveTreeItem(chrome_.TreeHandle(), item));
+    }
     else if (command) HandleCommand(command);
     return 0;
 }
 
+LRESULT MainFrame::ShowListContextMenu() {
+    POINT screenPoint{};
+    GetCursorPos(&screenPoint);
+    auto listPoint = screenPoint;
+    ::ScreenToClient(chrome_.FilesHandle(), &listPoint);
+
+    LVHITTESTINFO hitTest{};
+    hitTest.pt = listPoint;
+    const int row = ListView_HitTest(chrome_.FilesHandle(), &hitTest);
+    if (row < 0) return 0;
+    const auto listTarget = browser_.FileListBrowserTargetForRow(row);
+    const bool isFolder = browser_.IsFileListFolder(row);
+    const bool isFile = browser_.IsFileListFile(row);
+    if (!listTarget && !isFolder && !isFile) return 0;
+
+    ListView_SetItemState(chrome_.FilesHandle(), -1, 0, LVIS_SELECTED | LVIS_FOCUSED);
+    ListView_SetItemState(chrome_.FilesHandle(), row, LVIS_SELECTED | LVIS_FOCUSED,
+        LVIS_SELECTED | LVIS_FOCUSED);
+
+    const auto menu = CreatePopupMenu();
+    if (!menu) return 0;
+        if (listTarget && IsDiskGroupTarget(*listTarget)) {
+        const bool groupEmpty = [&]() {
+            auto* db = controller_.WorkingDatabase(listTarget->catalogId);
+            if (!db) return false;
+            return db->GetBrowserRootItemCount(listTarget->location) == 0;
+        }();
+        AppendMenuW(menu, MF_STRING, ID_TREE_CONTEXT_MOVE_TO_GROUP, L"Move to Group");
+        AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+        AppendMenuW(menu, MF_STRING, ID_EDIT_ADDDISKIMAGE, L"Add New Disk Image");
+        AppendMenuW(menu, MF_STRING, ID_TREE_CONTEXT_ADD_NEW_DISK_GROUP_PLACEHOLDER, L"Add New Disk Group");
+        AppendDisabledMenuItem(menu, ID_TREE_CONTEXT_UPDATE_ALL_DISK_IMAGES_PLACEHOLDER, L"Update All Disk Images");
+        AppendDisabledMenuItem(menu, ID_TREE_CONTEXT_RENUMBER_DISKS_PLACEHOLDER, L"Renumber Disks");
+        if (groupEmpty) {
+            AppendMenuW(menu, MF_STRING, ID_TREE_CONTEXT_DELETE_GROUP_PLACEHOLDER, L"Delete Group");
+        } else {
+            AppendDisabledMenuItem(menu, ID_TREE_CONTEXT_DELETE_GROUP_PLACEHOLDER, L"Delete Group");
+        }
+        AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+        AppendDisabledMenuItem(menu, ID_TREE_CONTEXT_FIND_IN_DISK_GROUP_PLACEHOLDER, L"Find in This Disk Group");
+        AppendDisabledMenuItem(menu, ID_TREE_CONTEXT_USER_LIST_PLACEHOLDER, L"User List");
+        AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+        AppendDisabledMenuItem(menu, ID_TREE_CONTEXT_RENAME_PLACEHOLDER, L"Rename");
+        AppendDisabledMenuItem(menu, ID_TREE_CONTEXT_CHANGE_ICON_PLACEHOLDER, L"Change Icon");
+        AppendMenuW(menu, MF_STRING, ID_ACTIONS_EDIT_DESCRIPTION, L"Edit Description");
+        AppendDisabledMenuItem(menu, ID_TREE_CONTEXT_PLUGINS_PLACEHOLDER, L"Plugins");
+        AppendDisabledMenuItem(menu, ID_TREE_CONTEXT_ASSIGN_DISK_PICTURE_PLACEHOLDER, L"Assign Disk Picture");
+        AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+        AppendMenuW(menu, MF_STRING, ID_ACTIONS_PROPERTIES, L"Properties");
+    } else if (listTarget && IsDiskMediaTarget(*listTarget)) {
+        AppendMenuW(menu, MF_STRING, ID_TREE_CONTEXT_MOVE_TO_GROUP, L"Move to Group");
+        AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+        AppendMenuW(menu, MF_STRING, ID_TREE_CONTEXT_ADD_NEW_DISK_GROUP_PLACEHOLDER, L"Add New Disk Group");
+        AppendMenuW(menu, MF_STRING, ID_EDIT_ADDDISKIMAGE, L"Update Disk Image");
+        AppendDisabledMenuItem(menu, ID_TREE_CONTEXT_UPDATE_ALL_DISK_IMAGES_PLACEHOLDER, L"Update All Disk Images");
+        AppendDisabledMenuItem(menu, ID_SEARCH_COMPARE_MEDIA, L"Compare to Media");
+        AppendDisabledMenuItem(menu, ID_SEARCH_COMPARE_CATALOGED_DATA, L"Compare Cataloged Data");
+        AppendDisabledMenuItem(menu, ID_TREE_CONTEXT_RENUMBER_DISKS_PLACEHOLDER, L"Renumber Disks");
+        AppendMenuW(menu, MF_STRING, ID_TREE_CONTEXT_DELETE_DISK_PLACEHOLDER, L"Delete Disk");
+        AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+        AppendMenuW(menu, MF_STRING, ID_ACTIONS_OPEN_EXPLORER, L"Open in Explorer");
+        AppendDisabledMenuItem(menu, ID_TREE_CONTEXT_FIND_ON_DISK_PLACEHOLDER, L"Find on This Disk");
+        AppendDisabledMenuItem(menu, ID_SEARCH_FIND_SELECTED_ITEMS, L"Find Selected Items");
+        AppendDisabledMenuItem(menu, ID_TREE_CONTEXT_USER_LIST_PLACEHOLDER, L"User List");
+        AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+        AppendDisabledMenuItem(menu, ID_TREE_CONTEXT_RENAME_PLACEHOLDER, L"Rename");
+        AppendDisabledMenuItem(menu, ID_TREE_CONTEXT_CHANGE_VOLUME_LABEL_PLACEHOLDER, L"Change Volume Label");
+        AppendDisabledMenuItem(menu, ID_TREE_CONTEXT_CHANGE_ICON_PLACEHOLDER, L"Change Icon");
+        AppendMenuW(menu, MF_STRING, ID_ACTIONS_EDIT_DESCRIPTION, L"Edit Description");
+        AppendDisabledMenuItem(menu, ID_TREE_CONTEXT_PLUGINS_PLACEHOLDER, L"Plugins");
+        AppendDisabledMenuItem(menu, ID_TREE_CONTEXT_ASSIGN_DISK_PICTURE_PLACEHOLDER, L"Assign Disk Picture");
+        AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+        AppendMenuW(menu, MF_STRING, ID_ACTIONS_PROPERTIES, L"Properties");
+    } else if (isFolder) {
+        AppendMenuW(menu, MF_STRING, ID_LIST_CONTEXT_GO_TO, L"Go To...");
+        AppendDisabledMenuItem(menu, ID_TREE_CONTEXT_UPDATE_THIS_FOLDER_PLACEHOLDER, L"Update This Folder");
+        AppendDisabledMenuItem(menu, ID_SEARCH_COMPARE_MEDIA, L"Compare to Media");
+        AppendDisabledMenuItem(menu, ID_SEARCH_COMPARE_CATALOGED_DATA, L"Compare Cataloged Data");
+        AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+        AppendMenuW(menu, MF_STRING, ID_ACTIONS_OPEN_EXPLORER, L"Open in Explorer");
+        AppendDisabledMenuItem(menu, ID_ACTIONS_FILE_MANAGEMENT, L"File Management");
+        AppendDisabledMenuItem(menu, ID_TREE_CONTEXT_FIND_IN_FOLDER_PLACEHOLDER, L"Find in This Folder");
+        AppendDisabledMenuItem(menu, ID_SEARCH_FIND_SELECTED_ITEMS, L"Find Selected Items");
+        AppendDisabledMenuItem(menu, ID_ACTIONS_REMOVE_FROM_CATALOG, L"Remove from Catalog");
+        AppendDisabledMenuItem(menu, ID_TREE_CONTEXT_USER_LIST_PLACEHOLDER, L"User List");
+        AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+        AppendDisabledMenuItem(menu, ID_TREE_CONTEXT_RENAME_IN_CATALOG_PLACEHOLDER, L"Rename in Catalog");
+        AppendDisabledMenuItem(menu, ID_TREE_CONTEXT_CHANGE_ICON_PLACEHOLDER, L"Change Icon");
+        AppendMenuW(menu, MF_STRING, ID_ACTIONS_EDIT_DESCRIPTION, L"Edit Description");
+        AppendDisabledMenuItem(menu, ID_TREE_CONTEXT_PLUGINS_PLACEHOLDER, L"Plugins");
+        AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+        AppendMenuW(menu, MF_STRING, ID_ACTIONS_PROPERTIES, L"Properties");
+    } else if (isFile) {
+        AppendDisabledMenuItem(menu, ID_ACTIONS_VIEW_FILE, L"View File");
+        AppendDisabledMenuItem(menu, ID_ACTIONS_LAUNCH_FILE, L"Launch File");
+        AppendMenuW(menu, MF_STRING, ID_ACTIONS_OPEN_EXPLORER, L"Open in Explorer");
+        AppendDisabledMenuItem(menu, ID_ACTIONS_FILE_MANAGEMENT, L"File Management");
+        AppendDisabledMenuItem(menu, ID_SEARCH_FIND_SELECTED_ITEMS, L"Find Selected Items");
+        AppendDisabledMenuItem(menu, ID_SEARCH_COMPARE_CATALOGED_DATA, L"Compare Cataloged Data");
+        AppendDisabledMenuItem(menu, ID_ACTIONS_REMOVE_FROM_CATALOG, L"Remove from Catalog");
+        AppendDisabledMenuItem(menu, ID_TREE_CONTEXT_USER_LIST_PLACEHOLDER, L"User List");
+        AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+        AppendDisabledMenuItem(menu, ID_TREE_CONTEXT_RENAME_IN_CATALOG_PLACEHOLDER, L"Rename in Catalog");
+        AppendMenuW(menu, MF_STRING, ID_ACTIONS_EDIT_DESCRIPTION, L"Edit Description");
+        AppendDisabledMenuItem(menu, ID_TREE_CONTEXT_PLUGINS_PLACEHOLDER, L"Plugins");
+        AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+        AppendMenuW(menu, MF_STRING, ID_ACTIONS_PROPERTIES, L"Properties");
+    }
+
+    const auto command = TrackPopupMenuEx(menu, TPM_RETURNCMD | TPM_LEFTALIGN | TPM_TOPALIGN,
+        screenPoint.x, screenPoint.y, m_hWnd, nullptr);
+    DestroyMenu(menu);
+    if (command == ID_TREE_CONTEXT_MOVE_TO_GROUP && listTarget) {
+        OnMoveSelectedItemToGroup(listTarget);
+        } else if (command == ID_TREE_CONTEXT_DELETE_DISK_PLACEHOLDER && listTarget) {
+        OnDeleteSelectedDisk(listTarget);
+    } else if (command == ID_TREE_CONTEXT_DELETE_GROUP_PLACEHOLDER && listTarget) {
+        OnDeleteSelectedDiskGroup(listTarget);
+    } else if (command == ID_LIST_CONTEXT_GO_TO) {
+        browser_.GoToFileListFolder(row);
+        chrome_.UpdateSortToolbarButtons(browser_.ToolbarSort());
+        UpdateBrowserStatus();
+    } else if (command) {
+        HandleCommand(command);
+    }
+    return 0;
+}
+
 void MainFrame::ApplyControllerResult(wit::app::ControllerResult result) {
+    const auto timer = wit::infra::CurrentSaveProfile()
+        ? std::make_optional<wit::infra::ScopedSaveTimer>(
+            wit::infra::CurrentSaveProfile()->timingsNs.applyControllerResult)
+        : std::nullopt;
     for (const auto& effect : result.browserEffects) {
         switch (effect.kind) {
         case wit::app::BrowserEffectKind::AddCatalog:
@@ -523,7 +1053,12 @@ void MainFrame::ApplyControllerResult(wit::app::ControllerResult result) {
             browser_.RefreshCatalog(effect.catalogId, effect.label, effect.database, effect.select);
             break;
         case wit::app::BrowserEffectKind::MoveDiskToGroup:
-            browser_.MoveDiskToGroup(effect.catalogId, effect.diskId, effect.diskGroupId, effect.database);
+            browser_.MoveDiskToGroup(effect.catalogId, effect.diskId, effect.diskGroupId, effect.database,
+                effect.databaseReflectsChange);
+            break;
+        case wit::app::BrowserEffectKind::MoveDiskGroupToGroup:
+            browser_.MoveDiskGroupToGroup(effect.catalogId, effect.diskGroupId, effect.parentGroupId,
+                effect.databaseReflectsChange);
             break;
         case wit::app::BrowserEffectKind::RemoveCatalog:
             browser_.RemoveCatalog(effect.catalogId);
@@ -578,6 +1113,14 @@ void MainFrame::PerformRequest(const wit::app::RequestEffect& request) {
         const wit::ui::CatalogFileDialog dialog;
         const bool accepted = dialog.ChooseCatalogToOpen(m_hWnd, path);
         ApplyControllerResult(controller_.OpenCatalogPathSelected(
+            accepted ? std::optional<std::wstring>(path) : std::nullopt));
+        break;
+    }
+    case wit::app::RequestKind::ChooseSaveAsCatalog: {
+        std::wstring path;
+        const wit::ui::CatalogFileDialog dialog;
+        const bool accepted = dialog.ChooseSaveAsCatalogPath(m_hWnd, path);
+        ApplyControllerResult(controller_.SaveAsPathSelected(
             accepted ? std::optional<std::wstring>(path) : std::nullopt));
         break;
     }

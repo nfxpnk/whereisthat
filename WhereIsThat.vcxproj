@@ -41,7 +41,7 @@
         <Link>
             <SubSystem>Windows</SubSystem>
             <AdditionalLibraryDirectories>third_party\sqlite;third_party\libarchive\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-            <AdditionalDependencies>sqlite3.lib;archive.lib;comctl32.lib;ole32.lib;uuid.lib;windowscodecs.lib;Dbghelp.lib;%(AdditionalDependencies)</AdditionalDependencies>
+            <AdditionalDependencies>sqlite3.lib;archive.lib;comctl32.lib;shell32.lib;ole32.lib;uuid.lib;windowscodecs.lib;Dbghelp.lib;%(AdditionalDependencies)</AdditionalDependencies>
         </Link>
         <PostBuildEvent>
             <Command>copy /Y "$(ProjectDir)third_party\sqlite\sqlite3.dll" "$(OutDir)sqlite3.dll"
@@ -69,6 +69,7 @@ copy /Y "$(ProjectDir)third_party\libarchive\bin\*.dll" "$(OutDir)"</Command>
         <ClCompile Include="src\modules\wit_infra\src\FileEntry.cpp"/>
         <ClCompile Include="src\modules\wit_infra\src\Logging.cpp"/>
         <ClCompile Include="src\modules\wit_infra\src\ScanProfiler.cpp"/>
+        <ClCompile Include="src\modules\wit_infra\src\SaveProfiler.cpp"/>
         <ClCompile Include="src\app\wit_gui\src\BrowserController.cpp"/>
         <ClCompile Include="src\modules\wit_catalog\src\Catalog.cpp"/>
         <ClCompile Include="src\modules\wit_catalog\src\CatalogSession.cpp"/>
@@ -131,6 +132,7 @@ copy /Y "$(ProjectDir)third_party\libarchive\bin\*.dll" "$(OutDir)"</Command>
         <ClInclude Include="src\modules\wit_infra\include\wit_infra\Result.h"/>
         <ClInclude Include="src\modules\wit_infra\include\wit_infra\Logging.h"/>
         <ClInclude Include="src\modules\wit_infra\include\wit_infra\ScanProfiler.h"/>
+        <ClInclude Include="src\modules\wit_infra\include\wit_infra\SaveProfiler.h"/>
         <ClInclude Include="src\modules\wit_infra\include\wit_infra\ScopeGuard.h"/>
         <ClInclude Include="src\modules\wit_infra\include\wit_infra\StringUtils.h"/>
         <ClInclude Include="src\modules\wit_scanner\include\wit_scanner\Crc32.h"/>
@@ -147,6 +149,7 @@ copy /Y "$(ProjectDir)third_party\libarchive\bin\*.dll" "$(OutDir)"</Command>
         <ClInclude Include="src\modules\wit_types\include\wit_types\CatalogIdentity.h"/>
         <ClInclude Include="src\modules\wit_types\include\wit_types\Disk.h"/>
         <ClInclude Include="src\modules\wit_types\include\wit_types\FolderEntry.h"/>
+        <ClInclude Include="src\modules\wit_types\include\wit_types\FileSort.h"/>
         <ClInclude Include="src\modules\wit_types\include\wit_types\ScanProgress.h"/>
         <ClInclude Include="src\modules\wit_types\include\wit_types\SearchQuery.h"/>
         <ClInclude Include="src\modules\wit_infra\include\wit_infra\AppSettings.h"/>

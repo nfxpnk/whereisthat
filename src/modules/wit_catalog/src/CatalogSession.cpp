@@ -4,9 +4,12 @@
 #include <cassert>
 #include <filesystem>
 #include <format>
+#include <optional>
+#include <unordered_map>
 #include <vector>
 #include <wit_infra/Logging.h>
 #include <wit_infra/PathHelpers.h>
+#include <wit_infra/SaveProfiler.h>
 
 namespace wit::app {
 namespace {
@@ -49,7 +52,7 @@ OpenCatalog* CatalogSession::Open(const std::wstring& path, bool createNew, bool
             if (persistPath) {
                 settings_.lastCatalogPath = catalog->path;
                 wit::platform::RememberRecentCatalog(settings_, catalog->path);
-                settingsSaved = wit::platform::SaveAppSettings(settings_);
+                settingsSaved = SaveOpenCatalogSettings();
             }
             WIT_LOG_INFO(std::format(L"session reused open catalog id={} path='{}'",
                 catalog->id, catalog->path));
@@ -78,9 +81,23 @@ OpenCatalog* CatalogSession::Open(const std::wstring& path, bool createNew, bool
     if (persistPath) {
         settings_.lastCatalogPath = normalizedPath;
         wit::platform::RememberRecentCatalog(settings_, normalizedPath);
-        settingsSaved = wit::platform::SaveAppSettings(settings_);
+        settingsSaved = SaveOpenCatalogSettings();
     }
     return result;
+}
+
+bool CatalogSession::SaveOpenCatalogSettings() {
+    AssertOwnerThread();
+    settings_.openCatalogPaths.clear();
+    settings_.openCatalogPaths.reserve(catalogs_.size());
+    for (const auto& catalog : catalogs_) {
+        if (!catalog->path.empty()) settings_.openCatalogPaths.push_back(catalog->path);
+    }
+    settings_.lastActiveCatalog = LastActiveCatalogIndex();
+    settings_.hasMultiCatalogSettings = true;
+    const auto* active = ActiveCatalog();
+    settings_.lastCatalogPath = active ? active->path : L"";
+    return wit::platform::SaveAppSettings(settings_);
 }
 
 bool CatalogSession::IsPathOpen(const std::wstring& path) const {
@@ -131,16 +148,124 @@ std::vector<OpenCatalog*> CatalogSession::OpenCatalogs() {
     return result;
 }
 
-void CatalogSession::AcceptPending(wit::core::CatalogId id, std::unique_ptr<wit::storage::Database> pending) {
+bool CatalogSession::AcceptPending(wit::core::CatalogId id, std::unique_ptr<wit::storage::Database> pending) {
+    const auto timer = wit::infra::CurrentSaveProfile()
+        ? std::make_optional<wit::infra::ScopedSaveTimer>(
+            wit::infra::CurrentSaveProfile()->timingsNs.acceptPending)
+        : std::nullopt;
     AssertOwnerThread();
     auto* catalog = Find(id);
-    if (!catalog) return;
+    if (!catalog || !pending) return false;
+    if (!catalog->pendingMetadataEdits.empty() && !ApplyPendingMetadataEdits(*catalog, *pending)) {
+        WIT_LOG_ERROR(std::format(L"session failed to fold metadata edits into pending catalog id={}", id));
+        return false;
+    }
+    catalog->pendingMetadataEdits.clear();
     catalog->pendingDatabase = std::move(pending);
-    catalog->dirty = catalog->pendingDatabase != nullptr;
+    catalog->dirty = catalog->pendingDatabase != nullptr || !catalog->pendingMetadataEdits.empty();
     WIT_LOG_DEBUG(std::format(L"session accepted pending catalog id={} dirty={}", id, catalog->dirty));
+    return true;
+}
+
+bool CatalogSession::RecordMoveDiskToGroup(wit::core::CatalogId id, std::int64_t diskId,
+    std::int64_t diskGroupId) {
+    AssertOwnerThread();
+    auto* catalog = Find(id);
+    if (!catalog) return false;
+    if (catalog->pendingDatabase) return catalog->pendingDatabase->MoveDiskToGroup(diskId, diskGroupId);
+    if (!catalog->database.BeginTransaction()) return false;
+    const bool valid = catalog->database.MoveDiskToGroup(diskId, diskGroupId);
+    (void)catalog->database.Rollback();
+    if (!valid) return false;
+    auto found = std::find_if(catalog->pendingMetadataEdits.begin(), catalog->pendingMetadataEdits.end(),
+        [diskId](const PendingMetadataEdit& edit) {
+            return edit.kind == PendingMetadataEditKind::MoveDiskToGroup && edit.id == diskId;
+        });
+    if (found != catalog->pendingMetadataEdits.end()) {
+        found->targetId = diskGroupId;
+    } else {
+        catalog->pendingMetadataEdits.push_back(
+            {PendingMetadataEditKind::MoveDiskToGroup, diskId, diskGroupId});
+    }
+    catalog->dirty = true;
+    WIT_LOG_DEBUG(std::format(L"session recorded metadata edit MoveDiskToGroup catalogId={} diskId={} targetGroupId={}",
+        id, diskId, diskGroupId));
+    return true;
+}
+
+bool CatalogSession::RecordMoveDiskGroupToGroup(wit::core::CatalogId id, std::int64_t diskGroupId,
+    std::int64_t parentGroupId) {
+    AssertOwnerThread();
+    auto* catalog = Find(id);
+    if (!catalog) return false;
+    if (catalog->pendingDatabase) return catalog->pendingDatabase->MoveDiskGroupToGroup(diskGroupId, parentGroupId);
+    if (!CanMoveDiskGroupToGroup(*catalog, diskGroupId, parentGroupId)) return false;
+    auto found = std::find_if(catalog->pendingMetadataEdits.begin(), catalog->pendingMetadataEdits.end(),
+        [diskGroupId](const PendingMetadataEdit& edit) {
+            return edit.kind == PendingMetadataEditKind::MoveDiskGroupToGroup && edit.id == diskGroupId;
+        });
+    if (found != catalog->pendingMetadataEdits.end()) {
+        found->targetId = parentGroupId;
+    } else {
+        catalog->pendingMetadataEdits.push_back(
+            {PendingMetadataEditKind::MoveDiskGroupToGroup, diskGroupId, parentGroupId});
+    }
+    catalog->dirty = true;
+    WIT_LOG_DEBUG(std::format(
+        L"session recorded metadata edit MoveDiskGroupToGroup catalogId={} groupId={} targetParentGroupId={}",
+        id, diskGroupId, parentGroupId));
+    return true;
+}
+
+bool CatalogSession::RecordDeleteDisk(wit::core::CatalogId id, std::int64_t diskId) {
+    AssertOwnerThread();
+    auto* catalog = Find(id);
+    if (!catalog || diskId == 0) return false;
+    if (catalog->pendingDatabase) {
+        if (!catalog->pendingDatabase->DeleteDisk(diskId)) return false;
+        catalog->dirty = true;
+        WIT_LOG_DEBUG(std::format(L"session deleted disk in pending catalogId={} diskId={}", id, diskId));
+        return true;
+    }
+
+    auto pending = std::make_unique<wit::storage::Database>();
+    if (!pending->CreateWorkingCopy(catalog->database)) return false;
+    if (!ApplyPendingMetadataEdits(*catalog, *pending)) return false;
+    if (!pending->DeleteDisk(diskId)) return false;
+    catalog->pendingMetadataEdits.clear();
+    catalog->pendingDatabase = std::move(pending);
+    catalog->dirty = true;
+    WIT_LOG_DEBUG(std::format(L"session staged disk delete catalogId={} diskId={}", id, diskId));
+    return true;
+}
+
+bool CatalogSession::RecordDeleteDiskGroup(wit::core::CatalogId id, std::int64_t diskGroupId) {
+    AssertOwnerThread();
+    auto* catalog = Find(id);
+    if (!catalog || diskGroupId == 0) return false;
+    if (catalog->pendingDatabase) {
+        if (!catalog->pendingDatabase->DeleteDiskGroup(diskGroupId)) return false;
+        catalog->dirty = true;
+        WIT_LOG_DEBUG(std::format(L"session deleted disk group in pending catalogId={} groupId={}", id, diskGroupId));
+        return true;
+    }
+
+    auto pending = std::make_unique<wit::storage::Database>();
+    if (!pending->CreateWorkingCopy(catalog->database)) return false;
+    if (!ApplyPendingMetadataEdits(*catalog, *pending)) return false;
+    if (!pending->DeleteDiskGroup(diskGroupId)) return false;
+    catalog->pendingMetadataEdits.clear();
+    catalog->pendingDatabase = std::move(pending);
+    catalog->dirty = true;
+    WIT_LOG_DEBUG(std::format(L"session staged disk group delete catalogId={} groupId={}", id, diskGroupId));
+    return true;
 }
 
 bool CatalogSession::SavePending(wit::core::CatalogId id) {
+    const auto timer = wit::infra::CurrentSaveProfile()
+        ? std::make_optional<wit::infra::ScopedSaveTimer>(
+            wit::infra::CurrentSaveProfile()->timingsNs.savePending)
+        : std::nullopt;
     AssertOwnerThread();
     auto* catalog = Find(id);
     if (!catalog || !catalog->database.IsOpen() || catalog->path.empty()) {
@@ -152,18 +277,78 @@ bool CatalogSession::SavePending(wit::core::CatalogId id) {
             id, catalog->path));
         return false;
     }
-    if (!catalog->dirty || !catalog->pendingDatabase) {
+    if (!catalog->dirty) {
         WIT_LOG_DEBUG(std::format(L"session save pending skipped: clean id={}", id));
         return true;
     }
-    WIT_LOG_INFO(std::format(L"session save pending started id={} path='{}'", id, catalog->path));
-    if (!catalog->database.SaveCatalogDataFrom(*catalog->pendingDatabase)) {
-        WIT_LOG_ERROR(std::format(L"session save pending failed id={} path='{}'", id, catalog->path));
+    if (catalog->pendingDatabase) {
+        WIT_LOG_INFO(std::format(L"session save full pending started id={} path='{}'", id, catalog->path));
+        if (!catalog->database.SaveCatalogDataFrom(*catalog->pendingDatabase)) {
+            WIT_LOG_ERROR(std::format(L"session save full pending failed id={} path='{}'", id, catalog->path));
+            return false;
+        }
+        catalog->pendingDatabase.reset();
+    }
+    if (!catalog->pendingMetadataEdits.empty() && !SavePendingMetadataEdits(*catalog)) {
+        WIT_LOG_ERROR(std::format(L"session save metadata pending failed id={} path='{}'", id, catalog->path));
         return false;
     }
-    catalog->pendingDatabase.reset();
-    catalog->dirty = false;
-    WIT_LOG_INFO(std::format(L"session save pending completed id={} path='{}'", id, catalog->path));
+    catalog->dirty = catalog->pendingDatabase != nullptr || !catalog->pendingMetadataEdits.empty();
+    if (!catalog->dirty) {
+        WIT_LOG_INFO(std::format(L"session save pending completed id={} path='{}'", id, catalog->path));
+    }
+    return !catalog->dirty;
+}
+
+bool CatalogSession::SavePendingMetadataEdits(OpenCatalog& catalog) {
+    if (catalog.pendingMetadataEdits.empty()) return true;
+    WIT_LOG_INFO(std::format(L"session save metadata pending started id={} edits={}",
+        catalog.id, catalog.pendingMetadataEdits.size()));
+    if (!catalog.database.BeginImmediateTransaction()) return false;
+    bool success = ApplyPendingMetadataEdits(catalog, catalog.database);
+    if (success) success = catalog.database.Commit();
+    if (!success) {
+        (void)catalog.database.Rollback();
+        return false;
+    }
+    catalog.pendingMetadataEdits.clear();
+    WIT_LOG_INFO(std::format(L"session save metadata pending completed id={}", catalog.id));
+    return true;
+}
+
+bool CatalogSession::ApplyPendingMetadataEdits(OpenCatalog& catalog, wit::storage::Database& database) {
+    for (const auto& edit : catalog.pendingMetadataEdits) {
+        bool success{};
+        switch (edit.kind) {
+        case PendingMetadataEditKind::MoveDiskToGroup:
+            success = database.MoveDiskToGroup(edit.id, edit.targetId);
+            break;
+        case PendingMetadataEditKind::MoveDiskGroupToGroup:
+            success = database.MoveDiskGroupToGroup(edit.id, edit.targetId);
+            break;
+        }
+        if (!success) return false;
+    }
+    return true;
+}
+
+bool CatalogSession::CanMoveDiskGroupToGroup(OpenCatalog& catalog, std::int64_t diskGroupId,
+    std::int64_t parentGroupId) const {
+    if (diskGroupId == 0 || diskGroupId == parentGroupId) return false;
+    std::unordered_map<std::int64_t, std::int64_t> parents;
+    for (const auto& group : catalog.database.GetDiskGroups()) {
+        parents[group.id] = group.parentGroupId;
+    }
+    for (const auto& edit : catalog.pendingMetadataEdits) {
+        if (edit.kind == PendingMetadataEditKind::MoveDiskGroupToGroup) parents[edit.id] = edit.targetId;
+    }
+    if (!parents.contains(diskGroupId)) return false;
+    if (parentGroupId != 0 && !parents.contains(parentGroupId)) return false;
+    for (auto current = parentGroupId; current != 0;) {
+        if (current == diskGroupId) return false;
+        const auto found = parents.find(current);
+        current = found == parents.end() ? 0 : found->second;
+    }
     return true;
 }
 
@@ -172,6 +357,7 @@ void CatalogSession::DiscardPending(wit::core::CatalogId id) {
     auto* catalog = Find(id);
     if (!catalog) return;
     catalog->pendingDatabase.reset();
+    catalog->pendingMetadataEdits.clear();
     catalog->dirty = false;
     WIT_LOG_INFO(std::format(L"session discarded pending catalog id={}", id));
 }
@@ -186,11 +372,17 @@ bool CatalogSession::Remove(wit::core::CatalogId id, bool* settingsSaved) {
     if (activeCatalogId_ == id) {
         activeCatalogId_ = catalogs_.empty() ? 0 : catalogs_.front()->id;
     }
-    const auto* active = ActiveCatalog();
-    settings_.lastCatalogPath = active ? active->path : L"";
-    const bool saved = wit::platform::SaveAppSettings(settings_);
+    const bool saved = SaveOpenCatalogSettings();
     if (settingsSaved) *settingsSaved = saved;
     return true;
+}
+
+int CatalogSession::LastActiveCatalogIndex() const {
+    if (activeCatalogId_ == 0) return 0;
+    for (std::size_t index = 0; index < catalogs_.size(); ++index) {
+        if (catalogs_[index]->id == activeCatalogId_) return static_cast<int>(index);
+    }
+    return 0;
 }
 
 }

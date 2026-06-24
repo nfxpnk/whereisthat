@@ -2,9 +2,11 @@
 #include "wit_gui/BrowserItemIcons.h"
 #include <wit_infra/Logging.h>
 #include <wit_infra/PathHelpers.h>
+#include <wit_infra/SaveProfiler.h>
 #include <algorithm>
 #include <format>
 #include <functional>
+#include <optional>
 
 namespace wit::ui {
 namespace {
@@ -70,6 +72,10 @@ const CatalogTreeView::Root* CatalogTreeView::FindRoot(wit::core::CatalogId id) 
 }
 
 void CatalogTreeView::PopulateRoot(Root& root, const std::wstring& label, wit::storage::Database* database) {
+    const auto timer = wit::infra::CurrentSaveProfile()
+        ? std::make_optional<wit::infra::ScopedSaveTimer>(
+            wit::infra::CurrentSaveProfile()->timingsNs.treePopulateRoot)
+        : std::nullopt;
     TVITEMW text{};
     text.mask = TVIF_TEXT | TVIF_CHILDREN | TVIF_STATE;
     text.stateMask = TVIS_BOLD;
@@ -133,6 +139,10 @@ void CatalogTreeView::AddCatalog(wit::core::CatalogId id, const std::wstring& ca
 
 void CatalogTreeView::RefreshCatalog(wit::core::CatalogId id, const std::wstring& catalogLabel,
     wit::storage::Database* database, bool select) {
+    const auto timer = wit::infra::CurrentSaveProfile()
+        ? std::make_optional<wit::infra::ScopedSaveTimer>(
+            wit::infra::CurrentSaveProfile()->timingsNs.treeRefreshCatalog)
+        : std::nullopt;
     auto* root = FindRoot(id);
     if (!root) {
         AddCatalog(id, catalogLabel, database, select);
@@ -185,7 +195,7 @@ bool CatalogTreeView::MoveDiskToGroup(wit::core::CatalogId id, std::int64_t disk
     }
     TreeView_DeleteItem(hwnd_, sourceItem);
     SetMayHaveChildren(oldParent, TreeView_GetChild(hwnd_, oldParent) != nullptr);
-    SetMayHaveChildren(groupItem, groupDiskCount > 0);
+    SetMayHaveChildren(groupItem, groupDiskCount > 0 || groupItem != oldParent);
     if (oldParentExpanded) TreeView_Expand(hwnd_, oldParent, TVE_EXPAND);
     if (newParentExpanded) TreeView_Expand(hwnd_, groupItem, TVE_EXPAND);
     if (wasSelected) {
@@ -196,6 +206,54 @@ bool CatalogTreeView::MoveDiskToGroup(wit::core::CatalogId id, std::int64_t disk
     InvalidateRect(hwnd_, nullptr, FALSE);
     WIT_LOG_DEBUG(std::format(L"tree move disk node completed catalogId={} diskId={} targetGroupId={}",
         id, diskId, diskGroupId));
+    return movedItem != nullptr;
+}
+
+bool CatalogTreeView::MoveDiskGroupToGroup(wit::core::CatalogId id, std::int64_t diskGroupId,
+    std::int64_t parentGroupId) {
+    WIT_LOG_DEBUG(std::format(L"tree move disk group node requested catalogId={} groupId={} targetParentGroupId={}",
+        id, diskGroupId, parentGroupId));
+    if (!hwnd_ || diskGroupId == 0 || diskGroupId == parentGroupId) return false;
+    const auto* root = FindRoot(id);
+    if (!root) return false;
+    const auto groupItem = FindDiskGroup(id, diskGroupId);
+    const auto parentItem = parentGroupId == 0 ? root->item : FindDiskGroup(id, parentGroupId);
+    if (!groupItem || !parentItem) return false;
+
+    wchar_t text[512]{};
+    TVITEMW treeItem{};
+    treeItem.mask = TVIF_TEXT;
+    treeItem.hItem = groupItem;
+    treeItem.pszText = text;
+    treeItem.cchTextMax = ARRAYSIZE(text);
+    if (!TreeView_GetItem(hwnd_, &treeItem)) return false;
+
+    const auto oldParent = TreeView_GetParent(hwnd_, groupItem);
+    const bool wasSelected = TreeView_GetSelection(hwnd_) == groupItem;
+    const bool oldParentExpanded = oldParent &&
+        (TreeView_GetItemState(hwnd_, oldParent, TVIS_EXPANDED) & TVIS_EXPANDED) != 0;
+    const bool newParentExpanded = (TreeView_GetItemState(hwnd_, parentItem, TVIS_EXPANDED) & TVIS_EXPANDED) != 0;
+    const auto insertAfter = FindSortedInsertAfter(parentItem, text, groupItem);
+
+    SendMessageW(hwnd_, WM_SETREDRAW, FALSE, 0);
+    const auto movedItem = CloneDisplayedSubtree(groupItem, parentItem, insertAfter);
+    if (!movedItem) {
+        SendMessageW(hwnd_, WM_SETREDRAW, TRUE, 0);
+        return false;
+    }
+    TreeView_DeleteItem(hwnd_, groupItem);
+    SetMayHaveChildren(oldParent, TreeView_GetChild(hwnd_, oldParent) != nullptr);
+    SetMayHaveChildren(parentItem, true);
+    if (oldParentExpanded) TreeView_Expand(hwnd_, oldParent, TVE_EXPAND);
+    if (newParentExpanded) TreeView_Expand(hwnd_, parentItem, TVE_EXPAND);
+    if (wasSelected) {
+        TreeView_SelectItem(hwnd_, movedItem);
+        TreeView_EnsureVisible(hwnd_, movedItem);
+    }
+    SendMessageW(hwnd_, WM_SETREDRAW, TRUE, 0);
+    InvalidateRect(hwnd_, nullptr, FALSE);
+    WIT_LOG_DEBUG(std::format(L"tree move disk group node completed catalogId={} groupId={} targetParentGroupId={}",
+        id, diskGroupId, parentGroupId));
     return movedItem != nullptr;
 }
 
@@ -347,6 +405,43 @@ HTREEITEM CatalogTreeView::CloneDisplayedSubtree(HTREEITEM source, HTREEITEM par
     HTREEITEM lastChild = TVI_FIRST;
     for (auto child = TreeView_GetChild(hwnd_, source); child; child = TreeView_GetNextSibling(hwnd_, child)) {
         const auto clonedChild = CloneDisplayedSubtree(child, cloned, lastChild, diskGroupId, diskGroupName);
+        if (clonedChild) lastChild = clonedChild;
+    }
+    if ((sourceItem.state & TVIS_EXPANDED) != 0) TreeView_Expand(hwnd_, cloned, TVE_EXPAND);
+    return cloned;
+}
+
+HTREEITEM CatalogTreeView::CloneDisplayedSubtree(HTREEITEM source, HTREEITEM parent, HTREEITEM insertAfter) {
+    wchar_t text[512]{};
+    TVITEMW sourceItem{};
+    sourceItem.mask = TVIF_TEXT | TVIF_PARAM | TVIF_IMAGE | TVIF_SELECTEDIMAGE | TVIF_CHILDREN | TVIF_STATE;
+    sourceItem.stateMask = TVIS_EXPANDED;
+    sourceItem.hItem = source;
+    sourceItem.pszText = text;
+    sourceItem.cchTextMax = ARRAYSIZE(text);
+    if (!TreeView_GetItem(hwnd_, &sourceItem)) return nullptr;
+    const auto* sourceNode = reinterpret_cast<const Node*>(sourceItem.lParam);
+    if (!sourceNode) return nullptr;
+
+    const auto cloned = InsertNode(parent, sourceNode->target.catalogId, text, sourceNode->target.location,
+        sourceNode->catalogRoot, sourceItem.cChildren != 0, sourceItem.iImage, insertAfter);
+    if (!cloned) return nullptr;
+
+    TVITEMW clonedItem{};
+    clonedItem.mask = TVIF_PARAM;
+    clonedItem.hItem = cloned;
+    if (TreeView_GetItem(hwnd_, &clonedItem)) {
+        auto* clonedNode = reinterpret_cast<Node*>(clonedItem.lParam);
+        if (clonedNode) {
+            clonedNode->target = sourceNode->target;
+            clonedNode->catalogRoot = sourceNode->catalogRoot;
+            clonedNode->populated = sourceNode->populated;
+        }
+    }
+
+    HTREEITEM lastChild = TVI_FIRST;
+    for (auto child = TreeView_GetChild(hwnd_, source); child; child = TreeView_GetNextSibling(hwnd_, child)) {
+        const auto clonedChild = CloneDisplayedSubtree(child, cloned, lastChild);
         if (clonedChild) lastChild = clonedChild;
     }
     if ((sourceItem.state & TVIS_EXPANDED) != 0) TreeView_Expand(hwnd_, cloned, TVE_EXPAND);

@@ -22,6 +22,8 @@ public:
         wit::storage::Database* database, bool select);
     bool MoveDiskToGroup(wit::core::CatalogId id, std::int64_t diskId,
         std::int64_t diskGroupId, wit::storage::Database* database);
+    bool MoveDiskGroupToGroup(wit::core::CatalogId id, std::int64_t diskGroupId,
+        std::int64_t parentGroupId);
     void RemoveCatalog(wit::core::CatalogId id);
     void Expand(HTREEITEM item);
     const wit::core::BrowserTarget* TargetFor(HTREEITEM item) const;
@@ -57,6 +59,7 @@ private:
     HTREEITEM FindSortedInsertAfter(HTREEITEM parent, const std::wstring& text, HTREEITEM excluding) const;
     HTREEITEM CloneDisplayedSubtree(HTREEITEM source, HTREEITEM parent, HTREEITEM insertAfter,
         std::int64_t diskGroupId, const std::wstring& diskGroupName);
+    HTREEITEM CloneDisplayedSubtree(HTREEITEM source, HTREEITEM parent, HTREEITEM insertAfter);
     void SetMayHaveChildren(HTREEITEM item, bool mayHaveChildren);
     void PopulateRoot(Root& root, const std::wstring& label, wit::storage::Database* database);
 };

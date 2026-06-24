@@ -29,6 +29,28 @@ void FormatSizeToBuffer(std::uint64_t bytes, wchar_t* buffer, std::size_t buffer
     swprintf_s(buffer, bufferSize, L"%.2f %s", value, kSizeUnits[index]);
 }
 
+void FormatSizeRawBytesToBuffer(std::uint64_t bytes, wchar_t* buffer, std::size_t bufferSize) {
+    if (!buffer || bufferSize == 0) return;
+    if (bytes == 0) {
+        swprintf_s(buffer, bufferSize, L"0");
+        return;
+    }
+    // Format with comma separators: 111,222,333
+    wchar_t raw[64];
+    swprintf_s(raw, std::size(raw), L"%llu", static_cast<unsigned long long>(bytes));
+    wchar_t* write = buffer;
+    const std::size_t len = wcslen(raw);
+    // Position of first comma (groups of 3 from right)
+    const std::size_t firstGroup = len % 3;
+    for (std::size_t i = 0; i < len && (write - buffer) + 1 < bufferSize; ++i) {
+        if (i > 0 && (i % 3) == firstGroup) {
+            if (write - buffer + 1 < bufferSize) *write++ = L',';
+        }
+        if (write - buffer < bufferSize) *write++ = raw[i];
+    }
+    if (write - buffer < bufferSize) *write = L'\0';
+}
+
 std::string_view TrimAsciiWhitespace(std::string_view text) {
     while (!text.empty() && (text.front() == ' ' || text.front() == '\t' ||
         text.front() == '\r' || text.front() == '\n')) {

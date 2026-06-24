@@ -1,8 +1,12 @@
 #include <wit_gui/CatalogWorkflowController.h>
 #include <wit_infra/Logging.h>
+#include <wit_infra/SaveProfiler.h>
+#include <wit_infra/ScopeGuard.h>
+#include <filesystem>
 #include <iterator>
 #include <memory>
 #include <format>
+#include <optional>
 #include <utility>
 
 namespace wit::app {
@@ -26,8 +30,9 @@ void CatalogWorkflowController::DetachTarget() {
 
 ControllerResult CatalogWorkflowController::Initialize() {
     session_.LoadSettings();
+    const auto startupSettings = session_.Settings();
     ControllerResult result;
-    if (!session_.SaveSettings(session_.Settings())) {
+    if (!session_.SaveSettings(startupSettings)) {
         result.messages.push_back(Message(L"Unable to save settings.ini.", L"Application Settings",
             MB_OK | MB_ICONWARNING));
     }
@@ -37,9 +42,47 @@ ControllerResult CatalogWorkflowController::Initialize() {
     result.presentation.toolbarVisible = session_.Settings().showToolbar;
     result.presentation.mainSplitterPosition = session_.Settings().mainSplitterPosition;
     PopulatePresentation(result, true);
-    if (!session_.Settings().lastCatalogPath.empty()) {
-        Append(result, ActivateCatalog(session_.Settings().lastCatalogPath, false, false,
-            L"Open Catalog", L"The last used catalog is unavailable.", MB_OK | MB_ICONINFORMATION));
+
+    const bool useMultiCatalogSettings = startupSettings.hasMultiCatalogSettings;
+    const bool migrateLegacyCatalog = !useMultiCatalogSettings && !startupSettings.lastCatalogPath.empty();
+    std::vector<std::wstring> startupPaths = useMultiCatalogSettings
+        ? startupSettings.openCatalogPaths : std::vector<std::wstring>{};
+    if (migrateLegacyCatalog) {
+        // Migrate the legacy single-catalog startup setting into the new [Catalogs] format after it opens.
+        startupPaths.push_back(startupSettings.lastCatalogPath);
+    }
+
+    std::vector<wit::core::CatalogId> restoredCatalogIds(startupPaths.size());
+    for (std::size_t index = 0; index < startupPaths.size(); ++index) {
+        if (startupPaths[index].empty()) continue;
+        auto openResult = ActivateCatalog(startupPaths[index], false, false,
+            L"Open Catalog", L"A catalog from the previous session could not be opened.",
+            MB_OK | MB_ICONINFORMATION);
+        for (const auto& effect : openResult.browserEffects) {
+            if (effect.kind == BrowserEffectKind::AddCatalog || effect.kind == BrowserEffectKind::SelectCatalog) {
+                restoredCatalogIds[index] = effect.catalogId;
+                break;
+            }
+        }
+        Append(result, std::move(openResult));
+    }
+
+    if (useMultiCatalogSettings && startupSettings.lastActiveCatalog >= 0 &&
+        static_cast<std::size_t>(startupSettings.lastActiveCatalog) < restoredCatalogIds.size()) {
+        const auto activeId = restoredCatalogIds[static_cast<std::size_t>(startupSettings.lastActiveCatalog)];
+        if (activeId != 0) {
+            Append(result, SelectCatalog(activeId));
+            result.browserEffects.push_back({BrowserEffectKind::SelectCatalog, activeId});
+        }
+    }
+
+    if (migrateLegacyCatalog && !session_.OpenCatalogs().empty()) {
+        if (!session_.SaveOpenCatalogSettings()) {
+            result.messages.push_back(Message(L"Unable to migrate the startup catalog setting to settings.ini.",
+                L"Application Settings", MB_OK | MB_ICONWARNING));
+        } else {
+            PopulatePresentation(result, true);
+        }
     }
     return result;
 }
@@ -160,8 +203,13 @@ ControllerResult CatalogWorkflowController::ActivateCatalog(const std::wstring& 
 }
 
 ControllerResult CatalogWorkflowController::RequestSave() {
+    const auto timer = wit::infra::CurrentSaveProfile()
+        ? std::make_optional<wit::infra::ScopedSaveTimer>(
+            wit::infra::CurrentSaveProfile()->timingsNs.requestSave)
+        : std::nullopt;
     const auto* catalog = ActiveCatalog();
     if (!catalog) {
+        if (auto* profile = wit::infra::CurrentSaveProfile()) profile->result = "noActiveCatalog";
         ControllerResult result;
         PopulatePresentation(result);
         return result;
@@ -170,20 +218,43 @@ ControllerResult CatalogWorkflowController::RequestSave() {
 }
 
 ControllerResult CatalogWorkflowController::SaveCatalog(wit::core::CatalogId id) {
+    std::optional<wit::infra::SaveProfile> standaloneProfile;
+    std::optional<wit::infra::SaveProfileScope> standaloneScope;
+    if (!wit::infra::CurrentSaveProfile()) {
+        standaloneProfile.emplace();
+        standaloneProfile->profileId = wit::infra::NextSaveProfileId();
+        standaloneProfile->operation = L"saveCatalog";
+        standaloneScope.emplace(*standaloneProfile);
+    }
+    auto writeStandaloneProfile = wit::infra::OnExit([&]() {
+        if (standaloneProfile) (void)wit::infra::WriteSaveProfileJson(*standaloneProfile);
+    });
+    const auto totalTimer = standaloneProfile
+        ? std::make_optional<wit::infra::ScopedSaveTimer>(standaloneProfile->timingsNs.total)
+        : std::nullopt;
+    const auto saveTimer = wit::infra::CurrentSaveProfile()
+        ? std::make_optional<wit::infra::ScopedSaveTimer>(
+            wit::infra::CurrentSaveProfile()->timingsNs.saveCatalog)
+        : std::nullopt;
     ControllerResult result;
     WIT_LOG_INFO(std::format(L"save catalog requested id={}", id));
     auto* catalog = session_.Find(id);
+    if (auto* profile = wit::infra::CurrentSaveProfile()) profile->catalogId = id;
     if (!catalog || !catalog->IsOpen() || catalog->path.empty()) {
+        if (auto* profile = wit::infra::CurrentSaveProfile()) profile->result = "unavailable";
         WIT_LOG_WARN(std::format(L"save catalog ignored: catalog unavailable id={}", id));
         PopulatePresentation(result);
         return result;
     }
+    if (auto* profile = wit::infra::CurrentSaveProfile()) profile->catalogPath = catalog->path;
     if (!catalog->HasPendingChanges()) {
+        if (auto* profile = wit::infra::CurrentSaveProfile()) profile->result = "clean";
         WIT_LOG_INFO(std::format(L"save catalog skipped: no pending changes id={}", id));
         PopulatePresentation(result);
         return result;
     }
     if (scans_.Targets(id)) {
+        if (auto* profile = wit::infra::CurrentSaveProfile()) profile->result = "scanRunning";
         WIT_LOG_WARN(std::format(L"save catalog blocked by active scan id={}", id));
         result.messages.push_back(Message(L"A scan is still preparing changes for this catalog.",
             L"Scan in progress", MB_OK | MB_ICONINFORMATION));
@@ -191,6 +262,7 @@ ControllerResult CatalogWorkflowController::SaveCatalog(wit::core::CatalogId id)
         return result;
     }
     if (!catalog->IsEditable()) {
+        if (auto* profile = wit::infra::CurrentSaveProfile()) profile->result = "readOnly";
         WIT_LOG_WARN(std::format(L"save catalog blocked by read-only catalog id={} path='{}'", id, catalog->path));
         result.messages.push_back(Message(L"This catalog is protected or read-only and cannot be saved.",
             L"Protected Catalog", MB_OK | MB_ICONINFORMATION));
@@ -198,7 +270,9 @@ ControllerResult CatalogWorkflowController::SaveCatalog(wit::core::CatalogId id)
         return result;
     }
     const bool hadPendingChanges = catalog->HasPendingChanges();
+    const bool hadFullCatalogChanges = catalog->HasPendingFullCatalogChanges();
     if (!session_.SavePending(id)) {
+        if (auto* profile = wit::infra::CurrentSaveProfile()) profile->result = "failed";
         WIT_LOG_ERROR(std::format(L"save catalog failed id={} path='{}'", id, catalog->path));
         result.messages.push_back(Message(
             L"Unable to save the pending catalog changes. They remain available to retry.",
@@ -207,12 +281,124 @@ ControllerResult CatalogWorkflowController::SaveCatalog(wit::core::CatalogId id)
         return result;
     }
     if (hadPendingChanges) {
+        if (auto* profile = wit::infra::CurrentSaveProfile()) profile->result = "completed";
         WIT_LOG_INFO(std::format(L"save catalog completed id={} path='{}'", id, catalog->path));
-        result.browserEffects.push_back({BrowserEffectKind::RefreshCatalog, id, catalog->label,
-            catalog->WorkingDatabase(), true});
+        if (hadFullCatalogChanges) {
+            result.browserEffects.push_back({BrowserEffectKind::RefreshCatalog, id, catalog->label,
+                catalog->WorkingDatabase(), true});
+        }
         result.presentation.refreshBrowserStatus = true;
     }
     PopulatePresentation(result);
+    return result;
+}
+
+ControllerResult CatalogWorkflowController::RequestSaveAs() {
+    ControllerResult result;
+    if (scans_.IsRunning()) {
+        result.messages.push_back(Message(L"A scan is already running.", L"Scan in progress",
+            MB_OK | MB_ICONINFORMATION));
+    } else {
+        auto* catalog = ActiveCatalog();
+        if (!catalog) {
+            result.messages.push_back(Message(L"Open a catalog before using Save As.",
+                L"Save As", MB_OK | MB_ICONINFORMATION));
+        } else {
+            result.request.kind = RequestKind::ChooseSaveAsCatalog;
+        }
+    }
+    PopulatePresentation(result);
+    return result;
+}
+
+ControllerResult CatalogWorkflowController::SaveAsPathSelected(const std::optional<std::wstring>& path) {
+    if (!path) {
+        ControllerResult result;
+        PopulatePresentation(result);
+        return result;
+    }
+    std::wstring newPath;
+    try {
+        newPath = std::filesystem::absolute(*path).wstring();
+    } catch (...) {
+        ControllerResult result;
+        result.messages.push_back(Message(L"The selected file path is invalid.",
+            L"Save As", MB_OK | MB_ICONERROR));
+        PopulatePresentation(result);
+        return result;
+    }
+    if (session_.IsPathOpen(newPath)) {
+        ControllerResult result;
+        result.messages.push_back(Message(
+            L"Unable to save because this catalog path is currently open in the application. "
+            L"Choose a different filename or close the opened catalog.",
+            L"Save As", MB_OK | MB_ICONERROR));
+        PopulatePresentation(result);
+        return result;
+    }
+    auto* catalog = ActiveCatalog();
+    if (!catalog) {
+        ControllerResult result;
+        PopulatePresentation(result);
+        return result;
+    }
+    const auto id = catalog->id;
+
+    // Save any pending changes to the current catalog first, so the copy is up-to-date.
+    if (catalog->HasPendingChanges()) {
+        auto saveResult = SaveCatalog(id);
+        if (!saveResult.messages.empty()) {
+            // Save failed; propagate the error and remain on the original catalog.
+            PopulatePresentation(saveResult);
+            return saveResult;
+        }
+    }
+
+    // The catalog's database is now clean; copy it to the new path.
+    wit::storage::Database newDatabase;
+    if (!newDatabase.CreateNew(newPath, true)) {
+        ControllerResult result;
+        result.messages.push_back(Message(L"Unable to create the new catalog file.",
+            L"Save As", MB_OK | MB_ICONERROR));
+        PopulatePresentation(result);
+        return result;
+    }
+
+    if (!newDatabase.SaveCatalogDataFrom(catalog->database)) {
+        ControllerResult result;
+        result.messages.push_back(Message(L"Unable to save catalog data to the new file.",
+            L"Save As", MB_OK | MB_ICONERROR));
+        PopulatePresentation(result);
+        return result;
+    }
+    newDatabase.Close();
+
+    bool alreadyOpen{};
+    bool settingsSaved{};
+    auto* reopened = session_.Open(newPath, false, true, settingsSaved, alreadyOpen);
+    if (!reopened) {
+        ControllerResult result;
+        result.messages.push_back(Message(L"The saved catalog file could not be reopened.",
+            L"Save As", MB_OK | MB_ICONERROR));
+        PopulatePresentation(result);
+        return result;
+    }
+
+    bool removedSaved{};
+    if (!session_.Remove(id, &removedSaved)) {
+        ControllerResult result;
+        result.messages.push_back(Message(L"Unable to update the catalog session.",
+            L"Save As", MB_OK | MB_ICONERROR));
+        PopulatePresentation(result);
+        return result;
+    }
+
+    ControllerResult result;
+    result.browserEffects.push_back({BrowserEffectKind::RemoveCatalog, id});
+    result.browserEffects.push_back({BrowserEffectKind::AddCatalog, reopened->id, reopened->label,
+        reopened->WorkingDatabase(), true});
+    PopulatePresentation(result, true);
+    result.presentation.refreshBrowserStatus = true;
     return result;
 }
 
@@ -352,6 +538,11 @@ ControllerResult CatalogWorkflowController::ContinueWindowClose() {
         }
     }
     closePending_ = false;
+    if (!session_.SaveOpenCatalogSettings()) {
+        result.messages.push_back(Message(
+            L"The open catalog list could not be saved in settings.ini.",
+            L"Catalog Settings", MB_OK | MB_ICONWARNING));
+    }
     result.destroyWindow = true;
     PopulatePresentation(result);
     return result;
@@ -421,14 +612,23 @@ ControllerResult CatalogWorkflowController::RequestAddOrUpdateMedia() {
 }
 
 ControllerResult CatalogWorkflowController::CreateDiskGroup(const std::wstring& name) {
+    const auto timer = wit::infra::CurrentSaveProfile()
+        ? std::make_optional<wit::infra::ScopedSaveTimer>(
+            wit::infra::CurrentSaveProfile()->timingsNs.createDiskGroup)
+        : std::nullopt;
     ControllerResult result;
     auto* catalog = ActiveCatalog();
     auto* database = catalog ? catalog->WorkingDatabase() : nullptr;
     WIT_LOG_INFO(std::format(L"create disk group requested catalogId={} name='{}'",
         catalog ? catalog->id : 0, name));
+    if (auto* profile = wit::infra::CurrentSaveProfile()) {
+        profile->catalogId = catalog ? catalog->id : 0;
+        profile->catalogPath = catalog ? catalog->path : L"";
+    }
     if (!database || !database->IsEditable()) {
         result.messages.push_back(Message(L"Open an editable catalog before adding a disk group.",
             L"Add New Disk Group", MB_OK | MB_ICONINFORMATION));
+        if (auto* profile = wit::infra::CurrentSaveProfile()) profile->result = "unavailable";
         PopulatePresentation(result);
         return result;
     }
@@ -436,6 +636,7 @@ ControllerResult CatalogWorkflowController::CreateDiskGroup(const std::wstring& 
     if (!pending->CreateWorkingCopy(*database)) {
         result.messages.push_back(Message(L"Unable to prepare pending catalog changes.",
             L"Add New Disk Group", MB_OK | MB_ICONERROR));
+        if (auto* profile = wit::infra::CurrentSaveProfile()) profile->result = "failed";
         PopulatePresentation(result);
         return result;
     }
@@ -444,12 +645,20 @@ ControllerResult CatalogWorkflowController::CreateDiskGroup(const std::wstring& 
         WIT_LOG_WARN(std::format(L"create disk group failed catalogId={} name='{}'", catalog->id, name));
         result.messages.push_back(Message(L"Unable to create the disk group. Check that the name is unique.",
             L"Add New Disk Group", MB_OK | MB_ICONWARNING));
+        if (auto* profile = wit::infra::CurrentSaveProfile()) profile->result = "failed";
         PopulatePresentation(result);
         return result;
     }
-    session_.AcceptPending(catalog->id, std::move(pending));
+    if (!session_.AcceptPending(catalog->id, std::move(pending))) {
+        result.messages.push_back(Message(L"Unable to prepare pending catalog changes.",
+            L"Add New Disk Group", MB_OK | MB_ICONERROR));
+        if (auto* profile = wit::infra::CurrentSaveProfile()) profile->result = "failed";
+        PopulatePresentation(result);
+        return result;
+    }
     WIT_LOG_INFO(std::format(L"create disk group staged catalogId={} groupId={} name='{}'",
         catalog->id, id, name));
+    if (auto* profile = wit::infra::CurrentSaveProfile()) profile->result = "completed";
     result.browserEffects.push_back({BrowserEffectKind::RefreshCatalog, catalog->id, catalog->label,
         catalog->WorkingDatabase(), true});
     result.presentation.refreshBrowserStatus = true;
@@ -459,44 +668,48 @@ ControllerResult CatalogWorkflowController::CreateDiskGroup(const std::wstring& 
 
 ControllerResult CatalogWorkflowController::MoveDiskToGroup(wit::core::CatalogId catalogId,
     std::int64_t diskId, std::int64_t diskGroupId) {
+    const auto timer = wit::infra::CurrentSaveProfile()
+        ? std::make_optional<wit::infra::ScopedSaveTimer>(
+            wit::infra::CurrentSaveProfile()->timingsNs.moveDiskToGroup)
+        : std::nullopt;
     ControllerResult result;
     WIT_LOG_INFO(std::format(L"move disk requested catalogId={} diskId={} targetGroupId={}",
         catalogId, diskId, diskGroupId));
     auto* catalog = session_.Find(catalogId);
     auto* database = catalog ? catalog->WorkingDatabase() : nullptr;
+    if (auto* profile = wit::infra::CurrentSaveProfile()) {
+        profile->catalogId = catalogId;
+        profile->catalogPath = catalog ? catalog->path : L"";
+    }
     if (!database || !database->IsEditable()) {
+        if (auto* profile = wit::infra::CurrentSaveProfile()) profile->result = "unavailable";
         result.messages.push_back(Message(L"Open an editable catalog before moving a disk image.",
             L"Move to Group", MB_OK | MB_ICONINFORMATION));
         PopulatePresentation(result);
         return result;
     }
     if (scans_.Targets(catalogId)) {
+        if (auto* profile = wit::infra::CurrentSaveProfile()) profile->result = "scanRunning";
         result.messages.push_back(Message(L"A scan is still preparing changes for this catalog.",
             L"Scan in progress", MB_OK | MB_ICONINFORMATION));
         PopulatePresentation(result);
         return result;
     }
-    auto pending = std::make_unique<wit::storage::Database>();
-    if (!pending->CreateWorkingCopy(*database)) {
-        result.messages.push_back(Message(L"Unable to prepare pending catalog changes.",
-            L"Move to Group", MB_OK | MB_ICONERROR));
-        PopulatePresentation(result);
-        return result;
-    }
-    if (!pending->MoveDiskToGroup(diskId, diskGroupId)) {
+    if (!session_.RecordMoveDiskToGroup(catalogId, diskId, diskGroupId)) {
         WIT_LOG_WARN(std::format(L"move disk failed catalogId={} diskId={} targetGroupId={}",
             catalogId, diskId, diskGroupId));
         result.messages.push_back(Message(L"Unable to move the disk image to the selected group.",
             L"Move to Group", MB_OK | MB_ICONWARNING));
+        if (auto* profile = wit::infra::CurrentSaveProfile()) profile->result = "failed";
         PopulatePresentation(result);
         return result;
     }
-    session_.AcceptPending(catalogId, std::move(pending));
     WIT_LOG_INFO(std::format(L"move disk staged catalogId={} diskId={} targetGroupId={}",
         catalogId, diskId, diskGroupId));
+    if (auto* profile = wit::infra::CurrentSaveProfile()) profile->result = "completed";
     const bool active = ActiveCatalog() && ActiveCatalog()->id == catalogId;
     result.browserEffects.push_back({BrowserEffectKind::MoveDiskToGroup, catalogId, catalog->label,
-        catalog->WorkingDatabase(), active, diskId, diskGroupId});
+        catalog->WorkingDatabase(), active, diskId, diskGroupId, 0, catalog->HasPendingFullCatalogChanges()});
     result.presentation.refreshBrowserStatus = true;
     PopulatePresentation(result);
     return result;
@@ -504,41 +717,131 @@ ControllerResult CatalogWorkflowController::MoveDiskToGroup(wit::core::CatalogId
 
 ControllerResult CatalogWorkflowController::MoveDiskGroupToGroup(wit::core::CatalogId catalogId,
     std::int64_t diskGroupId, std::int64_t parentGroupId) {
+    const auto timer = wit::infra::CurrentSaveProfile()
+        ? std::make_optional<wit::infra::ScopedSaveTimer>(
+            wit::infra::CurrentSaveProfile()->timingsNs.moveDiskGroupToGroup)
+        : std::nullopt;
     ControllerResult result;
     WIT_LOG_INFO(std::format(L"move disk group requested catalogId={} groupId={} targetParentGroupId={}",
         catalogId, diskGroupId, parentGroupId));
     auto* catalog = session_.Find(catalogId);
     auto* database = catalog ? catalog->WorkingDatabase() : nullptr;
+    if (auto* profile = wit::infra::CurrentSaveProfile()) {
+        profile->catalogId = catalogId;
+        profile->catalogPath = catalog ? catalog->path : L"";
+    }
     if (!database || !database->IsEditable()) {
+        if (auto* profile = wit::infra::CurrentSaveProfile()) profile->result = "unavailable";
         result.messages.push_back(Message(L"Open an editable catalog before moving a disk group.",
             L"Move to Group", MB_OK | MB_ICONINFORMATION));
         PopulatePresentation(result);
         return result;
     }
     if (scans_.Targets(catalogId)) {
+        if (auto* profile = wit::infra::CurrentSaveProfile()) profile->result = "scanRunning";
         result.messages.push_back(Message(L"A scan is still preparing changes for this catalog.",
             L"Scan in progress", MB_OK | MB_ICONINFORMATION));
         PopulatePresentation(result);
         return result;
     }
-    auto pending = std::make_unique<wit::storage::Database>();
-    if (!pending->CreateWorkingCopy(*database)) {
-        result.messages.push_back(Message(L"Unable to prepare pending catalog changes.",
-            L"Move to Group", MB_OK | MB_ICONERROR));
-        PopulatePresentation(result);
-        return result;
-    }
-    if (!pending->MoveDiskGroupToGroup(diskGroupId, parentGroupId)) {
+    if (!session_.RecordMoveDiskGroupToGroup(catalogId, diskGroupId, parentGroupId)) {
         WIT_LOG_WARN(std::format(L"move disk group failed catalogId={} groupId={} targetParentGroupId={}",
             catalogId, diskGroupId, parentGroupId));
         result.messages.push_back(Message(L"Unable to move the disk group to the selected destination.",
             L"Move to Group", MB_OK | MB_ICONWARNING));
+        if (auto* profile = wit::infra::CurrentSaveProfile()) profile->result = "failed";
         PopulatePresentation(result);
         return result;
     }
-    session_.AcceptPending(catalogId, std::move(pending));
     WIT_LOG_INFO(std::format(L"move disk group staged catalogId={} groupId={} targetParentGroupId={}",
         catalogId, diskGroupId, parentGroupId));
+    if (auto* profile = wit::infra::CurrentSaveProfile()) profile->result = "completed";
+    const bool active = ActiveCatalog() && ActiveCatalog()->id == catalogId;
+    result.browserEffects.push_back({BrowserEffectKind::MoveDiskGroupToGroup, catalogId, catalog->label,
+        catalog->WorkingDatabase(), active, 0, diskGroupId, parentGroupId, catalog->HasPendingFullCatalogChanges()});
+    result.presentation.refreshBrowserStatus = true;
+    PopulatePresentation(result);
+    return result;
+}
+
+ControllerResult CatalogWorkflowController::DeleteDisk(wit::core::CatalogId catalogId, std::int64_t diskId) {
+    ControllerResult result;
+    WIT_LOG_INFO(std::format(L"delete disk requested catalogId={} diskId={}", catalogId, diskId));
+    auto* catalog = session_.Find(catalogId);
+    auto* database = catalog ? catalog->WorkingDatabase() : nullptr;
+    if (auto* profile = wit::infra::CurrentSaveProfile()) {
+        profile->catalogId = catalogId;
+        profile->catalogPath = catalog ? catalog->path : L"";
+    }
+    if (!database || !database->IsEditable()) {
+        if (auto* profile = wit::infra::CurrentSaveProfile()) profile->result = "unavailable";
+        result.messages.push_back(Message(L"Open an editable catalog before deleting a disk image.",
+            L"Delete Disk", MB_OK | MB_ICONINFORMATION));
+        PopulatePresentation(result);
+        return result;
+    }
+    if (scans_.Targets(catalogId)) {
+        if (auto* profile = wit::infra::CurrentSaveProfile()) profile->result = "scanRunning";
+        result.messages.push_back(Message(L"A scan is still preparing changes for this catalog.",
+            L"Scan in progress", MB_OK | MB_ICONINFORMATION));
+        PopulatePresentation(result);
+        return result;
+    }
+
+    if (!session_.RecordDeleteDisk(catalogId, diskId)) {
+        WIT_LOG_WARN(std::format(L"delete disk failed catalogId={} diskId={}", catalogId, diskId));
+        result.messages.push_back(Message(L"Unable to delete the disk image from the catalog.",
+            L"Delete Disk", MB_OK | MB_ICONWARNING));
+        if (auto* profile = wit::infra::CurrentSaveProfile()) profile->result = "failed";
+        PopulatePresentation(result);
+        return result;
+    }
+
+    WIT_LOG_INFO(std::format(L"delete disk staged catalogId={} diskId={}", catalogId, diskId));
+    if (auto* profile = wit::infra::CurrentSaveProfile()) profile->result = "completed";
+    const bool active = ActiveCatalog() && ActiveCatalog()->id == catalogId;
+    result.browserEffects.push_back({BrowserEffectKind::RefreshCatalog, catalogId, catalog->label,
+        catalog->WorkingDatabase(), active});
+    result.presentation.refreshBrowserStatus = true;
+    PopulatePresentation(result);
+    return result;
+}
+
+ControllerResult CatalogWorkflowController::DeleteDiskGroup(wit::core::CatalogId catalogId, std::int64_t diskGroupId) {
+    ControllerResult result;
+    WIT_LOG_INFO(std::format(L"delete disk group requested catalogId={} groupId={}", catalogId, diskGroupId));
+    auto* catalog = session_.Find(catalogId);
+    auto* database = catalog ? catalog->WorkingDatabase() : nullptr;
+    if (auto* profile = wit::infra::CurrentSaveProfile()) {
+        profile->catalogId = catalogId;
+        profile->catalogPath = catalog ? catalog->path : L"";
+    }
+    if (!database || !database->IsEditable()) {
+        if (auto* profile = wit::infra::CurrentSaveProfile()) profile->result = "unavailable";
+        result.messages.push_back(Message(L"Open an editable catalog before deleting a disk group.",
+            L"Delete Disk Group", MB_OK | MB_ICONINFORMATION));
+        PopulatePresentation(result);
+        return result;
+    }
+    if (scans_.Targets(catalogId)) {
+        if (auto* profile = wit::infra::CurrentSaveProfile()) profile->result = "scanRunning";
+        result.messages.push_back(Message(L"A scan is still preparing changes for this catalog.",
+            L"Scan in progress", MB_OK | MB_ICONINFORMATION));
+        PopulatePresentation(result);
+        return result;
+    }
+
+    if (!session_.RecordDeleteDiskGroup(catalogId, diskGroupId)) {
+        WIT_LOG_WARN(std::format(L"delete disk group failed catalogId={} groupId={}", catalogId, diskGroupId));
+        result.messages.push_back(Message(L"Unable to delete the disk group. Make sure it is empty.",
+            L"Delete Disk Group", MB_OK | MB_ICONWARNING));
+        if (auto* profile = wit::infra::CurrentSaveProfile()) profile->result = "failed";
+        PopulatePresentation(result);
+        return result;
+    }
+
+    WIT_LOG_INFO(std::format(L"delete disk group staged catalogId={} groupId={}", catalogId, diskGroupId));
+    if (auto* profile = wit::infra::CurrentSaveProfile()) profile->result = "completed";
     const bool active = ActiveCatalog() && ActiveCatalog()->id == catalogId;
     result.browserEffects.push_back({BrowserEffectKind::RefreshCatalog, catalogId, catalog->label,
         catalog->WorkingDatabase(), active});
@@ -689,11 +992,15 @@ ControllerResult CatalogWorkflowController::OnScanComplete(ScanId scanId) {
     }
     if (!cancellationRequested && scanResult->outcome == ScanOutcome::Completed && scanResult->pending) {
         if (auto* catalog = session_.Find(scanResult->destinationCatalogId)) {
-            session_.AcceptPending(catalog->id, std::move(scanResult->pending));
-            const bool active = ActiveCatalog() && ActiveCatalog()->id == catalog->id;
-            result.browserEffects.push_back({BrowserEffectKind::RefreshCatalog, catalog->id, catalog->label,
-                catalog->WorkingDatabase(), active});
-            result.presentation.refreshBrowserStatus = true;
+            if (!session_.AcceptPending(catalog->id, std::move(scanResult->pending))) {
+                result.messages.push_back(Message(L"The scan completed, but its pending catalog changes could not be merged.",
+                    L"Add/Update Disk Image", MB_OK | MB_ICONERROR));
+            } else {
+                const bool active = ActiveCatalog() && ActiveCatalog()->id == catalog->id;
+                result.browserEffects.push_back({BrowserEffectKind::RefreshCatalog, catalog->id, catalog->label,
+                    catalog->WorkingDatabase(), active});
+                result.presentation.refreshBrowserStatus = true;
+            }
         }
     } else if (!cancellationRequested && (scanResult->outcome == ScanOutcome::Failed ||
         (scanResult->outcome == ScanOutcome::Completed && !scanResult->pending))) {

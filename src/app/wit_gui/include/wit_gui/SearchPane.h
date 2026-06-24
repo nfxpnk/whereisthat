@@ -3,6 +3,7 @@
 #include "resource.h"
 #include <wit_types/FileEntry.h>
 #include "wit_search/AdvancedSearchParser.h"
+#include <wit_types/FileSort.h>
 #include "wit_search/ISearchRepository.h"
 #include <CommCtrl.h>
 #include <functional>
@@ -34,8 +35,10 @@ public:
         COMMAND_ID_HANDLER(IDCANCEL, OnCloseCommand)
         COMMAND_ID_HANDLER(ID_SEARCH_RESULTS_LOCATE_IN_CATALOG, OnLocateInCatalog)
         NOTIFY_HANDLER(IDC_SEARCH_TABS, TCN_SELCHANGE, OnTabChanged)
+        COMMAND_ID_HANDLER(ID_SEARCH_RESULTS_OPEN_EXPLORER_PLACEHOLDER, OnOpenInExplorer)
         NOTIFY_HANDLER(IDC_SEARCH_RESULTS, LVN_GETDISPINFOW, OnGetDisplayInfo)
         NOTIFY_HANDLER(IDC_SEARCH_RESULTS, LVN_ODCACHEHINT, OnCacheHint)
+        NOTIFY_HANDLER(IDC_SEARCH_RESULTS, LVN_COLUMNCLICK, OnColumnClick)
         CHAIN_MSG_MAP(WTL::CDialogResize<SearchDialog>)
     END_MSG_MAP()
 
@@ -76,6 +79,7 @@ private:
     wit::search::AdvancedSearchExpression advancedExpression_;
     ResultMode resultMode_{ResultMode::Quick};
     int total_{};
+    wit::core::FileSort sort_{};
     unsigned long long cacheClock_{};
     std::vector<CachedPage> cachedPages_;
 
@@ -85,12 +89,14 @@ private:
     LRESULT OnExecuteAdvancedSearch(WORD notifyCode, WORD id, HWND control, BOOL& handled);
     LRESULT OnClearAdvancedSearch(WORD notifyCode, WORD id, HWND control, BOOL& handled);
     LRESULT OnLocateInCatalog(WORD notifyCode, WORD id, HWND control, BOOL& handled);
+    LRESULT OnOpenInExplorer(WORD notifyCode, WORD id, HWND control, BOOL& handled);
     LRESULT OnWindowClose(UINT message, WPARAM wparam, LPARAM lparam, BOOL& handled);
     LRESULT OnDestroy(UINT message, WPARAM wparam, LPARAM lparam, BOOL& handled);
     LRESULT OnCloseCommand(WORD notifyCode, WORD id, HWND control, BOOL& handled);
     LRESULT OnGetDisplayInfo(int id, LPNMHDR header, BOOL& handled);
     LRESULT OnCacheHint(int id, LPNMHDR header, BOOL& handled);
     LRESULT OnTabChanged(int id, LPNMHDR header, BOOL& handled);
+    LRESULT OnColumnClick(int id, LPNMHDR header, BOOL& handled);
     void Initialize();
     void Search();
     void AdvancedSearch();
@@ -102,6 +108,11 @@ private:
     void PreloadRange(int firstRow, int lastRow);
     const wit::core::FileEntry* EntryAt(int row);
     const wit::core::FileEntry* FocusedEntry();
+    void ToggleSortForColumn(int column);
+    void UpdateSortIndicators();
+    std::vector<wit::core::FileEntry> SelectedEntriesInRange(int firstRow, int lastRow);
+    void RestoreSelection(std::vector<wit::core::FileEntry> selectedEntries,
+        std::int64_t focusedId, bool focusedIsDirectory);
     bool PrepareContextMenuSelection(LPARAM lparam, POINT& screenPoint);
     void ShowResultsContextMenu(POINT screenPoint);
     void TextFor(int row, int column, wchar_t* buffer, std::size_t bufferSize);

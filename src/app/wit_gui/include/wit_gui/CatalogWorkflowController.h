@@ -15,6 +15,7 @@ enum class BrowserEffectKind {
     AddCatalog,
     RefreshCatalog,
     MoveDiskToGroup,
+    MoveDiskGroupToGroup,
     RemoveCatalog,
     SelectCatalog,
     Clear
@@ -28,6 +29,8 @@ struct BrowserEffect {
     bool select{};
     std::int64_t diskId{};
     std::int64_t diskGroupId{};
+    std::int64_t parentGroupId{};
+    bool databaseReflectsChange{};
 };
 
 struct MessageEffect {
@@ -47,6 +50,7 @@ enum class RequestKind {
     None,
     ChooseNewCatalog,
     ChooseOpenCatalog,
+    ChooseSaveAsCatalog,
     ConfirmCloseCatalog,
     ConfirmPendingChanges,
     ShowSearch,
@@ -121,6 +125,8 @@ public:
     ControllerResult CreateCatalogPathSelected(const std::optional<std::wstring>& path);
     ControllerResult OpenCatalogPathSelected(const std::optional<std::wstring>& path);
     ControllerResult RequestSave();
+    ControllerResult RequestSaveAs();
+    ControllerResult SaveAsPathSelected(const std::optional<std::wstring>& path);
     ControllerResult RequestCloseCatalog();
     ControllerResult AnswerCloseCatalog(int answer);
     ControllerResult AnswerPendingChanges(int answer);
@@ -133,6 +139,8 @@ public:
         std::int64_t diskGroupId);
     ControllerResult MoveDiskGroupToGroup(wit::core::CatalogId catalogId, std::int64_t diskGroupId,
         std::int64_t parentGroupId);
+    ControllerResult DeleteDisk(wit::core::CatalogId catalogId, std::int64_t diskId);
+    ControllerResult DeleteDiskGroup(wit::core::CatalogId catalogId, std::int64_t diskGroupId);
     ControllerResult MediaSelectionCompleted(const std::optional<wit::core::ScanRequest>& request);
     ControllerResult RequestCancelScan();
     ControllerResult RequestGeneralSettings();
@@ -173,3 +181,4 @@ private:
 };
 
 }
+

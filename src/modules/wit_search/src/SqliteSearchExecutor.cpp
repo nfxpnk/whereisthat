@@ -4,6 +4,7 @@
 #include <wit_infra/Win32Helpers.h>
 #include "third_party/sqlite/sqlite3.h"
 
+#include <Windows.h>
 #include <algorithm>
 #include <cstdint>
 #include <iterator>
@@ -132,6 +133,53 @@ int CountAdvancedInTable(sqlite3* db, const AdvancedSearchExpression& expression
     BindAdvancedParams(statement, sql.params);
     return sqlite3_step(statement.Raw()) == SQLITE_ROW ? sqlite3_column_int(statement.Raw(), 0) : 0;
 }
+
+int NaturalNoCaseCollation(void*, int leftBytes, const void* leftValue, int rightBytes, const void* rightValue) {
+    const std::string leftUtf8(static_cast<const char*>(leftValue), static_cast<std::size_t>(leftBytes));
+    const std::string rightUtf8(static_cast<const char*>(rightValue), static_cast<std::size_t>(rightBytes));
+    const auto left = wit::platform::ToUtf16(leftUtf8);
+    const auto right = wit::platform::ToUtf16(rightUtf8);
+    const int result = CompareStringEx(LOCALE_NAME_USER_DEFAULT,
+        LINGUISTIC_IGNORECASE | SORT_DIGITSASNUMBERS,
+        left.c_str(), static_cast<int>(left.size()),
+        right.c_str(), static_cast<int>(right.size()),
+        nullptr, nullptr, 0);
+    if (result == CSTR_LESS_THAN) return -1;
+    if (result == CSTR_GREATER_THAN) return 1;
+    return 0;
+}
+
+void EnsureNaturalNoCaseCollation(sqlite3* db) {
+    if (!db) return;
+    sqlite3_create_collation_v2(db, "WIN_NATURAL_NOCASE", SQLITE_UTF8, nullptr,
+        NaturalNoCaseCollation, nullptr);
+}
+
+const char* OrderExpressionFor(wit::core::FileSortColumn column, bool folders) {
+    switch (column) {
+    case wit::core::FileSortColumn::Type:
+        return folders ? "c.entry_type COLLATE WIN_NATURAL_NOCASE"
+            : "f.extension COLLATE WIN_NATURAL_NOCASE";
+    case wit::core::FileSortColumn::Size:
+        return folders ? "c.content_size" : "f.size";
+    case wit::core::FileSortColumn::Path:
+        return "p.path COLLATE WIN_NATURAL_NOCASE";
+    case wit::core::FileSortColumn::Modified:
+        return folders ? "c.modified_at" : "f.modified_at";
+    case wit::core::FileSortColumn::Name:
+    default:
+        return folders ? "c.name COLLATE WIN_NATURAL_NOCASE" : "f.name COLLATE WIN_NATURAL_NOCASE";
+    }
+}
+
+std::string OrderByFor(wit::core::FileSort sort, bool folders) {
+    std::string order{"ORDER BY "};
+    order += OrderExpressionFor(sort.column, folders);
+    order += sort.ascending ? " ASC," : " DESC,";
+    order += folders ? " c.name COLLATE WIN_NATURAL_NOCASE ASC,c.id ASC "
+        : " f.name COLLATE WIN_NATURAL_NOCASE ASC,f.id ASC ";
+    return order;
+}
 }
 
 SqliteSearchExecutor::SqliteSearchExecutor(sqlite3* db) : db_(db) {}
@@ -154,9 +202,10 @@ int SqliteSearchExecutor::CountByName(const std::wstring& nameTerm) {
 }
 
 std::vector<wit::core::FileEntry> SqliteSearchExecutor::PageByName(
-    const std::wstring& nameTerm, int offset, int limit) {
+    const std::wstring& nameTerm, int offset, int limit, wit::core::FileSort sort) {
     std::vector<wit::core::FileEntry> files;
     const auto pattern = ItemNameLikePattern(nameTerm);
+    EnsureNaturalNoCaseCollation(db_);
 
     if (!hasCachedFolderCount_ || cachedFolderCountTerm_ != nameTerm) {
         wit::storage::SQLiteStatement folderCountStatement(db_,
@@ -170,10 +219,11 @@ std::vector<wit::core::FileEntry> SqliteSearchExecutor::PageByName(
     const int folderCount = cachedFolderCount_;
 
     if (offset < folderCount && limit > 0) {
-        wit::storage::SQLiteStatement folderStatement(db_,
+        const auto sql = std::string(
             "SELECT c.id,c.disk_id,COALESCE(p.path,''),c.name,'',c.content_size,c.modified_at,c.attributes,1,c.entry_type "
             "FROM folders c LEFT JOIN folders p ON c.parent_folder_id=p.id "
-            "WHERE c.name LIKE ? ESCAPE '\\' ORDER BY c.name,c.id LIMIT ? OFFSET ?;");
+            "WHERE c.name LIKE ? ESCAPE '\\' ") + OrderByFor(sort, true) + "LIMIT ? OFFSET ?;";
+        wit::storage::SQLiteStatement folderStatement(db_, sql.c_str());
         folderStatement.BindText(1, pattern);
         folderStatement.BindInt64(2, limit);
         folderStatement.BindInt64(3, offset);
@@ -187,10 +237,11 @@ std::vector<wit::core::FileEntry> SqliteSearchExecutor::PageByName(
     const int remaining = limit - static_cast<int>(files.size());
     if (remaining > 0) {
         const int fileOffset = (std::max)(0, offset - folderCount);
-        wit::storage::SQLiteStatement fileStatement(db_,
+        const auto sql = std::string(
             "SELECT f.id,f.disk_id,p.path,f.name,f.extension,f.size,f.modified_at,f.attributes,0,'file' "
             "FROM files f JOIN folders p ON f.folder_id=p.id "
-            "WHERE f.name LIKE ? ESCAPE '\\' ORDER BY f.name,f.id LIMIT ? OFFSET ?;");
+            "WHERE f.name LIKE ? ESCAPE '\\' ") + OrderByFor(sort, false) + "LIMIT ? OFFSET ?;";
+        wit::storage::SQLiteStatement fileStatement(db_, sql.c_str());
         fileStatement.BindText(1, pattern);
         fileStatement.BindInt64(2, remaining);
         fileStatement.BindInt64(3, fileOffset);
@@ -209,9 +260,10 @@ int SqliteSearchExecutor::CountAdvanced(const AdvancedSearchExpression& expressi
 }
 
 std::vector<wit::core::FileEntry> SqliteSearchExecutor::PageAdvanced(
-    const AdvancedSearchExpression& expression, int offset, int limit) {
+    const AdvancedSearchExpression& expression, int offset, int limit, wit::core::FileSort sort) {
     std::vector<wit::core::FileEntry> files;
     if (!db_ || expression.criteria.empty() || limit <= 0) return files;
+    EnsureNaturalNoCaseCollation(db_);
 
     const int folderCount = CountAdvancedInTable(db_, expression, true);
     if (offset < folderCount) {
@@ -219,7 +271,7 @@ std::vector<wit::core::FileEntry> SqliteSearchExecutor::PageAdvanced(
         const std::string statementSql =
             "SELECT c.id,c.disk_id,COALESCE(p.path,''),c.name,'',c.content_size,c.modified_at,c.attributes,1,c.entry_type "
             "FROM folders c LEFT JOIN folders p ON c.parent_folder_id=p.id "
-            "WHERE " + folderSql.whereClause + " ORDER BY c.name,c.id LIMIT ? OFFSET ?;";
+            "WHERE " + folderSql.whereClause + " " + OrderByFor(sort, true) + "LIMIT ? OFFSET ?;";
         wit::storage::SQLiteStatement folderStatement(db_, statementSql.c_str());
         BindAdvancedParams(folderStatement, folderSql.params);
         const int paramStart = static_cast<int>(folderSql.params.size()) + 1;
@@ -239,7 +291,7 @@ std::vector<wit::core::FileEntry> SqliteSearchExecutor::PageAdvanced(
         const std::string statementSql =
             "SELECT f.id,f.disk_id,p.path,f.name,f.extension,f.size,f.modified_at,f.attributes,0,'file' "
             "FROM files f JOIN folders p ON f.folder_id=p.id "
-            "WHERE " + fileSql.whereClause + " ORDER BY f.name,f.id LIMIT ? OFFSET ?;";
+            "WHERE " + fileSql.whereClause + " " + OrderByFor(sort, false) + "LIMIT ? OFFSET ?;";
         wit::storage::SQLiteStatement fileStatement(db_, statementSql.c_str());
         BindAdvancedParams(fileStatement, fileSql.params);
         const int paramStart = static_cast<int>(fileSql.params.size()) + 1;

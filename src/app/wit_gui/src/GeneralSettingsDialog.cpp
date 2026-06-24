@@ -207,10 +207,6 @@ WTL::CStatic GeneralSettingsDialog::DateTimeFormatSample() const {
     return WTL::CStatic(GeneralControl(IDC_DATE_TIME_FORMAT_SAMPLE));
 }
 
-WTL::CEdit GeneralSettingsDialog::LastOpenedCatalogEdit() const {
-    return WTL::CEdit(GeneralControl(IDC_LAST_OPENED_CATALOG));
-}
-
 WTL::CButton GeneralSettingsDialog::EnableScanFileDelayCheck() const {
     return WTL::CButton(GeneralControl(IDC_ENABLE_SCAN_FILE_DELAY));
 }
@@ -319,7 +315,6 @@ void GeneralSettingsDialog::LoadSettingsIntoControls(
 
     const auto splitterPosition = std::format(L"{}", settings.mainSplitterPosition);
     MainSplitterPositionEdit().SetWindowTextW(splitterPosition.c_str());
-    LastOpenedCatalogEdit().SetWindowTextW(settings.lastCatalogPath.c_str());
 
     settings_ = settings;
     UpdateDateTimeFormatSample();

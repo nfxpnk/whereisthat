@@ -6,6 +6,7 @@
 #include "wit_types/BrowserLocation.h"
 #include <wit_types/Disk.h>
 #include <wit_types/FileEntry.h>
+#include <wit_types/FileSort.h>
 #include "wit_database/IBrowserRepository.h"
 
 namespace wit::ui {
@@ -18,7 +19,7 @@ public:
     int browserPageStart{-1};
     std::vector<wit::core::BrowserItem> browserPage;
 
-    void Attach(HWND handle) { hwnd = handle; }
+    void Attach(HWND handle);
     void SetLocation(const wit::core::BrowserLocation& newLocation, wit::storage::IBrowserRepository* repository);
     void ResetCachedItems();
     void PreloadRange(int firstRow, int lastRow);
@@ -29,6 +30,12 @@ public:
     const wit::core::BrowserItem* BrowserItemAt(int row);
     const wit::core::Disk* DiskAt(int row);
     bool SelectEntry(std::int64_t id, bool isDirectory);
+    bool ToggleSortForColumn(int column);
+    bool SetSort(wit::core::FileSort sort);
+    bool SetRootSort(wit::core::BrowserRootSort sort);
+    [[nodiscard]] wit::core::FileSort Sort() const { return sort_; }
+    [[nodiscard]] wit::core::BrowserRootSort RootSort() const { return rootSort_; }
+    void UpdateSortIndicators();
     int ImageFor(int row);
     void TextFor(int row, int column, wchar_t* buffer, std::size_t bufferSize);
 
@@ -44,10 +51,15 @@ private:
 
     unsigned long long cacheClock_{};
     std::vector<CachedFilePage> cachedFilePages_;
+    wit::core::FileSort sort_{};
+    wit::core::BrowserRootSort rootSort_{};
 
     void ConfigureColumns();
     void ClearCache();
     void CacheFilePage(int pageStart);
+    bool ApplyBrowserRootSort();
+    bool ApplyContentSort(std::vector<wit::core::FileEntry> selectedEntries, std::int64_t focusedId, bool focusedIsDirectory);
+    std::vector<wit::core::FileEntry> SelectedEntriesInRange(int firstRow, int lastRow);
 };
 }
 #include <Windows.h>

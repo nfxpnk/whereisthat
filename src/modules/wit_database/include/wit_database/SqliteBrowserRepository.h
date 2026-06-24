@@ -26,12 +26,14 @@ public:
     std::vector<wit::core::BrowserItem> GetBrowserRootItemsPage(
         const wit::core::BrowserLocation& location,
         int offset,
-        int limit) override;
+        int limit,
+        wit::core::BrowserRootSort sort = {}) override;
 
     std::vector<wit::core::FileEntry> GetBrowserItemsPage(
         const wit::core::BrowserLocation& location,
         int offset,
-        int limit) override;
+        int limit,
+        wit::core::FileSort sort) override;
 
     bool HasChildFolders(
         std::int64_t sourceId,

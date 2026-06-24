@@ -23,6 +23,14 @@ Application preferences are separate from catalog data and must not be added to 
 
 SQLite must not be replaced with a managed data layer, framework database abstraction, or statically embedded amalgamation unless this specification is deliberately revised.
 
+## Archive Packaging Decision
+
+- Use the vendored libarchive headers and `archive.lib` import library for archive scanning.
+- Keep libarchive and its dependency DLLs separate from `WhereIsThat.exe`.
+- Copy the libarchive runtime DLLs next to `WhereIsThat.exe` after the build.
+
+Archive scanning must not require a system-wide libarchive installation or introduce a replacement build system/dependency manager.
+
 ## Current Data Responsibilities
 
 - `catalog_metadata` contains the one catalog-owned free-text description record.

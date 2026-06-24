@@ -4,6 +4,7 @@
 #include <wit_infra/Win32Helpers.h>
 #include "third_party/sqlite/sqlite3.h"
 
+#include <Windows.h>
 #include <algorithm>
 #include <cstdint>
 #include <string>
@@ -61,6 +62,77 @@ void PopulateBrowserGroup(wit::core::DiskGroup& group, sqlite3_stmt* stmt) {
     group.updatedAt = sqlite3_column_int64(stmt, 8);
     group.totalDisks = sqlite3_column_int64(stmt, 13);
 }
+
+int NaturalNoCaseCollation(void*, int leftBytes, const void* leftValue, int rightBytes, const void* rightValue) {
+    const std::string leftUtf8(static_cast<const char*>(leftValue), static_cast<std::size_t>(leftBytes));
+    const std::string rightUtf8(static_cast<const char*>(rightValue), static_cast<std::size_t>(rightBytes));
+    const auto left = wit::platform::ToUtf16(leftUtf8);
+    const auto right = wit::platform::ToUtf16(rightUtf8);
+    const int result = CompareStringEx(LOCALE_NAME_USER_DEFAULT,
+        LINGUISTIC_IGNORECASE | SORT_DIGITSASNUMBERS,
+        left.c_str(), static_cast<int>(left.size()),
+        right.c_str(), static_cast<int>(right.size()),
+        nullptr, nullptr, 0);
+    if (result == CSTR_LESS_THAN) return -1;
+    if (result == CSTR_GREATER_THAN) return 1;
+    return 0;
+}
+
+void EnsureNaturalNoCaseCollation(sqlite3* db) {
+    if (!db) return;
+    sqlite3_create_collation_v2(db, "WIN_NATURAL_NOCASE", SQLITE_UTF8, nullptr,
+        NaturalNoCaseCollation, nullptr);
+}
+
+const char* OrderExpressionFor(wit::core::FileSortColumn column, bool folders) {
+    switch (column) {
+    case wit::core::FileSortColumn::Type:
+        return folders ? "c.entry_type COLLATE WIN_NATURAL_NOCASE"
+            : "f.extension COLLATE WIN_NATURAL_NOCASE";
+    case wit::core::FileSortColumn::Size:
+        return folders ? "c.content_size" : "f.size";
+    case wit::core::FileSortColumn::Path:
+        return "p.path COLLATE WIN_NATURAL_NOCASE";
+    case wit::core::FileSortColumn::Modified:
+        return folders ? "c.modified_at" : "f.modified_at";
+    case wit::core::FileSortColumn::Name:
+    default:
+        return folders ? "c.name COLLATE WIN_NATURAL_NOCASE" : "f.name COLLATE WIN_NATURAL_NOCASE";
+    }
+}
+
+std::string OrderByFor(wit::core::FileSort sort, bool folders) {
+    std::string order{"ORDER BY "};
+    order += OrderExpressionFor(sort.column, folders);
+    order += sort.ascending ? " ASC," : " DESC,";
+    order += folders ? " c.name COLLATE WIN_NATURAL_NOCASE ASC,c.id ASC "
+        : " f.name COLLATE WIN_NATURAL_NOCASE ASC,f.id ASC ";
+    return order;
+}
+
+const char* RootOrderExpressionFor(int column) {
+    switch (column) {
+    case 1: return "disk_type COLLATE WIN_NATURAL_NOCASE";
+    case 2: return "total_capacity";
+    case 3: return "free_space";
+    case 4: return "updated_at";
+    case 5: return "CASE WHEN kind=0 THEN total_disks ELSE disk_number END";
+    case 6: return "description COLLATE WIN_NATURAL_NOCASE";
+    case 7: return "category COLLATE WIN_NATURAL_NOCASE";
+    case 8: return "location COLLATE WIN_NATURAL_NOCASE";
+    case 0:
+    default:
+        return "name COLLATE WIN_NATURAL_NOCASE";
+    }
+}
+
+std::string RootOrderByFor(wit::core::BrowserRootSort sort) {
+    std::string order{"ORDER BY kind ASC,"};
+    order += RootOrderExpressionFor(sort.column);
+    order += sort.ascending ? " ASC," : " DESC,";
+    order += " name COLLATE WIN_NATURAL_NOCASE ASC,id ASC ";
+    return order;
+}
 }
 
 SqliteBrowserRepository::SqliteBrowserRepository(sqlite3* db) : db_(db) {}
@@ -97,10 +169,11 @@ int SqliteBrowserRepository::GetBrowserRootItemCount(const wit::core::BrowserLoc
 }
 
 std::vector<wit::core::BrowserItem> SqliteBrowserRepository::GetBrowserRootItemsPage(
-    const wit::core::BrowserLocation& location, int offset, int limit) {
+    const wit::core::BrowserLocation& location, int offset, int limit, wit::core::BrowserRootSort sort) {
     std::vector<wit::core::BrowserItem> items;
+    EnsureNaturalNoCaseCollation(db_);
     if (location.isDiskGroup) {
-        SQLiteStatement statement(db_,
+        const auto sql = std::string(
             "WITH RECURSIVE group_tree(root_id,id) AS ("
             "SELECT id,id FROM disk_groups "
             "UNION ALL SELECT t.root_id,g.id FROM disk_groups g JOIN group_tree t ON g.parent_group_id=t.id) "
@@ -117,7 +190,8 @@ std::vector<wit::core::BrowserItem> SqliteBrowserRepository::GetBrowserRootItems
             "SELECT 1 AS kind,d.id,d.disk_group_id,d.disk_name,d.disk_number,d.source_path,d.total_capacity,"
             "d.free_space,d.updated_at,d.description,d.category,d.location,d.disk_type,0 AS total_disks,NULL AS parent_group_id "
             "FROM disks d WHERE d.disk_group_id=?) "
-            "ORDER BY kind,name COLLATE NOCASE,id LIMIT ? OFFSET ?;");
+            ) + RootOrderByFor(sort) + "LIMIT ? OFFSET ?;";
+        SQLiteStatement statement(db_, sql.c_str());
         statement.BindInt64(1, location.diskGroupId);
         statement.BindInt64(2, location.diskGroupId);
         statement.BindInt64(3, limit);
@@ -135,7 +209,7 @@ std::vector<wit::core::BrowserItem> SqliteBrowserRepository::GetBrowserRootItems
         }
         return items;
     }
-    SQLiteStatement statement(db_,
+    const auto sql = std::string(
         "WITH RECURSIVE group_tree(root_id,id) AS ("
         "SELECT id,id FROM disk_groups "
         "UNION ALL SELECT t.root_id,g.id FROM disk_groups g JOIN group_tree t ON g.parent_group_id=t.id) "
@@ -152,7 +226,8 @@ std::vector<wit::core::BrowserItem> SqliteBrowserRepository::GetBrowserRootItems
         "SELECT 1 AS kind,d.id,d.disk_group_id,d.disk_name,d.disk_number,d.source_path,d.total_capacity,"
         "d.free_space,d.updated_at,d.description,d.category,d.location,d.disk_type,0 AS total_disks,NULL AS parent_group_id "
         "FROM disks d WHERE d.disk_group_id IS NULL) "
-        "ORDER BY kind,name COLLATE NOCASE,id LIMIT ? OFFSET ?;");
+        ) + RootOrderByFor(sort) + "LIMIT ? OFFSET ?;";
+    SQLiteStatement statement(db_, sql.c_str());
     statement.BindInt64(1, limit);
     statement.BindInt64(2, offset);
     while (sqlite3_step(statement.Raw()) == SQLITE_ROW) {
@@ -170,9 +245,10 @@ std::vector<wit::core::BrowserItem> SqliteBrowserRepository::GetBrowserRootItems
 }
 
 std::vector<wit::core::FileEntry> SqliteBrowserRepository::GetBrowserItemsPage(
-    const wit::core::BrowserLocation& location, int offset, int limit) {
+    const wit::core::BrowserLocation& location, int offset, int limit, wit::core::FileSort sort) {
     std::vector<wit::core::FileEntry> files;
     if (location.isRoot || location.isDiskGroup) return files;
+    EnsureNaturalNoCaseCollation(db_);
 
     SQLiteStatement folderCountStatement(db_,
         "WITH parent(id,path) AS (SELECT id,path FROM folders WHERE disk_id=? AND path=? COLLATE NOCASE) "
@@ -184,11 +260,12 @@ std::vector<wit::core::FileEntry> SqliteBrowserRepository::GetBrowserItemsPage(
         ? sqlite3_column_int(folderCountStatement.Raw(), 0) : 0;
 
     if (offset < folderCount && limit > 0) {
-        SQLiteStatement folderStatement(db_,
+        const auto sql = std::string(
             "WITH parent(id,path) AS (SELECT id,path FROM folders WHERE disk_id=? AND path=? COLLATE NOCASE) "
             "SELECT c.id,c.disk_id,p.path,c.name,'' AS extension,c.content_size,c.modified_at,c.attributes,1,c.entry_type "
             "FROM folders c JOIN parent p ON c.parent_folder_id=p.id "
-            "WHERE c.disk_id=? ORDER BY c.name,c.id LIMIT ? OFFSET ?;");
+            "WHERE c.disk_id=? ") + OrderByFor(sort, true) + "LIMIT ? OFFSET ?;";
+        SQLiteStatement folderStatement(db_, sql.c_str());
         folderStatement.BindInt64(1, location.sourceId);
         folderStatement.BindText(2, wit::platform::ToUtf8(location.path));
         folderStatement.BindInt64(3, location.sourceId);
@@ -204,15 +281,17 @@ std::vector<wit::core::FileEntry> SqliteBrowserRepository::GetBrowserItemsPage(
     const int remaining = limit - static_cast<int>(files.size());
     if (remaining > 0) {
         const int fileOffset = (std::max)(0, offset - folderCount);
-        SQLiteStatement fileStatement(db_,
+        const auto sql = std::string(
             "WITH parent(id,path) AS (SELECT id,path FROM folders WHERE disk_id=? AND path=? COLLATE NOCASE) "
             "SELECT f.id,f.disk_id,p.path,f.name,f.extension,f.size,f.modified_at,f.attributes,0,'file' "
             "FROM files f JOIN parent p ON f.folder_id=p.id "
-            "ORDER BY f.name,f.id LIMIT ? OFFSET ?;");
+            "WHERE f.disk_id=? ") + OrderByFor(sort, false) + "LIMIT ? OFFSET ?;";
+        SQLiteStatement fileStatement(db_, sql.c_str());
         fileStatement.BindInt64(1, location.sourceId);
         fileStatement.BindText(2, wit::platform::ToUtf8(location.path));
-        fileStatement.BindInt64(3, remaining);
-        fileStatement.BindInt64(4, fileOffset);
+        fileStatement.BindInt64(3, location.sourceId);
+        fileStatement.BindInt64(4, remaining);
+        fileStatement.BindInt64(5, fileOffset);
         while (sqlite3_step(fileStatement.Raw()) == SQLITE_ROW) {
             wit::core::FileEntry file;
             PopulateDisplayEntry(file, fileStatement.Raw());

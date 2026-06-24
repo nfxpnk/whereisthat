@@ -108,7 +108,6 @@ private:
     WTL::CButton ApplyButton() const;
     WTL::CComboBox DateTimeFormatCombo() const;
     WTL::CStatic DateTimeFormatSample() const;
-    WTL::CEdit LastOpenedCatalogEdit() const;
     WTL::CButton EnableScanFileDelayCheck() const;
     WTL::CButton ShowStatusBarCheck() const;
     WTL::CButton ShowToolbarCheck() const;

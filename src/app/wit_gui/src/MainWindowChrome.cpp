@@ -426,6 +426,18 @@ void MainWindowChrome::SetSaveCommandEnabled(bool enabled) {
     }
 }
 
+void MainWindowChrome::UpdateSortToolbarButtons(wit::core::FileSort sort) {
+    if (!toolbarHandle_) return;
+    const auto check = [this](int command, bool checked) {
+        SendMessageW(toolbarHandle_, TB_CHECKBUTTON, command, MAKELPARAM(checked, 0));
+    };
+    check(ID_TOOLBAR_SORT_NAME, sort.column == wit::core::FileSortColumn::Name);
+    check(ID_TOOLBAR_SORT_EXTENSION, sort.column == wit::core::FileSortColumn::Type);
+    check(ID_TOOLBAR_SORT_SIZE, sort.column == wit::core::FileSortColumn::Size);
+    check(ID_TOOLBAR_SORT_DATE, sort.column == wit::core::FileSortColumn::Modified);
+    check(ID_TOOLBAR_SORT_REVERSE, !sort.ascending);
+}
+
 void MainWindowChrome::UpdateProgramStatusLights() {
     InvalidateStatusPart(4);
 }

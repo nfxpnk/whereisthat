@@ -37,6 +37,7 @@ public:
     bool IsEditable() const { return editable_; }
     [[nodiscard]] bool InitializeSchema();
     [[nodiscard]] bool BeginTransaction();
+    [[nodiscard]] bool BeginImmediateTransaction();
     [[nodiscard]] bool Commit();
     [[nodiscard]] bool Rollback();
     [[nodiscard]] bool SetCatalogDescription(const std::wstring& description);
@@ -48,8 +49,10 @@ public:
     [[nodiscard]] std::int64_t FindDiskBySourcePath(const std::wstring& sourcePath,
         const std::wstring& originalLocation = L"");
     [[nodiscard]] bool DeleteContentForDisk(std::int64_t diskId);
+    [[nodiscard]] bool DeleteDisk(std::int64_t diskId);
     [[nodiscard]] bool MoveDiskToGroup(std::int64_t diskId, std::int64_t diskGroupId);
     [[nodiscard]] bool MoveDiskGroupToGroup(std::int64_t diskGroupId, std::int64_t parentGroupId);
+    [[nodiscard]] bool DeleteDiskGroup(std::int64_t diskGroupId);
     [[nodiscard]] bool UpdateDisk(const wit::core::Disk& disk);
     [[nodiscard]] bool UpdateDiskScanStatistics(const wit::core::DiskScanStatistics& statistics);
     int GetDiskCount();
@@ -65,7 +68,7 @@ public:
     std::vector<wit::core::Catalog> GetCatalogs();
     int GetBrowserItemCount(const wit::core::BrowserLocation& location);
     std::vector<wit::core::FileEntry> GetBrowserItemsPage(const wit::core::BrowserLocation& location,
-        int offset, int limit);
+        int offset, int limit, wit::core::FileSort sort = {});
     bool HasChildFolders(std::int64_t sourceId, const std::wstring& parentPath);
     std::vector<wit::core::FileEntry> GetChildFolders(std::int64_t sourceId, const std::wstring& parentPath);
     int GetItemSearchCount(const std::wstring& nameTerm);
@@ -91,4 +94,5 @@ private:
     bool editable_{};
 };
 }
+
 

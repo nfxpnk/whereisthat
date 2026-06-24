@@ -5,6 +5,7 @@
 #include <wit_gui/ScanCoordinator.h>
 #include <wit_infra/PathHelpers.h>
 #include <wit_infra/AppSettings.h>
+#include <wit_infra/SaveProfiler.h>
 #include <wit_infra/ScanProfiler.h>
 #include <wit_infra/VolumeInfo.h>
 #include <wit_infra/Win32Helpers.h>
@@ -161,6 +162,13 @@ bool ExecRaw(const std::filesystem::path& path, const char* sql) {
     const bool success = db && sqlite3_exec(db, sql, nullptr, nullptr, nullptr) == SQLITE_OK;
     if (db) sqlite3_close(db);
     return success;
+}
+
+std::wstring ReadProfileValue(const wchar_t* section, const wchar_t* key) {
+    wchar_t buffer[MAX_PATH]{};
+    const auto length = GetPrivateProfileStringW(section, key, L"", buffer,
+        static_cast<DWORD>(std::size(buffer)), wit::platform::SettingsFilePath().c_str());
+    return std::wstring(buffer, length);
 }
 
 struct ZipMember {
@@ -623,6 +631,16 @@ TEST(StorageSmoke, CatalogDatabaseScannerAndCoordinatorIntegration) {
     EXPECT_EQ(archiveProbeProfile.sqlite.stepInsertFolder, archiveProbeProfile.counts.dbInsertFolderCalls);
     EXPECT_EQ(archiveProbeProfile.sqlite.stepUpdateFolderContentSize,
         archiveProbeProfile.counts.dbUpdateFolderContentSizeCalls);
+    EXPECT_TRUE(archiveDb.DeleteDisk(archiveDisk.id)) << "disk delete succeeds";
+    EXPECT_EQ(ScalarInt(archiveCatalogPath, "SELECT COUNT(*) FROM disks WHERE id=1;"), 0)
+        << "disk row is removed";
+    EXPECT_EQ(ScalarInt(archiveCatalogPath, "SELECT COUNT(*) FROM folders WHERE disk_id=1;"), 0)
+        << "disk delete cascades folders and archive folders";
+    EXPECT_EQ(ScalarInt(archiveCatalogPath, "SELECT COUNT(*) FROM files WHERE disk_id=1;"), 0)
+        << "disk delete cascades ordinary files and archive member files";
+    EXPECT_EQ(ScalarInt(archiveCatalogPath, "SELECT COUNT(*) FROM disk_scan_statistics WHERE disk_id=1;"), 0)
+        << "disk delete cascades scan statistics";
+    EXPECT_EQ(archiveDb.GetDiskCount(), 2) << "other disks remain cataloged";
     archiveDb.Close();
 
     EXPECT_TRUE(ExecRaw(oldPath, "CREATE TABLE catalogs(id INTEGER PRIMARY KEY);"
@@ -711,6 +729,10 @@ TEST(StorageSmoke, ImportedCatalogGroupAndDiskMovesSaveThroughAppWorkflow) {
         ASSERT_NE(firstRootGroupId, 0);
         ASSERT_NE(secondRootGroupId, 0);
 
+        wit::infra::SaveProfile metadataSaveProfile;
+        metadataSaveProfile.operation = L"metadataMoves";
+        wit::infra::SaveProfileScope metadataSaveProfileScope(metadataSaveProfile);
+
         std::vector<std::int64_t> movedGroupIds;
         for (const auto& group : groups) {
             if (group.parentGroupId == firstRootGroupId) {
@@ -733,6 +755,16 @@ TEST(StorageSmoke, ImportedCatalogGroupAndDiskMovesSaveThroughAppWorkflow) {
         auto saveResult = controller.RequestSave();
         ASSERT_TRUE(saveResult.messages.empty()) << "pending moves save through app workflow";
         ASSERT_TRUE(saveResult.presentation.catalogStatus == L"Loaded") << "catalog is clean after save";
+        EXPECT_EQ(metadataSaveProfile.timingsNs.createWorkingCopy, 0u)
+            << "metadata moves do not create a full working copy";
+        EXPECT_EQ(metadataSaveProfile.timingsNs.backupCreateWorkingCopy, 0u)
+            << "metadata moves do not backup-copy the catalog";
+        EXPECT_EQ(metadataSaveProfile.timingsNs.saveCatalogDataFrom, 0u)
+            << "metadata moves do not use full replacement save";
+        EXPECT_EQ(metadataSaveProfile.timingsNs.backupSavePendingToTemp, 0u)
+            << "metadata moves do not export a replacement catalog";
+        EXPECT_EQ(metadataSaveProfile.timingsNs.integrityCheck, 0u)
+            << "metadata moves skip full catalog integrity check";
 
         wit::storage::Database reopened;
         ASSERT_TRUE(reopened.OpenExisting(catalogPath.wstring())) << "saved imported catalog reopens";
@@ -758,6 +790,232 @@ TEST(StorageSmoke, ImportedCatalogGroupAndDiskMovesSaveThroughAppWorkflow) {
     std::filesystem::remove_all(testRoot);
 }
 
+TEST(StorageSmoke, PendingMetadataMovesValidateAgainstPendingState) {
+    const auto sourceCatalogPath = std::filesystem::current_path() / L"tests" / L"d-import-test.db";
+    if (!std::filesystem::exists(sourceCatalogPath)) {
+        GTEST_SKIP() << "tests\\d-import-test.db fixture is not available";
+    }
+
+    const auto testRoot = std::filesystem::temp_directory_path() /
+        (L"whereisthat-pending-metadata-validation-" + std::to_wstring(GetCurrentProcessId()));
+    std::filesystem::remove_all(testRoot);
+    std::filesystem::create_directories(testRoot);
+    const auto catalogPath = testRoot / L"d-import-test-copy.db";
+    std::filesystem::copy_file(sourceCatalogPath, catalogPath, std::filesystem::copy_options::overwrite_existing);
+
+    {
+        wit::app::CatalogWorkflowController controller;
+        const auto openResult = controller.OpenCatalogPathSelected(catalogPath.wstring());
+        ASSERT_TRUE(openResult.messages.empty());
+        ASSERT_FALSE(openResult.browserEffects.empty());
+        const auto catalogId = openResult.browserEffects.front().catalogId;
+        auto* database = controller.WorkingDatabase(catalogId);
+        ASSERT_NE(database, nullptr);
+
+        const auto groups = database->GetDiskGroups();
+        std::int64_t rootA{};
+        std::int64_t childOfA{};
+        std::int64_t rootB{};
+        for (const auto& group : groups) {
+            if (group.parentGroupId != 0) continue;
+            const auto child = std::find_if(groups.begin(), groups.end(),
+                [&group](const wit::core::DiskGroup& candidate) { return candidate.parentGroupId == group.id; });
+            if (child != groups.end() && rootA == 0) {
+                rootA = group.id;
+                childOfA = child->id;
+            } else if (rootB == 0) {
+                rootB = group.id;
+            }
+        }
+        ASSERT_NE(rootA, 0);
+        ASSERT_NE(childOfA, 0);
+        ASSERT_NE(rootB, 0);
+
+        auto firstMove = controller.MoveDiskGroupToGroup(catalogId, rootA, rootB);
+        ASSERT_TRUE(firstMove.messages.empty()) << "first pending group move is valid";
+        auto cycleMove = controller.MoveDiskGroupToGroup(catalogId, rootB, childOfA);
+        ASSERT_FALSE(cycleMove.messages.empty()) << "second move is rejected against pending hierarchy";
+    }
+
+    std::filesystem::remove_all(testRoot);
+}
+
+TEST(StorageSmoke, FullPendingCatalogFoldsEarlierMetadataAndPreservesLaterStagedMoves) {
+    const auto sourceCatalogPath = std::filesystem::current_path() / L"tests" / L"d-import-test.db";
+    if (!std::filesystem::exists(sourceCatalogPath)) {
+        GTEST_SKIP() << "tests\\d-import-test.db fixture is not available";
+    }
+
+    const auto testRoot = std::filesystem::temp_directory_path() /
+        (L"whereisthat-mixed-pending-save-" + std::to_wstring(GetCurrentProcessId()));
+    std::filesystem::remove_all(testRoot);
+    std::filesystem::create_directories(testRoot);
+    const auto catalogPath = testRoot / L"d-import-test-copy.db";
+    std::filesystem::copy_file(sourceCatalogPath, catalogPath, std::filesystem::copy_options::overwrite_existing);
+
+    std::int64_t diskId{};
+    std::int64_t firstTargetGroupId{};
+    std::int64_t finalTargetGroupId{};
+    {
+        wit::app::CatalogWorkflowController controller;
+        const auto openResult = controller.OpenCatalogPathSelected(catalogPath.wstring());
+        ASSERT_TRUE(openResult.messages.empty());
+        ASSERT_FALSE(openResult.browserEffects.empty());
+        const auto catalogId = openResult.browserEffects.front().catalogId;
+        auto* database = controller.WorkingDatabase(catalogId);
+        ASSERT_NE(database, nullptr);
+
+        const auto groups = database->GetDiskGroups();
+        const auto disks = database->GetDisksPage(0, 20);
+        ASSERT_GE(groups.size(), 2u);
+        ASSERT_FALSE(disks.empty());
+        diskId = disks.front().id;
+        firstTargetGroupId = groups.front().id;
+        finalTargetGroupId = groups.back().id;
+        ASSERT_NE(firstTargetGroupId, finalTargetGroupId);
+
+        auto metadataMove = controller.MoveDiskToGroup(catalogId, diskId, firstTargetGroupId);
+        ASSERT_TRUE(metadataMove.messages.empty()) << "metadata-only move is staged";
+        auto createGroup = controller.CreateDiskGroup(L"Mixed Pending Group");
+        ASSERT_TRUE(createGroup.messages.empty()) << "full pending catalog accepts prior metadata edits";
+        auto stagedMove = controller.MoveDiskToGroup(catalogId, diskId, finalTargetGroupId);
+        ASSERT_TRUE(stagedMove.messages.empty()) << "later move applies to full pending catalog";
+        auto saveResult = controller.RequestSave();
+        ASSERT_TRUE(saveResult.messages.empty()) << "mixed pending changes save";
+    }
+
+    wit::storage::Database reopened;
+    ASSERT_TRUE(reopened.OpenExisting(catalogPath.wstring()));
+    const auto reopenedDisks = reopened.GetDisksPage(0, 20);
+    const auto found = std::find_if(reopenedDisks.begin(), reopenedDisks.end(),
+        [diskId](const wit::core::Disk& disk) { return disk.id == diskId; });
+    ASSERT_NE(found, reopenedDisks.end());
+    EXPECT_EQ(found->diskGroupId, finalTargetGroupId)
+        << "older metadata move does not overwrite newer full-staged move";
+    reopened.Close();
+
+    std::filesystem::remove_all(testRoot);
+}
+
+TEST(StorageSmoke, DeleteDiskSavesAfterPendingMoveAndCascadesContents) {
+    const auto sourceCatalogPath = std::filesystem::current_path() / L"tests" / L"d-import-test.db";
+    if (!std::filesystem::exists(sourceCatalogPath)) {
+        GTEST_SKIP() << "tests\\d-import-test.db fixture is not available";
+    }
+
+    const auto testRoot = std::filesystem::temp_directory_path() /
+        (L"whereisthat-delete-disk-" + std::to_wstring(GetCurrentProcessId()));
+    std::filesystem::remove_all(testRoot);
+    std::filesystem::create_directories(testRoot);
+    const auto catalogPath = testRoot / L"d-import-test-delete-copy.db";
+    std::filesystem::copy_file(sourceCatalogPath, catalogPath, std::filesystem::copy_options::overwrite_existing);
+
+    std::int64_t diskId{};
+    {
+        wit::app::CatalogWorkflowController controller;
+        const auto openResult = controller.OpenCatalogPathSelected(catalogPath.wstring());
+        ASSERT_TRUE(openResult.messages.empty());
+        ASSERT_FALSE(openResult.browserEffects.empty());
+        const auto catalogId = openResult.browserEffects.front().catalogId;
+        auto* database = controller.WorkingDatabase(catalogId);
+        ASSERT_NE(database, nullptr);
+
+        const auto groups = database->GetDiskGroups();
+        const auto disks = database->GetDisksPage(0, 20);
+        ASSERT_FALSE(groups.empty());
+        ASSERT_FALSE(disks.empty());
+        diskId = disks.front().id;
+        const auto folderCount = ScalarInt(catalogPath,
+            std::format("SELECT COUNT(*) FROM folders WHERE disk_id={};", diskId).c_str());
+        const auto fileCount = ScalarInt(catalogPath,
+            std::format("SELECT COUNT(*) FROM files WHERE disk_id={};", diskId).c_str());
+        ASSERT_GT(folderCount + fileCount, 0) << "chosen disk has cataloged contents";
+
+        auto moveResult = controller.MoveDiskToGroup(catalogId, diskId, groups.front().id);
+        ASSERT_TRUE(moveResult.messages.empty()) << "metadata move is staged first";
+        auto deleteResult = controller.DeleteDisk(catalogId, diskId);
+        ASSERT_TRUE(deleteResult.messages.empty()) << "delete folds pending metadata before removing disk";
+        auto* pending = controller.WorkingDatabase(catalogId);
+        ASSERT_NE(pending, nullptr);
+        const auto pendingDisks = pending->GetDisksPage(0, 200);
+        EXPECT_TRUE(std::none_of(pendingDisks.begin(), pendingDisks.end(),
+            [diskId](const wit::core::Disk& disk) { return disk.id == diskId; }))
+            << "working catalog no longer exposes deleted disk";
+        auto saveResult = controller.RequestSave();
+        ASSERT_TRUE(saveResult.messages.empty()) << "delete disk pending changes save";
+    }
+
+    EXPECT_EQ(ScalarInt(catalogPath, std::format("SELECT COUNT(*) FROM disks WHERE id={};", diskId).c_str()), 0)
+        << "deleted disk row is removed on save";
+    EXPECT_EQ(ScalarInt(catalogPath, std::format("SELECT COUNT(*) FROM folders WHERE disk_id={};", diskId).c_str()), 0)
+        << "deleted disk folders are removed on save";
+    EXPECT_EQ(ScalarInt(catalogPath, std::format("SELECT COUNT(*) FROM files WHERE disk_id={};", diskId).c_str()), 0)
+        << "deleted disk files are removed on save";
+
+    std::filesystem::remove_all(testRoot);
+}
+
+TEST(StorageSmoke, SaveAsCopiesCatalogAndSwitchesActiveSession) {
+    AppSettingsGuard settingsGuard;
+
+    const auto sourceCatalogPath = std::filesystem::current_path() / L"tests" / L"d-import-test.db";
+    if (!std::filesystem::exists(sourceCatalogPath)) {
+        GTEST_SKIP() << "tests\\d-import-test.db fixture is not available";
+    }
+
+    const auto testRoot = std::filesystem::temp_directory_path() /
+        (L"whereisthat-save-as-" + std::to_wstring(GetCurrentProcessId()));
+    std::filesystem::remove_all(testRoot);
+    std::filesystem::create_directories(testRoot);
+    const auto originalPath = testRoot / L"original.db";
+    const auto saveAsPath = testRoot / L"saved-as.sqlite";
+    const auto normalizedSaveAsPath = std::filesystem::absolute(saveAsPath).wstring();
+    std::filesystem::copy_file(sourceCatalogPath, originalPath, std::filesystem::copy_options::overwrite_existing);
+    const auto originalDiskCount = ScalarInt(originalPath, "SELECT COUNT(*) FROM disks;");
+    ASSERT_GT(originalDiskCount, 0);
+
+    {
+        wit::app::CatalogWorkflowController controller;
+        auto openResult = controller.OpenCatalogPathSelected(originalPath.wstring());
+        ASSERT_TRUE(openResult.messages.empty()) << "original catalog opens through app controller";
+        ASSERT_FALSE(openResult.browserEffects.empty()) << "open publishes browser effect";
+        const auto originalCatalogId = openResult.browserEffects.front().catalogId;
+        ASSERT_NE(originalCatalogId, 0);
+
+        auto saveAsResult = controller.SaveAsPathSelected(saveAsPath.wstring());
+        ASSERT_TRUE(saveAsResult.messages.empty()) << "Save As succeeds";
+
+        bool removedOriginal = false;
+        wit::core::CatalogId savedCatalogId{};
+        for (const auto& effect : saveAsResult.browserEffects) {
+            if (effect.kind == wit::app::BrowserEffectKind::RemoveCatalog &&
+                effect.catalogId == originalCatalogId) {
+                removedOriginal = true;
+            }
+            if (effect.kind == wit::app::BrowserEffectKind::AddCatalog) {
+                savedCatalogId = effect.catalogId;
+                EXPECT_TRUE(effect.select);
+                EXPECT_NE(effect.database, nullptr);
+            }
+        }
+        EXPECT_TRUE(removedOriginal);
+        ASSERT_NE(savedCatalogId, 0);
+        EXPECT_NE(savedCatalogId, originalCatalogId);
+        EXPECT_EQ(controller.WorkingDatabase(originalCatalogId), nullptr);
+        EXPECT_NE(controller.WorkingDatabase(savedCatalogId), nullptr);
+        EXPECT_TRUE(saveAsResult.presentation.refreshBrowserStatus);
+
+        const auto savedSettings = wit::platform::LoadAppSettings();
+        ASSERT_EQ(savedSettings.openCatalogPaths.size(), 1u);
+        EXPECT_EQ(savedSettings.openCatalogPaths[0], normalizedSaveAsPath);
+        EXPECT_EQ(savedSettings.lastCatalogPath, normalizedSaveAsPath);
+    }
+
+    EXPECT_EQ(ScalarInt(saveAsPath, "SELECT COUNT(*) FROM disks;"), originalDiskCount);
+
+    std::filesystem::remove_all(testRoot);
+}
+
 TEST(StorageSmoke, ClosingLastCatalogClearsStartupRestorePath) {
     AppSettingsGuard settingsGuard;
 
@@ -766,7 +1024,9 @@ TEST(StorageSmoke, ClosingLastCatalogClearsStartupRestorePath) {
     std::filesystem::remove_all(testRoot);
     std::filesystem::create_directories(testRoot);
     const auto catalogPath = testRoot / L"startup-restore.db";
+    const auto secondCatalogPath = testRoot / L"startup-restore-second.db";
     const auto normalizedCatalogPath = std::filesystem::absolute(catalogPath).wstring();
+    const auto normalizedSecondCatalogPath = std::filesystem::absolute(secondCatalogPath).wstring();
 
     {
         wit::app::CatalogWorkflowController controller;
@@ -776,24 +1036,104 @@ TEST(StorageSmoke, ClosingLastCatalogClearsStartupRestorePath) {
 
         auto savedAfterCreate = wit::platform::LoadAppSettings();
         ASSERT_EQ(savedAfterCreate.lastCatalogPath, normalizedCatalogPath);
+        ASSERT_EQ(savedAfterCreate.openCatalogPaths.size(), 1u);
+        EXPECT_EQ(savedAfterCreate.openCatalogPaths[0], normalizedCatalogPath);
+        EXPECT_EQ(savedAfterCreate.lastActiveCatalog, 0);
         ASSERT_FALSE(savedAfterCreate.recentCatalogPaths.empty());
         ASSERT_EQ(savedAfterCreate.recentCatalogPaths.front(), normalizedCatalogPath);
 
+        auto secondCreateResult = controller.CreateCatalogPathSelected(secondCatalogPath.wstring());
+        ASSERT_TRUE(secondCreateResult.messages.empty()) << "second catalog creates through app controller";
+        auto savedAfterSecondCreate = wit::platform::LoadAppSettings();
+        ASSERT_EQ(savedAfterSecondCreate.openCatalogPaths.size(), 2u);
+        EXPECT_EQ(savedAfterSecondCreate.openCatalogPaths[0], normalizedCatalogPath);
+        EXPECT_EQ(savedAfterSecondCreate.openCatalogPaths[1], normalizedSecondCatalogPath);
+        EXPECT_EQ(savedAfterSecondCreate.lastActiveCatalog, 1);
+
         auto requestClose = controller.RequestCloseCatalog();
         ASSERT_EQ(requestClose.request.kind, wit::app::RequestKind::ConfirmCloseCatalog);
+        ASSERT_TRUE(WritePrivateProfileStringW(L"Catalogs", L"OpenCatalog2", L"stale.db",
+            wit::platform::SettingsFilePath().c_str()) != FALSE);
 
         auto closeResult = controller.AnswerCloseCatalog(IDYES);
         ASSERT_TRUE(closeResult.messages.empty()) << "closing catalog saves startup settings";
         ASSERT_TRUE(closeResult.presentation.refreshBrowserStatus);
 
         auto savedAfterClose = wit::platform::LoadAppSettings();
-        EXPECT_TRUE(savedAfterClose.lastCatalogPath.empty());
+        EXPECT_EQ(savedAfterClose.lastCatalogPath, normalizedCatalogPath);
+        ASSERT_EQ(savedAfterClose.openCatalogPaths.size(), 1u);
+        EXPECT_EQ(savedAfterClose.openCatalogPaths[0], normalizedCatalogPath);
+        EXPECT_TRUE(ReadProfileValue(L"Catalogs", L"OpenCatalog1").empty()) << "closed catalog key is removed";
+        EXPECT_TRUE(ReadProfileValue(L"Catalogs", L"OpenCatalog2").empty()) << "stale catalog key is removed";
         ASSERT_FALSE(savedAfterClose.recentCatalogPaths.empty());
-        EXPECT_EQ(savedAfterClose.recentCatalogPaths.front(), normalizedCatalogPath);
+        EXPECT_EQ(savedAfterClose.recentCatalogPaths.front(), normalizedSecondCatalogPath);
 
         auto appCloseResult = controller.RequestWindowClose();
         EXPECT_TRUE(appCloseResult.destroyWindow);
+        auto savedAfterWindowClose = wit::platform::LoadAppSettings();
+        ASSERT_EQ(savedAfterWindowClose.openCatalogPaths.size(), 1u);
+        EXPECT_EQ(savedAfterWindowClose.openCatalogPaths[0], normalizedCatalogPath);
     }
+
+    std::filesystem::remove_all(testRoot);
+}
+
+TEST(StorageSmoke, StartupRestoreUsesMultiCatalogSettingsAndContinuesAfterFailures) {
+    AppSettingsGuard settingsGuard;
+
+    const auto testRoot = std::filesystem::temp_directory_path() /
+        (L"whereisthat-startup-multi-catalog-settings-" + std::to_wstring(GetCurrentProcessId()));
+    std::filesystem::remove_all(testRoot);
+    std::filesystem::create_directories(testRoot);
+    const auto firstCatalogPath = testRoot / L"first.db";
+    const auto missingCatalogPath = testRoot / L"missing.db";
+    const auto secondCatalogPath = testRoot / L"second.db";
+    const auto normalizedFirstCatalogPath = std::filesystem::absolute(firstCatalogPath).wstring();
+    const auto normalizedSecondCatalogPath = std::filesystem::absolute(secondCatalogPath).wstring();
+
+    wit::storage::Database firstCatalog;
+    ASSERT_TRUE(firstCatalog.CreateNew(firstCatalogPath.wstring(), true));
+    firstCatalog.Close();
+    wit::storage::Database secondCatalog;
+    ASSERT_TRUE(secondCatalog.CreateNew(secondCatalogPath.wstring(), true));
+    secondCatalog.Close();
+
+    auto settings = wit::platform::AppSettings{};
+    settings.openCatalogPaths = {
+        firstCatalogPath.wstring(),
+        missingCatalogPath.wstring(),
+        firstCatalogPath.wstring(),
+        secondCatalogPath.wstring()
+    };
+    settings.lastActiveCatalog = 3;
+    settings.hasMultiCatalogSettings = true;
+    settings.lastCatalogPath = L"C:\\legacy-should-not-open.db";
+    ASSERT_TRUE(wit::platform::SaveAppSettings(settings));
+
+    {
+        wit::app::CatalogWorkflowController controller;
+        auto result = controller.Initialize();
+        EXPECT_FALSE(result.messages.empty()) << "failed startup catalog is reported";
+        std::vector<wit::core::CatalogId> openedIds;
+        wit::core::CatalogId selectedId{};
+        for (const auto& effect : result.browserEffects) {
+            if (effect.kind == wit::app::BrowserEffectKind::AddCatalog) openedIds.push_back(effect.catalogId);
+            if (effect.kind == wit::app::BrowserEffectKind::SelectCatalog) selectedId = effect.catalogId;
+        }
+        ASSERT_EQ(openedIds.size(), 2u) << "duplicate startup catalog is not opened twice";
+        ASSERT_EQ(selectedId, openedIds.back()) << "valid LastActiveCatalog is restored";
+        ASSERT_NE(controller.WorkingDatabase(openedIds[0]), nullptr);
+        ASSERT_NE(controller.WorkingDatabase(openedIds[1]), nullptr);
+
+        auto closeResult = controller.RequestWindowClose();
+        ASSERT_TRUE(closeResult.destroyWindow);
+    }
+
+    auto saved = wit::platform::LoadAppSettings();
+    ASSERT_EQ(saved.openCatalogPaths.size(), 2u);
+    EXPECT_EQ(saved.openCatalogPaths[0], normalizedFirstCatalogPath);
+    EXPECT_EQ(saved.openCatalogPaths[1], normalizedSecondCatalogPath);
+    EXPECT_EQ(saved.lastActiveCatalog, 1);
 
     std::filesystem::remove_all(testRoot);
 }

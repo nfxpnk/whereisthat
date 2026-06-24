@@ -126,16 +126,10 @@ void SearchDialog::Close() {
 
 void SearchDialog::RefreshDisplay() {
     if (!m_hWnd || !results_) return;
-    if (search_) {
-        if (resultMode_ == ResultMode::Quick && !nameTerm_.empty()) {
-            total_ = search_->CountByName(nameTerm_);
-        } else if (resultMode_ == ResultMode::Advanced && !advancedExpression_.criteria.empty()) {
-            total_ = search_->CountAdvanced(advancedExpression_);
-        }
+    if ((resultMode_ == ResultMode::Quick && !nameTerm_.empty()) ||
+        (resultMode_ == ResultMode::Advanced && !advancedExpression_.criteria.empty())) {
+        BeginSearchLoad();
     }
-    ClearCache();
-    ResetResultItemCache();
-    ::RedrawWindow(results_, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
 }
 
 BOOL SearchDialog::PreTranslateMessage(MSG* message) {
@@ -200,6 +194,7 @@ LRESULT SearchDialog::OnWindowClose(UINT, WPARAM, LPARAM, BOOL&) {
 }
 
 LRESULT SearchDialog::OnDestroy(UINT, WPARAM, LPARAM, BOOL&) {
+    CancelSearchLoad();
     results_ = nullptr;
     launchOwner_ = nullptr;
     search_ = nullptr;
@@ -212,6 +207,41 @@ LRESULT SearchDialog::OnDestroy(UINT, WPARAM, LPARAM, BOOL&) {
     auto onClose = std::move(onClose_);
     onClose_ = {};
     if (onClose) onClose();
+    return 0;
+}
+
+LRESULT SearchDialog::OnSearchComplete(UINT, WPARAM, LPARAM, BOOL&) {
+    std::optional<AsyncSearchResult> result;
+    {
+        std::scoped_lock lock(searchResultMutex_);
+        if (pendingSearchResult_ && pendingSearchResult_->requestId == searchRequestId_) {
+            result = std::move(pendingSearchResult_);
+        }
+        pendingSearchResult_.reset();
+    }
+    if (!result || !results_) return 0;
+    if (searchWorker_.joinable()) searchWorker_.join();
+
+    ClearCache();
+    if (!result->error.empty()) {
+        total_ = 0;
+        ResetResultItemCache();
+        SetDlgItemTextW(IDC_SEARCH_SUMMARY, result->error.c_str());
+        return 0;
+    }
+
+    total_ = result->total;
+    if (!result->firstPage.empty()) {
+        CachedPage page;
+        page.start = 0;
+        page.items = std::move(result->firstPage);
+        page.lastUsed = ++cacheClock_;
+        cachedPages_.push_back(std::move(page));
+    }
+    ResetResultItemCache();
+    const auto summary = total_ == 0 ? std::wstring(L"No matching items found.") :
+        std::format(L"{} matching item{}.", total_, total_ == 1 ? L"" : L"s");
+    SetDlgItemTextW(IDC_SEARCH_SUMMARY, summary.c_str());
     return 0;
 }
 
@@ -311,6 +341,7 @@ void SearchDialog::ShowTabPage(int index) {
 void SearchDialog::Search() {
     const auto term = DialogText(IDC_SEARCH_NAME);
     if (term.find_first_not_of(L" \t\r\n") == std::wstring::npos) {
+        CancelSearchLoad();
         nameTerm_.clear();
         advancedExpression_ = {};
         resultMode_ = ResultMode::Quick;
@@ -324,21 +355,14 @@ void SearchDialog::Search() {
     nameTerm_ = term;
     advancedExpression_ = {};
     resultMode_ = ResultMode::Quick;
-    if (!search_) return;
-    total_ = search_->CountByName(nameTerm_);
-    ClearCache();
-    ResetResultItemCache();
-    if (total_ > 0) PreloadRange(0, (std::min)(total_ - 1, PageSize - 1));
-    ::InvalidateRect(results_, nullptr, TRUE);
-    const auto summary = total_ == 0 ? std::wstring(L"No matching items found.") :
-        std::format(L"{} matching item{}.", total_, total_ == 1 ? L"" : L"s");
-    SetDlgItemTextW(IDC_SEARCH_SUMMARY, summary.c_str());
+    BeginSearchLoad();
 }
 
 void SearchDialog::AdvancedSearch() {
     const auto query = DialogText(IDC_ADVANCED_SEARCH_QUERY);
     const auto parsed = wit::search::ParseAdvancedSearchQuery(query);
     if (!parsed.success) {
+        CancelSearchLoad();
         advancedExpression_ = {};
         resultMode_ = ResultMode::Advanced;
         total_ = 0;
@@ -351,15 +375,67 @@ void SearchDialog::AdvancedSearch() {
     nameTerm_.clear();
     advancedExpression_ = parsed.expression;
     resultMode_ = ResultMode::Advanced;
-    if (!search_) return;
-    total_ = search_->CountAdvanced(advancedExpression_);
+    BeginSearchLoad();
+}
+
+void SearchDialog::BeginSearchLoad() {
+    CancelSearchLoad();
+    if (!search_ || !results_) return;
+
+    const auto requestId = ++searchRequestId_;
+    const auto mode = resultMode_;
+    const auto nameTerm = nameTerm_;
+    const auto expression = advancedExpression_;
+    const auto sort = sort_;
+    auto* repository = search_;
+    const HWND window = m_hWnd;
+
+    total_ = 0;
     ClearCache();
-    ResetResultItemCache();
-    if (total_ > 0) PreloadRange(0, (std::min)(total_ - 1, PageSize - 1));
-    ::InvalidateRect(results_, nullptr, TRUE);
-    const auto summary = total_ == 0 ? std::wstring(L"No matching items found.") :
-        std::format(L"{} matching item{}.", total_, total_ == 1 ? L"" : L"s");
-    SetDlgItemTextW(IDC_SEARCH_SUMMARY, summary.c_str());
+    ListView_SetItemCountEx(results_, 0, LVSICF_NOINVALIDATEALL);
+    SetDlgItemTextW(IDC_SEARCH_SUMMARY, L"Searching...");
+
+    searchWorker_ = std::jthread([this, window, requestId, mode, nameTerm, expression, sort, repository](
+        std::stop_token stopToken) {
+        AsyncSearchResult result;
+        result.requestId = requestId;
+        result.total = mode == ResultMode::Quick
+            ? repository->CountByName(nameTerm)
+            : repository->CountAdvanced(expression);
+        if (stopToken.stop_requested()) return;
+
+        if (result.total > 0) {
+            result.firstPage = mode == ResultMode::Quick
+                ? repository->PageByName(nameTerm, 0, PageSize, sort)
+                : repository->PageAdvanced(expression, 0, PageSize, sort);
+        }
+        if (stopToken.stop_requested()) return;
+
+        result.error = repository->LastErrorMessage();
+        if (result.error.empty() && result.total > 0 && result.firstPage.empty()) {
+            result.error = L"Search results could not be loaded.";
+        }
+        PublishSearchResult(window, std::move(result));
+    });
+}
+
+void SearchDialog::CancelSearchLoad() {
+    ++searchRequestId_;
+    if (searchWorker_.joinable()) {
+        searchWorker_.request_stop();
+        if (search_) search_->CancelPending();
+        searchWorker_.join();
+    }
+    std::scoped_lock lock(searchResultMutex_);
+    pendingSearchResult_.reset();
+}
+
+void SearchDialog::PublishSearchResult(HWND window, AsyncSearchResult result) {
+    {
+        std::scoped_lock lock(searchResultMutex_);
+        pendingSearchResult_ = std::move(result);
+    }
+    if (window) ::PostMessageW(window, SearchCompleteMessage, 0, 0);
 }
 
 void SearchDialog::ClearCache() {
@@ -391,6 +467,10 @@ void SearchDialog::CachePage(int pageStart) {
     page.items = resultMode_ == ResultMode::Quick
         ? search_->PageByName(nameTerm_, normalizedStart, PageSize, sort_)
         : search_->PageAdvanced(advancedExpression_, normalizedStart, PageSize, sort_);
+    if (page.items.empty()) {
+        const auto error = search_->LastErrorMessage();
+        if (!error.empty()) SetDlgItemTextW(IDC_SEARCH_SUMMARY, error.c_str());
+    }
     page.lastUsed = ++cacheClock_;
     cachedPages_.push_back(std::move(page));
 
@@ -483,15 +563,6 @@ void SearchDialog::ToggleSortForColumn(int column) {
     const auto sortColumn = SortColumnFromResultColumn(column);
     if (!sortColumn || !results_) return;
 
-    const int focusedRow = ListView_GetNextItem(results_, -1, LVNI_FOCUSED);
-    const auto* focusedEntry = focusedRow >= 0 ? EntryAt(focusedRow) : nullptr;
-    const std::int64_t focusedId = focusedEntry ? focusedEntry->id : 0;
-    const bool focusedIsDirectory = focusedEntry && focusedEntry->isDirectory;
-    const int topRow = (std::max)(0, ListView_GetTopIndex(results_));
-    const int visibleRows = (std::max)(ListView_GetCountPerPage(results_), 1);
-    auto selected = SelectedEntriesInRange((std::max)(0, topRow - PageSize),
-        (std::min)(total_ - 1, topRow + visibleRows + PageSize));
-
     if (sort_.column == *sortColumn) {
         sort_.ascending = !sort_.ascending;
     } else {
@@ -499,7 +570,7 @@ void SearchDialog::ToggleSortForColumn(int column) {
         sort_.ascending = true;
     }
     UpdateSortIndicators();
-    RestoreSelection(std::move(selected), focusedId, focusedIsDirectory);
+    BeginSearchLoad();
 }
 
 void SearchDialog::UpdateSortIndicators() {

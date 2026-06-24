@@ -19,6 +19,8 @@ public:
         int offset,
         int limit,
         wit::core::FileSort sort = {}) = 0;
+    virtual void CancelPending() = 0;
+    virtual std::wstring LastErrorMessage() const = 0;
     virtual int CountAdvanced(const AdvancedSearchExpression& expression) = 0;
     virtual std::vector<wit::core::FileEntry> PageAdvanced(
         const AdvancedSearchExpression& expression,

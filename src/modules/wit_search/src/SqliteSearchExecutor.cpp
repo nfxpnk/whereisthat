@@ -315,54 +315,167 @@ std::vector<wit::core::FileEntry> ReadPageCache(sqlite3* db, int offset, int lim
 }
 }
 
-SqliteSearchExecutor::SqliteSearchExecutor(sqlite3* db) : db_(db) {}
+SqliteSearchExecutor::SqliteSearchExecutor(sqlite3* db) {
+    SetDatabase(db);
+}
+
+SqliteSearchExecutor::~SqliteSearchExecutor() {
+    CancelPending();
+    std::scoped_lock lock(operationMutex_);
+    CloseSearchDatabase();
+}
+
+void SqliteSearchExecutor::CloseSearchDatabase() {
+    if (ownsSearchDb_ && searchDb_) sqlite3_close(searchDb_);
+    searchDb_ = nullptr;
+    ownsSearchDb_ = false;
+}
+
+sqlite3* SqliteSearchExecutor::ActiveDatabase() const {
+    return searchDb_ ? searchDb_ : sourceDb_;
+}
 
 void SqliteSearchExecutor::SetDatabase(sqlite3* db) {
+    CancelPending();
+    std::scoped_lock lock(operationMutex_);
+    CloseSearchDatabase();
+    sourceDb_ = db;
     pageCacheKey_.clear();
     pageCacheValid_ = false;
-    db_ = db;
+    {
+        std::scoped_lock errorLock(errorMutex_);
+        lastError_.clear();
+    }
+    if (!db) return;
+
+    const char* filename = sqlite3_db_filename(db, "main");
+    if (!filename || filename[0] == '\0') {
+        searchDb_ = db;
+        return;
+    }
+
+    sqlite3* candidate{};
+    const int flags = SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX;
+    if (sqlite3_open_v2(filename, &candidate, flags, nullptr) == SQLITE_OK) {
+        searchDb_ = candidate;
+        ownsSearchDb_ = true;
+        sqlite3_busy_timeout(searchDb_, 3000);
+    } else {
+        if (candidate) sqlite3_close(candidate);
+        searchDb_ = db;
+    }
+}
+
+std::string SqliteSearchExecutor::DatabaseGenerationKey() const {
+    sqlite3* db = ActiveDatabase();
+    long long dataVersion{};
+    if (db) {
+        wit::storage::SQLiteStatement statement(db, "PRAGMA data_version;");
+        if (sqlite3_step(statement.Raw()) == SQLITE_ROW) dataVersion = sqlite3_column_int64(statement.Raw(), 0);
+    }
+    const auto sourceChanges = sourceDb_ ? sqlite3_total_changes64(sourceDb_) : 0;
+    return std::to_string(dataVersion) + ":" + std::to_string(sourceChanges);
+}
+
+void SqliteSearchExecutor::SetLastError(sqlite3* db, const wchar_t* fallback) {
+    std::wstring message = fallback ? fallback : L"Search failed.";
+    if (db) {
+        const char* detail = sqlite3_errmsg(db);
+        if (detail && detail[0] != '\0') {
+            message += L" ";
+            message += wit::platform::ToUtf16(detail);
+        }
+    }
+    std::scoped_lock lock(errorMutex_);
+    lastError_ = std::move(message);
+}
+
+void SqliteSearchExecutor::CancelPending() {
+    sqlite3* db = searchDb_ ? searchDb_ : sourceDb_;
+    if (db) sqlite3_interrupt(db);
+}
+
+std::wstring SqliteSearchExecutor::LastErrorMessage() const {
+    std::scoped_lock lock(errorMutex_);
+    return lastError_;
 }
 
 int SqliteSearchExecutor::CountByName(const std::wstring& nameTerm) {
+    std::scoped_lock lock(operationMutex_);
+    sqlite3* db = ActiveDatabase();
     pageCacheValid_ = false;
-    wit::storage::SQLiteStatement statement(db_,
+    {
+        std::scoped_lock errorLock(errorMutex_);
+        lastError_.clear();
+    }
+    if (!db) return 0;
+    wit::storage::SQLiteStatement statement(db,
         "SELECT (SELECT COUNT(*) FROM files WHERE name LIKE ? ESCAPE '\\') + "
         "(SELECT COUNT(*) FROM folders WHERE name LIKE ? ESCAPE '\\');");
     const auto pattern = ItemNameLikePattern(nameTerm);
     statement.BindText(1, pattern);
     statement.BindText(2, pattern);
-    return sqlite3_step(statement.Raw()) == SQLITE_ROW ? sqlite3_column_int(statement.Raw(), 0) : 0;
+    if (sqlite3_step(statement.Raw()) == SQLITE_ROW) return sqlite3_column_int(statement.Raw(), 0);
+    SetLastError(db, L"Could not count search results.");
+    return 0;
 }
 
 std::vector<wit::core::FileEntry> SqliteSearchExecutor::PageByName(
     const std::wstring& nameTerm, int offset, int limit, wit::core::FileSort sort) {
-    if (!db_ || limit <= 0) return {};
-    EnsureNaturalNoCaseCollation(db_);
+    std::scoped_lock lock(operationMutex_);
+    sqlite3* db = ActiveDatabase();
+    if (!db || limit <= 0) return {};
+    EnsureNaturalNoCaseCollation(db);
 
-    const auto key = NameCacheKey(nameTerm, sort);
+    const auto queryKey = NameCacheKey(nameTerm, sort);
+    const auto key = DatabaseGenerationKey() + ":" + queryKey;
     if (!pageCacheValid_ || pageCacheKey_ != key) {
-        pageCacheValid_ = BuildNamePageCache(db_, nameTerm, sort);
-        pageCacheKey_ = pageCacheValid_ ? key : std::string{};
+        pageCacheValid_ = BuildNamePageCache(db, nameTerm, sort);
+        pageCacheKey_ = pageCacheValid_ ? DatabaseGenerationKey() + ":" + queryKey : std::string{};
+        if (!pageCacheValid_) {
+            SetLastError(db, sqlite3_errcode(db) == SQLITE_INTERRUPT
+                ? L"Search was cancelled." : L"Could not prepare search results.");
+            return {};
+        }
     }
-    return pageCacheValid_ ? ReadPageCache(db_, offset, limit) : std::vector<wit::core::FileEntry>{};
+    return ReadPageCache(db, offset, limit);
 }
 
 int SqliteSearchExecutor::CountAdvanced(const AdvancedSearchExpression& expression) {
+    std::scoped_lock lock(operationMutex_);
+    sqlite3* db = ActiveDatabase();
     pageCacheValid_ = false;
-    if (!db_ || expression.criteria.empty()) return 0;
-    return CountAdvancedInTable(db_, expression, true) + CountAdvancedInTable(db_, expression, false);
+    {
+        std::scoped_lock errorLock(errorMutex_);
+        lastError_.clear();
+    }
+    if (!db || expression.criteria.empty()) return 0;
+    const int folders = CountAdvancedInTable(db, expression, true);
+    if (sqlite3_errcode(db) != SQLITE_OK && sqlite3_errcode(db) != SQLITE_ROW && sqlite3_errcode(db) != SQLITE_DONE) {
+        SetLastError(db, L"Could not count search results.");
+        return 0;
+    }
+    return folders + CountAdvancedInTable(db, expression, false);
 }
 
 std::vector<wit::core::FileEntry> SqliteSearchExecutor::PageAdvanced(
     const AdvancedSearchExpression& expression, int offset, int limit, wit::core::FileSort sort) {
-    if (!db_ || expression.criteria.empty() || limit <= 0) return {};
-    EnsureNaturalNoCaseCollation(db_);
+    std::scoped_lock lock(operationMutex_);
+    sqlite3* db = ActiveDatabase();
+    if (!db || expression.criteria.empty() || limit <= 0) return {};
+    EnsureNaturalNoCaseCollation(db);
 
-    const auto key = AdvancedCacheKey(expression, sort);
+    const auto queryKey = AdvancedCacheKey(expression, sort);
+    const auto key = DatabaseGenerationKey() + ":" + queryKey;
     if (!pageCacheValid_ || pageCacheKey_ != key) {
-        pageCacheValid_ = BuildAdvancedPageCache(db_, expression, sort);
-        pageCacheKey_ = pageCacheValid_ ? key : std::string{};
+        pageCacheValid_ = BuildAdvancedPageCache(db, expression, sort);
+        pageCacheKey_ = pageCacheValid_ ? DatabaseGenerationKey() + ":" + queryKey : std::string{};
+        if (!pageCacheValid_) {
+            SetLastError(db, sqlite3_errcode(db) == SQLITE_INTERRUPT
+                ? L"Search was cancelled." : L"Could not prepare search results.");
+            return {};
+        }
     }
-    return pageCacheValid_ ? ReadPageCache(db_, offset, limit) : std::vector<wit::core::FileEntry>{};
+    return ReadPageCache(db, offset, limit);
 }
 }

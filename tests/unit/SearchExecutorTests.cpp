@@ -29,6 +29,7 @@ public:
     MemoryDatabase& operator=(const MemoryDatabase&) = delete;
 
     sqlite3* Raw() const { return db_; }
+    void Execute(const char* sql) { Exec(sql); }
 
 private:
     void Exec(const char* sql) {
@@ -92,6 +93,31 @@ TEST(SearchExecutor, PageByNameSupportsAsteriskWildcards) {
     EXPECT_EQ(executor.CountByName(L"alpha"), 2) << "terms without wildcards remain substring searches";
     EXPECT_EQ(executor.CountByName(L"%"), 0) << "SQL LIKE metacharacters remain literal";
     EXPECT_EQ(executor.CountByName(L"_"), 0) << "SQL LIKE metacharacters remain literal";
+}
+
+TEST(SearchExecutor, PageByNameInvalidatesMaterializedResultsAfterMutation) {
+    MemoryDatabase database;
+    wit::search::SqliteSearchExecutor executor(database.Raw());
+
+    ASSERT_EQ(executor.PageByName(L"alpha", 0, 10).size(), 2u);
+    database.Execute(
+        "INSERT INTO files(id,disk_id,folder_id,name,extension,size,modified_at,attributes) "
+        "VALUES(6,1,1,'alpha-new.txt','txt',47,107,0);");
+
+    const auto refreshed = executor.PageByName(L"alpha", 0, 10);
+    ASSERT_EQ(refreshed.size(), 3u);
+    EXPECT_EQ(refreshed[2].name, L"alpha-new.txt");
+}
+
+TEST(SearchExecutor, PageFailureReportsAnError) {
+    sqlite3* database{};
+    ASSERT_EQ(sqlite3_open(":memory:", &database), SQLITE_OK);
+    {
+        wit::search::SqliteSearchExecutor executor(database);
+        EXPECT_TRUE(executor.PageByName(L"*", 0, 10).empty());
+        EXPECT_FALSE(executor.LastErrorMessage().empty());
+    }
+    sqlite3_close(database);
 }
 
 TEST(SearchExecutor, AdvancedSearchFiltersWithBoundCriteria) {

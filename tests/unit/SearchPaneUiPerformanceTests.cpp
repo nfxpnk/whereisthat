@@ -75,11 +75,21 @@ TEST(DISABLED_SearchPaneUiPerformance, SearchAndScrollFakeCatalog) {
     ASSERT_NE(results, nullptr);
 
     ASSERT_TRUE(SetWindowTextW(edit, L"file"));
-    const double searchMs = MeasureMilliseconds([&] {
+    const double searchDispatchMs = MeasureMilliseconds([&] {
         SendMessageW(execute, BM_CLICK, 0, 0);
     });
+    EXPECT_LT(searchDispatchMs, 250.0) << "Search preparation must not block the UI thread";
 
-    const auto itemCount = static_cast<int>(SendMessageW(results, LVM_GETITEMCOUNT, 0, 0));
+    const auto completionStarted = std::chrono::steady_clock::now();
+    int itemCount{};
+    while (itemCount == 0 &&
+        std::chrono::steady_clock::now() - completionStarted < std::chrono::seconds(30)) {
+        PumpMessages();
+        Sleep(10);
+        itemCount = static_cast<int>(SendMessageW(results, LVM_GETITEMCOUNT, 0, 0));
+    }
+    const double searchCompletionMs = std::chrono::duration<double, std::milli>(
+        std::chrono::steady_clock::now() - completionStarted).count();
     ASSERT_EQ(itemCount, 500000);
 
     const int pageIterations = 200;
@@ -112,7 +122,8 @@ TEST(DISABLED_SearchPaneUiPerformance, SearchAndScrollFakeCatalog) {
 
     std::cout << "SCROLL_PERF search_term=file"
         << " result_count=" << itemCount
-        << " search_ms=" << searchMs
+        << " search_dispatch_ms=" << searchDispatchMs
+        << " search_completion_ms=" << searchCompletionMs
         << " page_down_iterations=" << pageIterations
         << " page_down_total_ms=" << pageMs
         << " page_down_avg_ms=" << pageMs / pageIterations

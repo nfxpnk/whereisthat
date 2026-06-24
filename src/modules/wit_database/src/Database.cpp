@@ -271,9 +271,10 @@ Database& Database::operator=(Database&& other) noexcept {
 
 void Database::Close() {
     FinalizeScanStatements();
+    browserRepository_.SetDatabase(nullptr);
+    searchRepository_.SetDatabase(nullptr);
     connection_.Close();
     editable_ = false;
-    RebindRepositories();
 }
 
 void Database::RebindRepositories() {

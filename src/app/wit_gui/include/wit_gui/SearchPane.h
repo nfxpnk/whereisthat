@@ -8,12 +8,17 @@
 #include <CommCtrl.h>
 #include <functional>
 #include <string>
+#include <cstdint>
+#include <mutex>
+#include <optional>
+#include <thread>
 #include <vector>
 
 namespace wit::ui {
 class SearchDialog : public ATL::CDialogImpl<SearchDialog>, public WTL::CDialogResize<SearchDialog> {
 public:
     enum { IDD = IDD_SEARCH_ITEMS };
+    static constexpr UINT SearchCompleteMessage = WM_APP + 44;
 
     using LocateResultHandler = std::function<bool(const wit::core::FileEntry&)>;
 
@@ -29,6 +34,7 @@ public:
         MESSAGE_HANDLER(WM_CONTEXTMENU, OnContextMenu)
         MESSAGE_HANDLER(WM_CLOSE, OnWindowClose)
         MESSAGE_HANDLER(WM_DESTROY, OnDestroy)
+        MESSAGE_HANDLER(SearchCompleteMessage, OnSearchComplete)
         COMMAND_ID_HANDLER(IDC_SEARCH_EXECUTE, OnExecuteSearch)
         COMMAND_ID_HANDLER(IDC_ADVANCED_SEARCH_EXECUTE, OnExecuteAdvancedSearch)
         COMMAND_ID_HANDLER(IDC_ADVANCED_SEARCH_CLEAR, OnClearAdvancedSearch)
@@ -67,6 +73,13 @@ private:
         Advanced
     };
 
+    struct AsyncSearchResult {
+        std::uint64_t requestId{};
+        int total{};
+        std::vector<wit::core::FileEntry> firstPage;
+        std::wstring error;
+    };
+
     static constexpr int PageSize = 512;
     static constexpr std::size_t MaxCachedPages = 16;
 
@@ -82,6 +95,10 @@ private:
     wit::core::FileSort sort_{};
     unsigned long long cacheClock_{};
     std::vector<CachedPage> cachedPages_;
+    std::jthread searchWorker_;
+    std::mutex searchResultMutex_;
+    std::optional<AsyncSearchResult> pendingSearchResult_;
+    std::uint64_t searchRequestId_{};
 
     LRESULT OnInitDialog(UINT message, WPARAM wparam, LPARAM lparam, BOOL& handled);
     LRESULT OnContextMenu(UINT message, WPARAM wparam, LPARAM lparam, BOOL& handled);
@@ -92,6 +109,7 @@ private:
     LRESULT OnOpenInExplorer(WORD notifyCode, WORD id, HWND control, BOOL& handled);
     LRESULT OnWindowClose(UINT message, WPARAM wparam, LPARAM lparam, BOOL& handled);
     LRESULT OnDestroy(UINT message, WPARAM wparam, LPARAM lparam, BOOL& handled);
+    LRESULT OnSearchComplete(UINT message, WPARAM wparam, LPARAM lparam, BOOL& handled);
     LRESULT OnCloseCommand(WORD notifyCode, WORD id, HWND control, BOOL& handled);
     LRESULT OnGetDisplayInfo(int id, LPNMHDR header, BOOL& handled);
     LRESULT OnCacheHint(int id, LPNMHDR header, BOOL& handled);
@@ -100,6 +118,9 @@ private:
     void Initialize();
     void Search();
     void AdvancedSearch();
+    void BeginSearchLoad();
+    void CancelSearchLoad();
+    void PublishSearchResult(HWND window, AsyncSearchResult result);
     void ShowTabPage(int index);
     std::wstring DialogText(int controlId) const;
     void ClearCache();

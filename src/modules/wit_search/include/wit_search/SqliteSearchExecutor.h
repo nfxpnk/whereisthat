@@ -1,4 +1,5 @@
 #pragma once
+#include <mutex>
 #include <string>
 #include <vector>
 #include <wit_search/ISearchRepository.h>
@@ -10,6 +11,7 @@ namespace wit::search {
 class SqliteSearchExecutor : public ISearchRepository {
 public:
     explicit SqliteSearchExecutor(sqlite3* db);
+    ~SqliteSearchExecutor() override;
 
     void SetDatabase(sqlite3* db);
 
@@ -23,8 +25,20 @@ public:
         int limit,
         wit::core::FileSort sort = {}) override;
 
+    void CancelPending() override;
+    std::wstring LastErrorMessage() const override;
 private:
-    sqlite3* db_{};
+    void CloseSearchDatabase();
+    sqlite3* ActiveDatabase() const;
+    std::string DatabaseGenerationKey() const;
+    void SetLastError(sqlite3* db, const wchar_t* fallback);
+
+    sqlite3* sourceDb_{};
+    sqlite3* searchDb_{};
+    bool ownsSearchDb_{};
+    mutable std::mutex operationMutex_;
+    mutable std::mutex errorMutex_;
+    std::wstring lastError_;
     std::string pageCacheKey_;
     bool pageCacheValid_{};
 };

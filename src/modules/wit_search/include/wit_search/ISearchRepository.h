@@ -9,9 +9,19 @@
 
 namespace wit::search {
 
+struct PreparedSearchResult {
+    int total{};
+    std::vector<wit::core::FileEntry> entries;
+};
+
 class ISearchRepository {
 public:
     virtual ~ISearchRepository() = default;
+
+    virtual PreparedSearchResult PrepareByName(
+        const std::wstring& nameTerm, int limit, wit::core::FileSort sort = {}) = 0;
+    virtual PreparedSearchResult PrepareAdvanced(
+        const AdvancedSearchExpression& expression, int limit, wit::core::FileSort sort = {}) = 0;
 
     virtual int CountByName(const std::wstring& nameTerm) = 0;
     virtual std::vector<wit::core::FileEntry> PageByName(

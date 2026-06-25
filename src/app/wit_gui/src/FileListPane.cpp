@@ -275,6 +275,14 @@ void UpdateListViewSortIndicators(HWND list, int sortColumn, bool ascending) {
 }
 }
 
+int ImageForFileEntry(const wit::core::FileEntry& entry) {
+    if (entry.isDirectory) return entry.isArchive ? BrowserArchiveImage : BrowserFolderImage;
+    const int fileImage = ImageForFileExtension(entry.extension);
+    if (fileImage != I_IMAGENONE) return fileImage;
+    if (IsArchiveFileExtension(entry.extension)) return BrowserArchiveImage;
+    return BrowserDocumentImage;
+}
+
 void FileListView::Attach(HWND handle) {
     hwnd = handle;
     const auto settings = wit::platform::LoadAppSettings();
@@ -546,13 +554,7 @@ int FileListView::ImageFor(int row) {
         return item->type == wit::core::BrowserItemType::DiskGroup ? BrowserFolderImage : BrowserDriveImage;
     }
     const auto* entry = EntryAt(row);
-    if (!entry) return I_IMAGENONE;
-    if (entry->isDirectory) return entry->isArchive ? BrowserArchiveImage : BrowserFolderImage;
-    const std::wstring_view extension = entry->extension;
-    const int fileImage = ImageForFileExtension(extension);
-    if (fileImage != I_IMAGENONE) return fileImage;
-    if (IsArchiveFileExtension(extension)) return BrowserArchiveImage;
-    return BrowserDocumentImage;
+    return entry ? ImageForFileEntry(*entry) : I_IMAGENONE;
 }
 
 void FileListView::TextFor(int row, int column, wchar_t* buffer, std::size_t bufferSize) {

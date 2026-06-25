@@ -418,6 +418,7 @@ LRESULT MainFrame::OnScanProgress(UINT, WPARAM wparam, LPARAM, BOOL&) {
 }
 
 LRESULT MainFrame::OnScanComplete(UINT, WPARAM wparam, LPARAM, BOOL&) {
+    searchDialog_.Close();
     ApplyControllerResult(controller_.OnScanComplete(static_cast<wit::app::ScanId>(wparam)));
     return 0;
 }
@@ -563,6 +564,7 @@ void MainFrame::HandleCommand(int id) {
         ApplyControllerResult(controller_.RequestOpenRecentCatalog(
             static_cast<std::size_t>(id - ID_FILE_RECENT_FIRST)));
     } else if (id == ID_WIT_FILE_SAVE) {
+        searchDialog_.Close();
         wit::infra::SaveProfile profile;
         profile.profileId = wit::infra::NextSaveProfileId();
         profile.operation = L"saveCommand";
@@ -585,6 +587,7 @@ void MainFrame::HandleCommand(int id) {
     else if (id == ID_TREE_CONTEXT_ADD_NEW_DISK_GROUP_PLACEHOLDER) {
         std::wstring name;
         if (PromptDiskGroupName(m_hWnd, name)) {
+            searchDialog_.Close();
             wit::infra::SaveProfile profile;
             profile.profileId = wit::infra::NextSaveProfileId();
             profile.operation = L"createDiskGroup";
@@ -663,6 +666,7 @@ void MainFrame::OnMoveSelectedItemToGroup(std::optional<wit::core::BrowserTarget
     if (IsDiskMediaTarget(*target)) {
         if (!PromptMoveDiskToGroup(m_hWnd, groups, target->location.diskGroupId, 0, selectedGroupId)) return;
         if (selectedGroupId == target->location.diskGroupId) return;
+        searchDialog_.Close();
         wit::infra::SaveProfile profile;
         profile.profileId = wit::infra::NextSaveProfileId();
         profile.catalogId = target->catalogId;
@@ -687,6 +691,7 @@ void MainFrame::OnMoveSelectedItemToGroup(std::optional<wit::core::BrowserTarget
     if (!PromptMoveDiskToGroup(m_hWnd, groups, currentParentGroupId,
         target->location.diskGroupId, selectedGroupId)) return;
     if (selectedGroupId == currentParentGroupId) return;
+    searchDialog_.Close();
     wit::infra::SaveProfile profile;
     profile.profileId = wit::infra::NextSaveProfileId();
     profile.catalogId = target->catalogId;
@@ -721,6 +726,7 @@ void MainFrame::OnDeleteSelectedDisk(std::optional<wit::core::BrowserTarget> tar
         return;
     }
 
+    searchDialog_.Close();
     wit::infra::SaveProfile profile;
     profile.profileId = wit::infra::NextSaveProfileId();
     profile.catalogId = target->catalogId;
@@ -765,6 +771,7 @@ void MainFrame::OnDeleteSelectedDiskGroup(std::optional<wit::core::BrowserTarget
         return;
     }
 
+    searchDialog_.Close();
     wit::infra::SaveProfile profile;
     profile.profileId = wit::infra::NextSaveProfileId();
     profile.catalogId = target->catalogId;
@@ -1120,19 +1127,27 @@ void MainFrame::PerformRequest(const wit::app::RequestEffect& request) {
         std::wstring path;
         const wit::ui::CatalogFileDialog dialog;
         const bool accepted = dialog.ChooseSaveAsCatalogPath(m_hWnd, path);
+        if (accepted) searchDialog_.Close();
         ApplyControllerResult(controller_.SaveAsPathSelected(
             accepted ? std::optional<std::wstring>(path) : std::nullopt));
         break;
     }
     case wit::app::RequestKind::ConfirmCloseCatalog:
-        ApplyControllerResult(controller_.AnswerCloseCatalog(::MessageBoxW(m_hWnd,
-            L"Are you sure you want to close this catalog?", L"Close Catalog",
-            MB_YESNO | MB_DEFBUTTON2 | MB_ICONQUESTION)));
+    {
+        const int answer = ::MessageBoxW(m_hWnd, L"Are you sure you want to close this catalog?",
+            L"Close Catalog", MB_YESNO | MB_DEFBUTTON2 | MB_ICONQUESTION);
+        if (answer == IDYES) searchDialog_.Close();
+        ApplyControllerResult(controller_.AnswerCloseCatalog(answer));
         break;
+    }
     case wit::app::RequestKind::ConfirmPendingChanges:
-        ApplyControllerResult(controller_.AnswerPendingChanges(::MessageBoxW(m_hWnd,
-            L"Save changes?", L"Unsaved Catalog Changes", MB_YESNOCANCEL | MB_ICONWARNING)));
+    {
+        const int answer = ::MessageBoxW(m_hWnd, L"Save changes?", L"Unsaved Catalog Changes",
+            MB_YESNOCANCEL | MB_ICONWARNING);
+        if (answer != IDCANCEL) searchDialog_.Close();
+        ApplyControllerResult(controller_.AnswerPendingChanges(answer));
         break;
+    }
     case wit::app::RequestKind::ShowSearch: {
         auto* search = request.database ? &request.database->SearchRepository() : nullptr;
         const auto catalogId = request.preferredCatalogId;

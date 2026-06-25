@@ -10,6 +10,7 @@
 #include "wit_database/IBrowserRepository.h"
 
 namespace wit::ui {
+int ImageForFileEntry(const wit::core::FileEntry& entry);
 class FileListView {
 public:
     HWND hwnd{};

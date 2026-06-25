@@ -1,4 +1,5 @@
 #include "wit_gui/SearchPane.h"
+#include "wit_gui/FileListPane.h"
 #include <wit_infra/PathHelpers.h>
 #include "wit_infra/StringUtils.h"
 #include <wit_infra/Win32Helpers.h>
@@ -106,11 +107,22 @@ void OpenInExplorerOrAlert(HWND owner, const std::wstring& path, bool selectItem
 bool SearchDialog::Show(HWND owner, wit::search::ISearchRepository* search, LocateResultHandler onLocate,
     std::function<void()> onClose) {
     if (!search) return false;
+    const bool repositoryChanged = search_ && search_ != search;
+    if (m_hWnd && repositoryChanged) CancelSearchLoad();
     launchOwner_ = owner;
     search_ = search;
     onLocate_ = std::move(onLocate);
     onClose_ = std::move(onClose);
     if (!m_hWnd && Create(nullptr) == nullptr) return false;
+    if (repositoryChanged) {
+        total_ = 0;
+        ClearCache();
+        ResetResultItemCache();
+        if ((resultMode_ == ResultMode::Quick && !nameTerm_.empty()) ||
+            (resultMode_ == ResultMode::Advanced && !advancedExpression_.criteria.empty())) {
+            BeginSearchLoad();
+        }
+    }
     ShowWindow(IsIconic() ? SW_RESTORE : SW_SHOW);
     SetForegroundWindow(m_hWnd);
     return true;
@@ -256,6 +268,10 @@ LRESULT SearchDialog::OnGetDisplayInfo(int, LPNMHDR header, BOOL&) {
         TextFor(displayInfo->item.iItem, displayInfo->item.iSubItem,
             displayInfo->item.pszText, displayInfo->item.cchTextMax);
     }
+    if (displayInfo->item.mask & LVIF_IMAGE) {
+        const auto* entry = EntryAt(displayInfo->item.iItem);
+        displayInfo->item.iImage = entry ? ImageForFileEntry(*entry) : I_IMAGENONE;
+    }
     displayInfo->item.mask |= LVIF_DI_SETITEM;
     return 0;
 }
@@ -287,6 +303,11 @@ void SearchDialog::Initialize() {
     ShowTabPage(0);
 
     results_ = GetDlgItem(IDC_SEARCH_RESULTS);
+    if (launchOwner_) {
+        const HWND browserList = ::GetDlgItem(launchOwner_, IDC_FILES);
+        const HIMAGELIST images = browserList ? ListView_GetImageList(browserList, LVSIL_SMALL) : nullptr;
+        if (images) ListView_SetImageList(results_, images, LVSIL_SMALL);
+    }
     ListView_SetExtendedListViewStyle(results_, LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER);
 
     LVCOLUMNW column{LVCF_TEXT | LVCF_WIDTH | LVCF_FMT};
@@ -399,17 +420,12 @@ void SearchDialog::BeginSearchLoad() {
         std::stop_token stopToken) {
         AsyncSearchResult result;
         result.requestId = requestId;
-        result.total = mode == ResultMode::Quick
-            ? repository->CountByName(nameTerm)
-            : repository->CountAdvanced(expression);
+        auto prepared = mode == ResultMode::Quick
+            ? repository->PrepareByName(nameTerm, PageSize, sort)
+            : repository->PrepareAdvanced(expression, PageSize, sort);
         if (stopToken.stop_requested()) return;
-
-        if (result.total > 0) {
-            result.firstPage = mode == ResultMode::Quick
-                ? repository->PageByName(nameTerm, 0, PageSize, sort)
-                : repository->PageAdvanced(expression, 0, PageSize, sort);
-        }
-        if (stopToken.stop_requested()) return;
+        result.total = prepared.total;
+        result.firstPage = std::move(prepared.entries);
 
         result.error = repository->LastErrorMessage();
         if (result.error.empty() && result.total > 0 && result.firstPage.empty()) {

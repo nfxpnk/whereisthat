@@ -1,6 +1,8 @@
 #include <gtest/gtest.h>
 #include <wit_search/SqliteSearchExecutor.h>
 #include <sqlite3.h>
+#include <chrono>
+#include <filesystem>
 #include <string>
 
 namespace {
@@ -39,12 +41,56 @@ private:
     sqlite3* db_{};
 };
 
+class FileDatabase {
+public:
+    FileDatabase() {
+        path_ = std::filesystem::temp_directory_path() /
+            ("wit-search-generation-" + std::to_string(
+                std::chrono::steady_clock::now().time_since_epoch().count()) + ".sqlite");
+        sqlite3_open(path_.string().c_str(), &db_);
+        Execute("CREATE TABLE folders(id INTEGER PRIMARY KEY,disk_id INTEGER,parent_folder_id INTEGER,path TEXT,"
+            "name TEXT,content_size INTEGER,modified_at INTEGER,attributes INTEGER,entry_type TEXT);"
+            "CREATE TABLE files(id INTEGER PRIMARY KEY,disk_id INTEGER,folder_id INTEGER,name TEXT,extension TEXT,"
+            "size INTEGER,modified_at INTEGER,attributes INTEGER);"
+            "INSERT INTO folders(id,disk_id,parent_folder_id,path,name,content_size,modified_at,attributes,entry_type) "
+            "VALUES(1,1,NULL,'C:\\\\','alpha-folder',0,100,0,'directory');"
+            "INSERT INTO files(id,disk_id,folder_id,name,extension,size,modified_at,attributes) "
+            "VALUES(1,1,1,'alpha-file.txt','txt',42,102,0);");
+    }
+
+    ~FileDatabase() {
+        if (db_) sqlite3_close(db_);
+        std::error_code error;
+        std::filesystem::remove(path_, error);
+    }
+
+    sqlite3* Raw() const { return db_; }
+
+    void Execute(const char* sql) {
+        ASSERT_EQ(sqlite3_exec(db_, sql, nullptr, nullptr, nullptr), SQLITE_OK);
+    }
+
+private:
+    std::filesystem::path path_;
+    sqlite3* db_{};
+};
+
 int TraceSearchCacheBuild(unsigned int, void* context, void* statement, void*) {
     const auto sql = std::string(sqlite3_sql(static_cast<sqlite3_stmt*>(statement)));
-    if (sql.find("INSERT INTO wit_search_page_cache(is_directory,item_id) SELECT 1") != std::string::npos) {
+    if (sql.find("INSERT INTO wit_search_page_cache(") != std::string::npos &&
+        sql.find("SELECT c.id,c.disk_id") != std::string::npos) {
         ++*static_cast<int*>(context);
     }
     return 0;
+}
+int DenySearchCacheReads(void*, int action, const char* table, const char*, const char*, const char*) {
+    return action == SQLITE_READ && table && std::string_view(table) == "wit_search_page_cache"
+        ? SQLITE_DENY : SQLITE_OK;
+}
+
+int DenyFileTableReads(void*, int action, const char* table, const char*, const char*, const char*) {
+    return action == SQLITE_READ && table && std::string_view(table) == "files"
+        ? SQLITE_DENY : SQLITE_OK;
 }
 }
 
@@ -109,6 +155,57 @@ TEST(SearchExecutor, PageByNameInvalidatesMaterializedResultsAfterMutation) {
     EXPECT_EQ(refreshed[2].name, L"alpha-new.txt");
 }
 
+TEST(SearchExecutor, PageByNameInvalidatesDedicatedCacheAfterExternalMutation) {
+    FileDatabase database;
+    wit::search::SqliteSearchExecutor executor(database.Raw());
+
+    ASSERT_EQ(executor.PageByName(L"alpha", 0, 10).size(), 2u);
+    database.Execute(
+        "INSERT INTO files(id,disk_id,folder_id,name,extension,size,modified_at,attributes) "
+        "VALUES(2,1,1,'alpha-new.txt','txt',43,103,0);");
+
+    const auto refreshed = executor.PageByName(L"alpha", 0, 10);
+    ASSERT_EQ(refreshed.size(), 3u);
+    EXPECT_EQ(refreshed[2].name, L"alpha-new.txt");
+}
+
+TEST(SearchExecutor, PreparedSearchTotalMatchesItsMaterializedSnapshot) {
+    FileDatabase database;
+    wit::search::SqliteSearchExecutor executor(database.Raw());
+
+    const auto prepared = executor.PrepareByName(L"alpha", 1);
+    EXPECT_EQ(prepared.total, 2);
+    ASSERT_EQ(prepared.entries.size(), 1u);
+    EXPECT_EQ(prepared.entries[0].name, L"alpha-folder");
+
+    database.Execute(
+        "INSERT INTO files(id,disk_id,folder_id,name,extension,size,modified_at,attributes) "
+        "VALUES(2,1,1,'alpha-new.txt','txt',43,103,0);");
+    EXPECT_TRUE(executor.PageByName(L"alpha", 2, 1).empty())
+        << "paging must remain pinned to the prepared two-item snapshot";
+
+    const auto refreshed = executor.PrepareByName(L"alpha", 1);
+    EXPECT_EQ(refreshed.total, 3);
+}
+
+TEST(SearchExecutor, PreparedSearchKeepsDeletedAndUpdatedRowsStableWhilePaging) {
+    FileDatabase database;
+    wit::search::SqliteSearchExecutor executor(database.Raw());
+
+    const auto prepared = executor.PrepareByName(L"alpha", 1);
+    ASSERT_EQ(prepared.total, 2);
+    database.Execute("UPDATE files SET name='changed.txt' WHERE id=1;");
+
+    const auto secondPage = executor.PageByName(L"alpha", 1, 1);
+    ASSERT_EQ(secondPage.size(), 1u);
+    EXPECT_EQ(secondPage[0].name, L"alpha-file.txt");
+
+    database.Execute("DELETE FROM files WHERE id=1;");
+    const auto sameSecondPage = executor.PageByName(L"alpha", 1, 1);
+    ASSERT_EQ(sameSecondPage.size(), 1u);
+    EXPECT_EQ(sameSecondPage[0].name, L"alpha-file.txt");
+}
+
 TEST(SearchExecutor, PageFailureReportsAnError) {
     sqlite3* database{};
     ASSERT_EQ(sqlite3_open(":memory:", &database), SQLITE_OK);
@@ -118,6 +215,37 @@ TEST(SearchExecutor, PageFailureReportsAnError) {
         EXPECT_FALSE(executor.LastErrorMessage().empty());
     }
     sqlite3_close(database);
+}
+
+TEST(SearchExecutor, CachedPageReadFailureReportsAnErrorAndInvalidatesTheCache) {
+    MemoryDatabase database;
+    int cacheBuilds{};
+    sqlite3_trace_v2(database.Raw(), SQLITE_TRACE_STMT, TraceSearchCacheBuild, &cacheBuilds);
+    wit::search::SqliteSearchExecutor executor(database.Raw());
+
+    ASSERT_EQ(executor.PageByName(L"alpha", 0, 10).size(), 2u);
+    ASSERT_EQ(cacheBuilds, 1);
+
+    sqlite3_set_authorizer(database.Raw(), DenySearchCacheReads, nullptr);
+    EXPECT_TRUE(executor.PageByName(L"alpha", 0, 10).empty());
+    EXPECT_FALSE(executor.LastErrorMessage().empty());
+
+    sqlite3_set_authorizer(database.Raw(), nullptr, nullptr);
+    EXPECT_EQ(executor.PageByName(L"alpha", 0, 10).size(), 2u);
+    EXPECT_EQ(cacheBuilds, 2);
+    EXPECT_TRUE(executor.LastErrorMessage().empty());
+}
+
+TEST(SearchExecutor, AdvancedCountReportsFailureFromTheFileQuery) {
+    MemoryDatabase database;
+    wit::search::SqliteSearchExecutor executor(database.Raw());
+    const auto parsed = wit::search::ParseAdvancedSearchQuery(L"filename = \"alpha-file.txt\"");
+    ASSERT_TRUE(parsed.success);
+
+    sqlite3_set_authorizer(database.Raw(), DenyFileTableReads, nullptr);
+    EXPECT_EQ(executor.CountAdvanced(parsed.expression), 0);
+    EXPECT_FALSE(executor.LastErrorMessage().empty());
+    sqlite3_set_authorizer(database.Raw(), nullptr, nullptr);
 }
 
 TEST(SearchExecutor, AdvancedSearchFiltersWithBoundCriteria) {

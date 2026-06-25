@@ -78,7 +78,7 @@ private:
 int TraceSearchCacheBuild(unsigned int, void* context, void* statement, void*) {
     const auto sql = std::string(sqlite3_sql(static_cast<sqlite3_stmt*>(statement)));
     if (sql.find("INSERT INTO wit_search_page_cache(") != std::string::npos &&
-        sql.find("SELECT c.id,c.disk_id") != std::string::npos) {
+        sql.find("FROM folders c") != std::string::npos) {
         ++*static_cast<int*>(context);
     }
     return 0;
@@ -141,6 +141,34 @@ TEST(SearchExecutor, PageByNameSupportsAsteriskWildcards) {
     EXPECT_EQ(executor.CountByName(L"_"), 0) << "SQL LIKE metacharacters remain literal";
 }
 
+TEST(SearchExecutor, PageByNameSortsFoldersAndFilesTogetherBySize) {
+    MemoryDatabase database;
+    database.Execute("UPDATE folders SET content_size=44 WHERE id=1;");
+    wit::search::SqliteSearchExecutor executor(database.Raw());
+
+    const wit::core::FileSort sort{wit::core::FileSortColumn::Size, true};
+    const auto entries = executor.PageByName(L"*", 0, 10, sort);
+
+    ASSERT_EQ(entries.size(), 7u);
+    EXPECT_EQ(entries[0].name, L"child");
+    EXPECT_EQ(entries[1].name, L"alpha-file.txt");
+    EXPECT_EQ(entries[2].name, L"beta-file.txt");
+    EXPECT_EQ(entries[3].name, L"alpha-folder");
+    EXPECT_EQ(entries[4].name, L"notes.txt.bak");
+    EXPECT_EQ(entries[5].name, L"item10.txt");
+    EXPECT_EQ(entries[6].name, L"item2.txt");
+
+    const wit::core::FileSort descending{wit::core::FileSortColumn::Size, false};
+    const auto reversed = executor.PageByName(L"*", 0, 10, descending);
+    ASSERT_EQ(reversed.size(), 7u);
+    EXPECT_EQ(reversed[0].name, L"item2.txt");
+    EXPECT_EQ(reversed[1].name, L"item10.txt");
+    EXPECT_EQ(reversed[2].name, L"alpha-folder");
+    EXPECT_EQ(reversed[3].name, L"notes.txt.bak");
+    EXPECT_EQ(reversed[4].name, L"beta-file.txt");
+    EXPECT_EQ(reversed[5].name, L"alpha-file.txt");
+    EXPECT_EQ(reversed[6].name, L"child");
+}
 TEST(SearchExecutor, PageByNameInvalidatesMaterializedResultsAfterMutation) {
     MemoryDatabase database;
     wit::search::SqliteSearchExecutor executor(database.Raw());
@@ -176,7 +204,7 @@ TEST(SearchExecutor, PreparedSearchTotalMatchesItsMaterializedSnapshot) {
     const auto prepared = executor.PrepareByName(L"alpha", 1);
     EXPECT_EQ(prepared.total, 2);
     ASSERT_EQ(prepared.entries.size(), 1u);
-    EXPECT_EQ(prepared.entries[0].name, L"alpha-folder");
+    EXPECT_EQ(prepared.entries[0].name, L"alpha-file.txt");
 
     database.Execute(
         "INSERT INTO files(id,disk_id,folder_id,name,extension,size,modified_at,attributes) "
@@ -196,14 +224,14 @@ TEST(SearchExecutor, PreparedSearchKeepsDeletedAndUpdatedRowsStableWhilePaging) 
     ASSERT_EQ(prepared.total, 2);
     database.Execute("UPDATE files SET name='changed.txt' WHERE id=1;");
 
-    const auto secondPage = executor.PageByName(L"alpha", 1, 1);
-    ASSERT_EQ(secondPage.size(), 1u);
-    EXPECT_EQ(secondPage[0].name, L"alpha-file.txt");
+    const auto firstPage = executor.PageByName(L"alpha", 0, 1);
+    ASSERT_EQ(firstPage.size(), 1u);
+    EXPECT_EQ(firstPage[0].name, L"alpha-file.txt");
 
     database.Execute("DELETE FROM files WHERE id=1;");
-    const auto sameSecondPage = executor.PageByName(L"alpha", 1, 1);
-    ASSERT_EQ(sameSecondPage.size(), 1u);
-    EXPECT_EQ(sameSecondPage[0].name, L"alpha-file.txt");
+    const auto sameFirstPage = executor.PageByName(L"alpha", 0, 1);
+    ASSERT_EQ(sameFirstPage.size(), 1u);
+    EXPECT_EQ(sameFirstPage[0].name, L"alpha-file.txt");
 }
 
 TEST(SearchExecutor, PageFailureReportsAnError) {

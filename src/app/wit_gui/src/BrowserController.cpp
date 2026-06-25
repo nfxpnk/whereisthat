@@ -13,18 +13,6 @@
 namespace wit::app {
 namespace {
 
-std::wstring CompactSize(std::uint64_t bytes) {
-    auto result = wit::core::FormatSize(bytes);
-    const auto decimal = result.find(L'.');
-    const auto space = result.find(L' ');
-    if (decimal != std::wstring::npos && space != std::wstring::npos) {
-        auto end = space;
-        while (end > decimal + 1 && result[end - 1] == L'0') result.erase(--end, 1);
-        if (end == decimal + 1) result.erase(decimal, 1);
-    }
-    return result;
-}
-
 int SettingsColumnFor(wit::core::FileSortColumn column) {
     switch (column) {
     case wit::core::FileSortColumn::Type: return 1;
@@ -501,18 +489,15 @@ std::wstring BrowserController::FocusedItemStatus() {
     if (const auto* item = index >= 0 ? files_.BrowserItemAt(index) : nullptr) {
         if (item->type == wit::core::BrowserItemType::DiskGroup) {
             return std::format(L"{} | Disks: {} | {}", item->group.name, item->group.totalDisks,
-                CompactSize(item->group.totalCapacity));
+                wit::ui::CompactFileSize(item->group.totalCapacity));
         }
-        auto text = item->disk.diskName + L" | " + CompactSize(item->disk.totalCapacity);
+        auto text = item->disk.diskName + L" | " + wit::ui::CompactFileSize(item->disk.totalCapacity);
         const auto updatedAt = wit::platform::FormatUnixTimestamp(item->disk.updatedAt);
         if (!updatedAt.empty()) text += L" | " + updatedAt;
         return text;
     }
     if (const auto* entry = index >= 0 ? files_.EntryAt(index) : nullptr) {
-        auto text = entry->name + L", " + CompactSize(entry->size);
-        const auto modifiedAt = wit::platform::FormatUnixDate(entry->modifiedAt);
-        if (!modifiedAt.empty()) text += L", " + modifiedAt;
-        return text;
+        return wit::ui::FileEntryStatusText(*entry);
     }
     return {};
 }
@@ -533,7 +518,7 @@ std::wstring BrowserController::SelectionSummaryStatus() {
             }
         }
     }
-    return std::format(L"Selected item(s): {} (total: {})", selected, CompactSize(totalSize));
+    return std::format(L"Selected item(s): {} (total: {})", selected, wit::ui::CompactFileSize(totalSize));
 }
 
 }

@@ -10,6 +10,8 @@
 #include "wit_database/IBrowserRepository.h"
 
 namespace wit::ui {
+std::wstring CompactFileSize(std::uint64_t bytes);
+std::wstring FileEntryStatusText(const wit::core::FileEntry& entry);
 int ImageForFileEntry(const wit::core::FileEntry& entry);
 class FileListView {
 public:

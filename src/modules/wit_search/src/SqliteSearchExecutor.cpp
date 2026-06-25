@@ -170,32 +170,29 @@ void EnsureNaturalNoCaseCollation(sqlite3* db) {
         NaturalNoCaseCollation, nullptr);
 }
 
-const char* OrderExpressionFor(wit::core::FileSortColumn column, bool folders) {
+const char* CombinedOrderExpressionFor(wit::core::FileSortColumn column) {
     switch (column) {
     case wit::core::FileSortColumn::Type:
-        return folders ? "c.entry_type COLLATE WIN_NATURAL_NOCASE"
-            : "f.extension COLLATE WIN_NATURAL_NOCASE";
+        return "sort_type COLLATE WIN_NATURAL_NOCASE";
     case wit::core::FileSortColumn::Size:
-        return folders ? "c.content_size" : "f.size";
+        return "size";
     case wit::core::FileSortColumn::Path:
-        return "p.path COLLATE WIN_NATURAL_NOCASE";
+        return "parent_path COLLATE WIN_NATURAL_NOCASE";
     case wit::core::FileSortColumn::Modified:
-        return folders ? "c.modified_at" : "f.modified_at";
+        return "modified_at";
     case wit::core::FileSortColumn::Name:
     default:
-        return folders ? "c.name COLLATE WIN_NATURAL_NOCASE" : "f.name COLLATE WIN_NATURAL_NOCASE";
+        return "name COLLATE WIN_NATURAL_NOCASE";
     }
 }
 
-std::string OrderByFor(wit::core::FileSort sort, bool folders) {
+std::string CombinedOrderByFor(wit::core::FileSort sort) {
     std::string order{"ORDER BY "};
-    order += OrderExpressionFor(sort.column, folders);
+    order += CombinedOrderExpressionFor(sort.column);
     order += sort.ascending ? " ASC," : " DESC,";
-    order += folders ? " c.name COLLATE WIN_NATURAL_NOCASE ASC,c.id ASC "
-        : " f.name COLLATE WIN_NATURAL_NOCASE ASC,f.id ASC ";
+    order += " name COLLATE WIN_NATURAL_NOCASE ASC,is_directory DESC,id ASC ";
     return order;
 }
-
 bool ExecSql(sqlite3* db, const char* sql) {
     return db && sqlite3_exec(db, sql, nullptr, nullptr, nullptr) == SQLITE_OK;
 }
@@ -242,22 +239,25 @@ bool FinishPageCache(sqlite3* db, bool success) {
     return false;
 }
 
-std::string FolderCacheInsertSql(const std::string& whereClause, wit::core::FileSort sort) {
+std::string CombinedCacheInsertSql(
+    const std::string& folderWhereClause,
+    const std::string& fileWhereClause,
+    wit::core::FileSort sort) {
     return "INSERT INTO wit_search_page_cache("
         "id,disk_id,parent_path,name,extension,size,modified_at,attributes,is_directory,entry_type) "
-        "SELECT c.id,c.disk_id,COALESCE(p.path,''),c.name,'',c.content_size,c.modified_at,"
-        "c.attributes,1,COALESCE(c.entry_type,'directory') "
+        "SELECT id,disk_id,parent_path,name,extension,size,modified_at,attributes,is_directory,entry_type FROM ("
+        "SELECT c.id,c.disk_id,COALESCE(p.path,'') AS parent_path,c.name,'' AS extension,"
+        "c.content_size AS size,c.modified_at,c.attributes,1 AS is_directory,"
+        "COALESCE(c.entry_type,'directory') AS entry_type,"
+        "COALESCE(c.entry_type,'directory') AS sort_type "
         "FROM folders c LEFT JOIN folders p ON c.parent_folder_id=p.id WHERE " +
-        whereClause + " " + OrderByFor(sort, true) + ";";
-}
-
-std::string FileCacheInsertSql(const std::string& whereClause, wit::core::FileSort sort) {
-    return "INSERT INTO wit_search_page_cache("
-        "id,disk_id,parent_path,name,extension,size,modified_at,attributes,is_directory,entry_type) "
-        "SELECT f.id,f.disk_id,COALESCE(p.path,''),f.name,COALESCE(f.extension,''),"
-        "f.size,f.modified_at,f.attributes,0,'file' "
+        folderWhereClause +
+        " UNION ALL "
+        "SELECT f.id,f.disk_id,COALESCE(p.path,'') AS parent_path,f.name,"
+        "COALESCE(f.extension,'') AS extension,f.size,f.modified_at,f.attributes,"
+        "0 AS is_directory,'file' AS entry_type,COALESCE(f.extension,'') AS sort_type "
         "FROM files f JOIN folders p ON f.folder_id=p.id WHERE " +
-        whereClause + " " + OrderByFor(sort, false) + ";";
+        fileWhereClause + ") AS combined " + CombinedOrderByFor(sort) + ";";
 }
 
 bool BuildNamePageCache(sqlite3* db, const std::wstring& nameTerm, wit::core::FileSort sort) {
@@ -266,17 +266,12 @@ bool BuildNamePageCache(sqlite3* db, const std::wstring& nameTerm, wit::core::Fi
     }
 
     const auto pattern = ItemNameLikePattern(nameTerm);
-    const auto folderSql = FolderCacheInsertSql("c.name LIKE ? ESCAPE '\\'", sort);
-    wit::storage::SQLiteStatement folders(db, folderSql.c_str());
-    folders.BindText(1, pattern);
-    bool success = sqlite3_step(folders.Raw()) == SQLITE_DONE;
-
-    if (success) {
-        const auto fileSql = FileCacheInsertSql("f.name LIKE ? ESCAPE '\\'", sort);
-        wit::storage::SQLiteStatement files(db, fileSql.c_str());
-        files.BindText(1, pattern);
-        success = sqlite3_step(files.Raw()) == SQLITE_DONE;
-    }
+    const auto sql = CombinedCacheInsertSql(
+        "c.name LIKE ? ESCAPE '\\'", "f.name LIKE ? ESCAPE '\\'", sort);
+    wit::storage::SQLiteStatement statement(db, sql.c_str());
+    statement.BindText(1, pattern);
+    statement.BindText(2, pattern);
+    const bool success = sqlite3_step(statement.Raw()) == SQLITE_DONE;
     return FinishPageCache(db, success);
 }
 
@@ -287,18 +282,14 @@ bool BuildAdvancedPageCache(
     }
 
     auto folderWhere = BuildAdvancedWhere(expression, true);
-    const auto folderSql = FolderCacheInsertSql(folderWhere.whereClause, sort);
-    wit::storage::SQLiteStatement folders(db, folderSql.c_str());
-    BindAdvancedParams(folders, folderWhere.params);
-    bool success = sqlite3_step(folders.Raw()) == SQLITE_DONE;
-
-    if (success) {
-        auto fileWhere = BuildAdvancedWhere(expression, false);
-        const auto fileSql = FileCacheInsertSql(fileWhere.whereClause, sort);
-        wit::storage::SQLiteStatement files(db, fileSql.c_str());
-        BindAdvancedParams(files, fileWhere.params);
-        success = sqlite3_step(files.Raw()) == SQLITE_DONE;
-    }
+    auto fileWhere = BuildAdvancedWhere(expression, false);
+    const auto sql = CombinedCacheInsertSql(
+        folderWhere.whereClause, fileWhere.whereClause, sort);
+    wit::storage::SQLiteStatement statement(db, sql.c_str());
+    BindAdvancedParams(statement, folderWhere.params);
+    BindAdvancedParams(statement, fileWhere.params,
+        static_cast<int>(folderWhere.params.size()) + 1);
+    const bool success = sqlite3_step(statement.Raw()) == SQLITE_DONE;
     return FinishPageCache(db, success);
 }
 struct PageCacheBuildResult {

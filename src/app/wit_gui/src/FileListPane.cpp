@@ -275,6 +275,24 @@ void UpdateListViewSortIndicators(HWND list, int sortColumn, bool ascending) {
 }
 }
 
+std::wstring CompactFileSize(std::uint64_t bytes) {
+    auto result = wit::core::FormatSize(bytes);
+    const auto decimal = result.find(L'.');
+    const auto space = result.find(L' ');
+    if (decimal != std::wstring::npos && space != std::wstring::npos) {
+        auto end = space;
+        while (end > decimal + 1 && result[end - 1] == L'0') result.erase(--end, 1);
+        if (end == decimal + 1) result.erase(decimal, 1);
+    }
+    return result;
+}
+
+std::wstring FileEntryStatusText(const wit::core::FileEntry& entry) {
+    auto text = entry.name + L", " + CompactFileSize(entry.size);
+    const auto modifiedAt = wit::platform::FormatUnixDate(entry.modifiedAt);
+    if (!modifiedAt.empty()) text += L", " + modifiedAt;
+    return text;
+}
 int ImageForFileEntry(const wit::core::FileEntry& entry) {
     if (entry.isDirectory) return entry.isArchive ? BrowserArchiveImage : BrowserFolderImage;
     const int fileImage = ImageForFileExtension(entry.extension);

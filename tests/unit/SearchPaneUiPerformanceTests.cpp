@@ -110,6 +110,8 @@ public:
         wit::core::FileEntry entry;
         entry.name = L"replacement.txt";
         entry.extension = L"txt";
+        entry.size = 700ull * 1024ull * 1024ull;
+        entry.modifiedAt = 1700000000;
         return {std::move(entry)};
     }
 
@@ -124,6 +126,13 @@ public:
     std::wstring LastErrorMessage() const override { return {}; }
 };
 
+std::wstring StatusPartText(HWND status, int part) {
+    const auto length = LOWORD(SendMessageW(status, SB_GETTEXTLENGTHW, part, 0));
+    std::wstring text(static_cast<std::size_t>(length) + 1, L'\0');
+    SendMessageW(status, SB_GETTEXTW, part, reinterpret_cast<LPARAM>(text.data()));
+    text.resize(length);
+    return text;
+}
 template <typename Func>
 double MeasureMilliseconds(Func&& func) {
     const auto started = std::chrono::steady_clock::now();
@@ -156,7 +165,7 @@ TEST(SearchPaneIcons, UsesBrowserFileListIconRules) {
 }
 
 TEST(SearchPaneLifetime, RebindingCancelsTheOldRepositoryBeforeReplacement) {
-    INITCOMMONCONTROLSEX controls{sizeof(controls), ICC_LISTVIEW_CLASSES};
+    INITCOMMONCONTROLSEX controls{sizeof(controls), ICC_LISTVIEW_CLASSES | ICC_BAR_CLASSES};
     ASSERT_TRUE(InitCommonControlsEx(&controls));
     AtlModuleGuard module;
     ASSERT_TRUE(module.initialized());
@@ -188,6 +197,46 @@ TEST(SearchPaneLifetime, RebindingCancelsTheOldRepositoryBeforeReplacement) {
     PumpMessages();
 }
 
+TEST(SearchPaneStatus, ShowsCountFocusedSelectionAndElapsedTime) {
+    INITCOMMONCONTROLSEX controls{sizeof(controls), ICC_LISTVIEW_CLASSES | ICC_BAR_CLASSES};
+    ASSERT_TRUE(InitCommonControlsEx(&controls));
+    AtlModuleGuard module;
+    ASSERT_TRUE(module.initialized());
+
+    ImmediateSearchRepository repository;
+    wit::ui::SearchDialog dialog;
+    ASSERT_TRUE(dialog.Show(nullptr, &repository, [] {}));
+    PumpMessages();
+
+    const auto searchWindow = FindWindowW(nullptr, L"Search for Items");
+    ASSERT_NE(searchWindow, nullptr);
+    const auto results = GetDlgItem(searchWindow, IDC_SEARCH_RESULTS);
+    const auto status = GetDlgItem(searchWindow, IDC_SEARCH_STATUS);
+    ASSERT_NE(results, nullptr);
+    ASSERT_NE(status, nullptr);
+
+    ASSERT_TRUE(SetDlgItemTextW(searchWindow, IDC_SEARCH_NAME, L"*"));
+    SendMessageW(GetDlgItem(searchWindow, IDC_SEARCH_EXECUTE), BM_CLICK, 0, 0);
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (ListView_GetItemCount(results) != 1 && std::chrono::steady_clock::now() < deadline) {
+        PumpMessages();
+        Sleep(1);
+    }
+    ASSERT_EQ(ListView_GetItemCount(results), 1);
+
+    ListView_SetItemState(results, 0, LVIS_SELECTED | LVIS_FOCUSED,
+        LVIS_SELECTED | LVIS_FOCUSED);
+    PumpMessages();
+
+    EXPECT_EQ(StatusPartText(status, 0), L"Items on list: 1");
+    EXPECT_NE(StatusPartText(status, 1).find(L"replacement.txt, 700 MB"), std::wstring::npos);
+    EXPECT_EQ(StatusPartText(status, 2), L"Selected items: 1 (total 700 MB)");
+    const auto elapsed = StatusPartText(status, 3);
+    EXPECT_TRUE(elapsed.ends_with(L" s"));
+
+    dialog.Close();
+    PumpMessages();
+}
 TEST(DISABLED_SearchPaneUiPerformance, SearchAndScrollFakeCatalog) {
     const auto catalogPath = std::filesystem::current_path() / L"tools" / L"catalog-test" /
         L"fake-search-catalog.sqlite";
@@ -196,7 +245,7 @@ TEST(DISABLED_SearchPaneUiPerformance, SearchAndScrollFakeCatalog) {
         GTEST_SKIP() << "tools\\catalog-test\\fake-search-catalog.sqlite is not available";
     }
 
-    INITCOMMONCONTROLSEX controls{sizeof(controls), ICC_LISTVIEW_CLASSES};
+    INITCOMMONCONTROLSEX controls{sizeof(controls), ICC_LISTVIEW_CLASSES | ICC_BAR_CLASSES};
     ASSERT_TRUE(InitCommonControlsEx(&controls));
     AtlModuleGuard module;
     ASSERT_TRUE(module.initialized());

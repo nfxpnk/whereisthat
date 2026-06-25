@@ -155,6 +155,12 @@ LRESULT SearchDialog::OnInitDialog(UINT, WPARAM, LPARAM, BOOL&) {
     return TRUE;
 }
 
+LRESULT SearchDialog::OnSize(UINT, WPARAM, LPARAM, BOOL& handled) {
+    UpdateStatusParts();
+    handled = FALSE;
+    return 0;
+}
+
 LRESULT SearchDialog::OnExecuteSearch(WORD, WORD, HWND, BOOL&) {
     Search();
     return 0;
@@ -208,6 +214,7 @@ LRESULT SearchDialog::OnWindowClose(UINT, WPARAM, LPARAM, BOOL&) {
 LRESULT SearchDialog::OnDestroy(UINT, WPARAM, LPARAM, BOOL&) {
     CancelSearchLoad();
     results_ = nullptr;
+    status_ = nullptr;
     launchOwner_ = nullptr;
     search_ = nullptr;
     onLocate_ = {};
@@ -233,12 +240,14 @@ LRESULT SearchDialog::OnSearchComplete(UINT, WPARAM, LPARAM, BOOL&) {
     }
     if (!result || !results_) return 0;
     if (searchWorker_.joinable()) searchWorker_.join();
+    elapsedSeconds_ = result->elapsedSeconds;
 
     ClearCache();
     if (!result->error.empty()) {
         total_ = 0;
         ResetResultItemCache();
         SetDlgItemTextW(IDC_SEARCH_SUMMARY, result->error.c_str());
+        UpdateStatusText();
         return 0;
     }
 
@@ -254,6 +263,7 @@ LRESULT SearchDialog::OnSearchComplete(UINT, WPARAM, LPARAM, BOOL&) {
     const auto summary = total_ == 0 ? std::wstring(L"No matching items found.") :
         std::format(L"{} matching item{}.", total_, total_ == 1 ? L"" : L"s");
     SetDlgItemTextW(IDC_SEARCH_SUMMARY, summary.c_str());
+    UpdateStatusText();
     return 0;
 }
 
@@ -293,6 +303,15 @@ LRESULT SearchDialog::OnColumnClick(int, LPNMHDR header, BOOL&) {
     return 0;
 }
 
+LRESULT SearchDialog::OnResultItemChanged(int, LPNMHDR header, BOOL&) {
+    const auto* changed = reinterpret_cast<NMLISTVIEW*>(header);
+    if (changed && (changed->uChanged & LVIF_STATE) &&
+        ((changed->uOldState ^ changed->uNewState) & (LVIS_FOCUSED | LVIS_SELECTED))) {
+        UpdateStatusText();
+    }
+    return 0;
+}
+
 void SearchDialog::Initialize() {
     HWND tabs = GetDlgItem(IDC_SEARCH_TABS);
     TCITEMW item{TCIF_TEXT};
@@ -303,6 +322,7 @@ void SearchDialog::Initialize() {
     ShowTabPage(0);
 
     results_ = GetDlgItem(IDC_SEARCH_RESULTS);
+    status_ = GetDlgItem(IDC_SEARCH_STATUS);
     if (launchOwner_) {
         const HWND browserList = ::GetDlgItem(launchOwner_, IDC_FILES);
         const HIMAGELIST images = browserList ? ListView_GetImageList(browserList, LVSIL_SMALL) : nullptr;
@@ -313,7 +333,7 @@ void SearchDialog::Initialize() {
     LVCOLUMNW column{LVCF_TEXT | LVCF_WIDTH | LVCF_FMT};
     column.fmt = LVCFMT_LEFT;
     column.cx = 145;
-    column.pszText = const_cast<LPWSTR>(L"Name");
+    column.pszText = const_cast<LPWSTR>(L"File, Folder or Disk");
     ListView_InsertColumn(results_, 0, &column);
     column.cx = 66;
     column.pszText = const_cast<LPWSTR>(L"Type");
@@ -330,6 +350,8 @@ void SearchDialog::Initialize() {
     column.pszText = const_cast<LPWSTR>(L"Modified");
     ListView_InsertColumn(results_, 4, &column);
     UpdateSortIndicators();
+    UpdateStatusParts();
+    UpdateStatusText();
 
     SetDlgItemTextW(IDC_SEARCH_SUMMARY, L"Enter a name to search for. Use * to match any characters.");
 }
@@ -369,6 +391,8 @@ void SearchDialog::Search() {
         total_ = 0;
         ClearCache();
         ListView_SetItemCountEx(results_, 0, LVSICF_NOINVALIDATEALL);
+        elapsedSeconds_ = 0.0;
+        UpdateStatusText();
         SetDlgItemTextW(IDC_SEARCH_SUMMARY, L"Enter a name to search for.");
         return;
     }
@@ -389,6 +413,8 @@ void SearchDialog::AdvancedSearch() {
         total_ = 0;
         ClearCache();
         ListView_SetItemCountEx(results_, 0, LVSICF_NOINVALIDATEALL);
+        elapsedSeconds_ = 0.0;
+        UpdateStatusText();
         SetDlgItemTextW(IDC_SEARCH_SUMMARY, parsed.error.c_str());
         return;
     }
@@ -412,20 +438,25 @@ void SearchDialog::BeginSearchLoad() {
     const HWND window = m_hWnd;
 
     total_ = 0;
+    elapsedSeconds_ = 0.0;
     ClearCache();
     ListView_SetItemCountEx(results_, 0, LVSICF_NOINVALIDATEALL);
+    UpdateStatusText();
     SetDlgItemTextW(IDC_SEARCH_SUMMARY, L"Searching...");
 
     searchWorker_ = std::jthread([this, window, requestId, mode, nameTerm, expression, sort, repository](
         std::stop_token stopToken) {
         AsyncSearchResult result;
         result.requestId = requestId;
+        const auto startedAt = std::chrono::steady_clock::now();
         auto prepared = mode == ResultMode::Quick
             ? repository->PrepareByName(nameTerm, PageSize, sort)
             : repository->PrepareAdvanced(expression, PageSize, sort);
         if (stopToken.stop_requested()) return;
         result.total = prepared.total;
         result.firstPage = std::move(prepared.entries);
+        result.elapsedSeconds = std::chrono::duration<double>(
+            std::chrono::steady_clock::now() - startedAt).count();
 
         result.error = repository->LastErrorMessage();
         if (result.error.empty() && result.total > 0 && result.firstPage.empty()) {
@@ -594,6 +625,49 @@ void SearchDialog::UpdateSortIndicators() {
     UpdateListViewSortIndicators(results_, ResultColumnFromSortColumn(sort_.column), sort_.ascending);
 }
 
+void SearchDialog::UpdateStatusParts() {
+    if (!status_ || !m_hWnd) return;
+    RECT client{};
+    ::GetClientRect(m_hWnd, &client);
+    const int width = client.right - client.left;
+    const int itemsEnd = (std::min)(160, width);
+    const int timeWidth = 90;
+    const int timeStart = (std::max)(itemsEnd, width - timeWidth);
+    const int selectedWidth = (std::min)(250, (std::max)(0, timeStart - itemsEnd));
+    const int selectedStart = (std::max)(itemsEnd, timeStart - selectedWidth);
+    const int parts[] = {itemsEnd, selectedStart, timeStart, -1};
+    SendMessageW(status_, SB_SETPARTS, static_cast<WPARAM>(std::size(parts)),
+        reinterpret_cast<LPARAM>(parts));
+}
+
+void SearchDialog::UpdateStatusText() {
+    if (!status_) return;
+    const auto items = std::format(L"Items on list: {}", total_);
+    SendMessageW(status_, SB_SETTEXTW, 0, reinterpret_cast<LPARAM>(items.c_str()));
+
+    const auto* focused = FocusedEntry();
+    const auto focusedText = focused ? FileEntryStatusText(*focused) : std::wstring{};
+    SendMessageW(status_, SB_SETTEXTW, 1, reinterpret_cast<LPARAM>(focusedText.c_str()));
+
+    int selectedCount{};
+    std::uint64_t selectedSize{};
+    if (results_) {
+        for (int row = ListView_GetNextItem(results_, -1, LVNI_SELECTED); row >= 0;
+            row = ListView_GetNextItem(results_, row, LVNI_SELECTED)) {
+            if (const auto* entry = EntryAt(row)) {
+                ++selectedCount;
+                selectedSize += entry->size;
+            }
+        }
+    }
+    const auto selectedText = std::format(L"Selected items: {} (total {})",
+        selectedCount, CompactFileSize(selectedSize));
+    SendMessageW(status_, SB_SETTEXTW, 2, reinterpret_cast<LPARAM>(selectedText.c_str()));
+
+    const auto elapsedText = elapsedSeconds_ > 0.0
+        ? std::format(L"{:.2f} s", elapsedSeconds_) : std::wstring{};
+    SendMessageW(status_, SB_SETTEXTW, 3, reinterpret_cast<LPARAM>(elapsedText.c_str()));
+}
 bool SearchDialog::PrepareContextMenuSelection(LPARAM lparam, POINT& screenPoint) {
     if (!results_ || total_ <= 0) return false;
     const bool keyboardInvocation = lparam == -1;

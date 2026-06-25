@@ -6,6 +6,7 @@
 #include <wit_types/FileSort.h>
 #include "wit_search/ISearchRepository.h"
 #include <CommCtrl.h>
+#include <chrono>
 #include <functional>
 #include <string>
 #include <cstdint>
@@ -31,6 +32,7 @@ public:
 
     BEGIN_MSG_MAP(SearchDialog)
         MESSAGE_HANDLER(WM_INITDIALOG, OnInitDialog)
+        MESSAGE_HANDLER(WM_SIZE, OnSize)
         MESSAGE_HANDLER(WM_CONTEXTMENU, OnContextMenu)
         MESSAGE_HANDLER(WM_CLOSE, OnWindowClose)
         MESSAGE_HANDLER(WM_DESTROY, OnDestroy)
@@ -45,6 +47,7 @@ public:
         NOTIFY_HANDLER(IDC_SEARCH_RESULTS, LVN_GETDISPINFOW, OnGetDisplayInfo)
         NOTIFY_HANDLER(IDC_SEARCH_RESULTS, LVN_ODCACHEHINT, OnCacheHint)
         NOTIFY_HANDLER(IDC_SEARCH_RESULTS, LVN_COLUMNCLICK, OnColumnClick)
+        NOTIFY_HANDLER(IDC_SEARCH_RESULTS, LVN_ITEMCHANGED, OnResultItemChanged)
         CHAIN_MSG_MAP(WTL::CDialogResize<SearchDialog>)
     END_MSG_MAP()
 
@@ -59,6 +62,7 @@ public:
         DLGRESIZE_CONTROL(IDC_SEARCH_SUMMARY, DLSZ_SIZE_X)
         DLGRESIZE_CONTROL(IDC_SEARCH_RESULTS, DLSZ_SIZE_X | DLSZ_SIZE_Y)
         DLGRESIZE_CONTROL(IDCANCEL, DLSZ_MOVE_X | DLSZ_MOVE_Y)
+        DLGRESIZE_CONTROL(IDC_SEARCH_STATUS, DLSZ_SIZE_X | DLSZ_MOVE_Y)
     END_DLGRESIZE_MAP()
 
 private:
@@ -78,12 +82,14 @@ private:
         int total{};
         std::vector<wit::core::FileEntry> firstPage;
         std::wstring error;
+        double elapsedSeconds{};
     };
 
     static constexpr int PageSize = 512;
     static constexpr std::size_t MaxCachedPages = 16;
 
     HWND results_{};
+    HWND status_{};
     HWND launchOwner_{};
     wit::search::ISearchRepository* search_{};
     LocateResultHandler onLocate_;
@@ -99,8 +105,10 @@ private:
     std::mutex searchResultMutex_;
     std::optional<AsyncSearchResult> pendingSearchResult_;
     std::uint64_t searchRequestId_{};
+    double elapsedSeconds_{};
 
     LRESULT OnInitDialog(UINT message, WPARAM wparam, LPARAM lparam, BOOL& handled);
+    LRESULT OnSize(UINT message, WPARAM wparam, LPARAM lparam, BOOL& handled);
     LRESULT OnContextMenu(UINT message, WPARAM wparam, LPARAM lparam, BOOL& handled);
     LRESULT OnExecuteSearch(WORD notifyCode, WORD id, HWND control, BOOL& handled);
     LRESULT OnExecuteAdvancedSearch(WORD notifyCode, WORD id, HWND control, BOOL& handled);
@@ -115,6 +123,7 @@ private:
     LRESULT OnCacheHint(int id, LPNMHDR header, BOOL& handled);
     LRESULT OnTabChanged(int id, LPNMHDR header, BOOL& handled);
     LRESULT OnColumnClick(int id, LPNMHDR header, BOOL& handled);
+    LRESULT OnResultItemChanged(int id, LPNMHDR header, BOOL& handled);
     void Initialize();
     void Search();
     void AdvancedSearch();
@@ -131,6 +140,8 @@ private:
     const wit::core::FileEntry* FocusedEntry();
     void ToggleSortForColumn(int column);
     void UpdateSortIndicators();
+    void UpdateStatusParts();
+    void UpdateStatusText();
     std::vector<wit::core::FileEntry> SelectedEntriesInRange(int firstRow, int lastRow);
     void RestoreSelection(std::vector<wit::core::FileEntry> selectedEntries,
         std::int64_t focusedId, bool focusedIsDirectory);

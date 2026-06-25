@@ -238,6 +238,16 @@ TEST(SearchPaneColumns, LoadsAndPersistsIndependentWidths) {
 
     INITCOMMONCONTROLSEX controls{sizeof(controls), ICC_LISTVIEW_CLASSES | ICC_BAR_CLASSES};
     ASSERT_TRUE(InitCommonControlsEx(&controls));
+
+    const HWND fileList = CreateWindowExW(0, WC_LISTVIEWW, L"", WS_POPUP | LVS_REPORT,
+        0, 0, 640, 480, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+    ASSERT_NE(fileList, nullptr);
+    wit::ui::FileListView fileListView;
+    fileListView.Attach(fileList);
+    fileListView.SetLocation({}, nullptr);
+    EXPECT_EQ(ListView_GetColumnWidth(fileList, 0), 222);
+    DestroyWindow(fileList);
+
     AtlModuleGuard module;
     ASSERT_TRUE(module.initialized());
 

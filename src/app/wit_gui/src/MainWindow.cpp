@@ -521,6 +521,7 @@ bool MainFrame::InitializeFrame() {
 void MainFrame::RequestClose() {
     WIT_LOG_INFO(L"window close requested");
     // Best-effort preference save before close handling continues.
+    (void)browser_.PersistFileListColumnWidths();
     (void)controller_.SaveMainSplitterPosition(chrome_.SplitterPosition());
     ApplyControllerResult(controller_.RequestWindowClose());
 }
@@ -528,6 +529,7 @@ void MainFrame::RequestClose() {
 void MainFrame::CleanupFrame() {
     WIT_LOG_INFO(L"main frame cleanup started");
     // Best-effort final preference save during teardown.
+    (void)browser_.PersistFileListColumnWidths();
     (void)controller_.SaveMainSplitterPosition(chrome_.SplitterPosition());
     searchDialog_.Close();
     settingsDialog_.Close();

@@ -31,8 +31,12 @@ void CatalogSession::LoadSettings() {
 
 bool CatalogSession::SaveSettings(const wit::platform::AppSettings& settings) {
     AssertOwnerThread();
-    if (!wit::platform::SaveAppSettings(settings)) return false;
-    settings_ = settings;
+    auto settingsToSave = settings;
+    const auto currentSettings = wit::platform::LoadAppSettings();
+    settingsToSave.fileListColumnWidths = currentSettings.fileListColumnWidths;
+    settingsToSave.searchListColumnWidths = currentSettings.searchListColumnWidths;
+    if (!wit::platform::SaveAppSettings(settingsToSave)) return false;
+    settings_ = std::move(settingsToSave);
     return true;
 }
 
@@ -97,7 +101,7 @@ bool CatalogSession::SaveOpenCatalogSettings() {
     settings_.hasMultiCatalogSettings = true;
     const auto* active = ActiveCatalog();
     settings_.lastCatalogPath = active ? active->path : L"";
-    return wit::platform::SaveAppSettings(settings_);
+    return SaveSettings(settings_);
 }
 
 bool CatalogSession::IsPathOpen(const std::wstring& path) const {

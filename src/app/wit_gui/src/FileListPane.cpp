@@ -192,6 +192,10 @@ bool FileListView::PersistColumnWidths() const {
 
 void FileListView::SetLocation(
     const wit::core::BrowserLocation& newLocation, wit::storage::IBrowserRepository* repository) {
+    const HWND header = hwnd ? ListView_GetHeader(hwnd) : nullptr;
+    if (header && Header_GetItemCount(header) > 0) {
+        (void)PersistColumnWidths();
+    }
     location = newLocation;
     browser = repository;
     total = 0;

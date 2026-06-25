@@ -1078,6 +1078,30 @@ TEST(StorageSmoke, ClosingLastCatalogClearsStartupRestorePath) {
     std::filesystem::remove_all(testRoot);
 }
 
+TEST(StorageSmoke, SessionSavesPreserveColumnWidthsChangedAfterStartup) {
+    AppSettingsGuard settingsGuard;
+
+    auto initial = wit::platform::LoadAppSettings();
+    initial.fileListColumnWidths[L"BrowserContent.Name"] = 210;
+    initial.searchListColumnWidths[L"SearchResults.Name"] = 310;
+    ASSERT_TRUE(wit::platform::SaveAppSettings(initial));
+
+    wit::app::CatalogWorkflowController controller;
+    ASSERT_TRUE(controller.Initialize().messages.empty());
+
+    auto resized = wit::platform::LoadAppSettings();
+    resized.fileListColumnWidths[L"BrowserContent.Name"] = 275;
+    resized.searchListColumnWidths[L"SearchResults.Name"] = 375;
+    ASSERT_TRUE(wit::platform::SaveAppSettings(resized));
+
+    ASSERT_TRUE(controller.SaveMainSplitterPosition(480));
+    ASSERT_TRUE(controller.RequestWindowClose().destroyWindow);
+
+    const auto saved = wit::platform::LoadAppSettings();
+    EXPECT_EQ(saved.fileListColumnWidths.at(L"BrowserContent.Name"), 275);
+    EXPECT_EQ(saved.searchListColumnWidths.at(L"SearchResults.Name"), 375);
+}
+
 TEST(StorageSmoke, StartupRestoreUsesMultiCatalogSettingsAndContinuesAfterFailures) {
     AppSettingsGuard settingsGuard;
 

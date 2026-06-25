@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include <wit_database/Database.h>
+#include <wit_infra/AppSettings.h>
 #include <wit_gui/BrowserItemIcons.h>
 #include <wit_gui/FileListPane.h>
 #include <wit_gui/SearchPane.h>
@@ -14,6 +15,14 @@
 WTL::CAppModule _Module;
 
 namespace {
+class AppSettingsGuard {
+public:
+    AppSettingsGuard() : original_(wit::platform::LoadAppSettings()) {}
+    ~AppSettingsGuard() { (void)wit::platform::SaveAppSettings(original_); }
+
+private:
+    wit::platform::AppSettings original_;
+};
 class AtlModuleGuard {
 public:
     AtlModuleGuard() {
@@ -197,6 +206,45 @@ TEST(SearchPaneLifetime, RebindingCancelsTheOldRepositoryBeforeReplacement) {
     PumpMessages();
 }
 
+TEST(SearchPaneColumns, LoadsAndPersistsIndependentWidths) {
+    AppSettingsGuard settingsGuard;
+    auto settings = wit::platform::LoadAppSettings();
+    settings.fileListColumnWidths[L"SearchResults.Name"] = 321;
+    ASSERT_TRUE(wit::platform::SaveAppSettings(settings));
+
+    INITCOMMONCONTROLSEX controls{sizeof(controls), ICC_LISTVIEW_CLASSES | ICC_BAR_CLASSES};
+    ASSERT_TRUE(InitCommonControlsEx(&controls));
+    AtlModuleGuard module;
+    ASSERT_TRUE(module.initialized());
+
+    ImmediateSearchRepository repository;
+    wit::ui::SearchDialog dialog;
+    ASSERT_TRUE(dialog.Show(nullptr, &repository, [] {}));
+    PumpMessages();
+
+    const auto searchWindow = FindWindowW(nullptr, L"Search for Items");
+    ASSERT_NE(searchWindow, nullptr);
+    const auto results = GetDlgItem(searchWindow, IDC_SEARCH_RESULTS);
+    ASSERT_NE(results, nullptr);
+    EXPECT_EQ(ListView_GetColumnWidth(results, 0), 321);
+
+    ASSERT_TRUE(ListView_SetColumnWidth(results, 0, 333));
+    NMHEADERW notification{};
+    notification.hdr.hwndFrom = ListView_GetHeader(results);
+    notification.hdr.idFrom = static_cast<UINT_PTR>(GetDlgCtrlID(notification.hdr.hwndFrom));
+    notification.hdr.code = HDN_ENDTRACKW;
+    SendMessageW(searchWindow, WM_NOTIFY, notification.hdr.idFrom,
+        reinterpret_cast<LPARAM>(&notification));
+    PumpMessages();
+
+    const auto persisted = wit::platform::LoadAppSettings();
+    const auto saved = persisted.fileListColumnWidths.find(L"SearchResults.Name");
+    ASSERT_NE(saved, persisted.fileListColumnWidths.end());
+    EXPECT_EQ(saved->second, 333);
+
+    dialog.Close();
+    PumpMessages();
+}
 TEST(SearchPaneStatus, ShowsCountFocusedSelectionAndElapsedTime) {
     INITCOMMONCONTROLSEX controls{sizeof(controls), ICC_LISTVIEW_CLASSES | ICC_BAR_CLASSES};
     ASSERT_TRUE(InitCommonControlsEx(&controls));

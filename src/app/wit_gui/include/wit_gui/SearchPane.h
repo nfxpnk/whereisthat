@@ -20,6 +20,7 @@ class SearchDialog : public ATL::CDialogImpl<SearchDialog>, public WTL::CDialogR
 public:
     enum { IDD = IDD_SEARCH_ITEMS };
     static constexpr UINT SearchCompleteMessage = WM_APP + 44;
+    static constexpr UINT PersistColumnWidthsMessage = WM_APP + 45;
 
     using LocateResultHandler = std::function<bool(const wit::core::FileEntry&)>;
 
@@ -37,6 +38,7 @@ public:
         MESSAGE_HANDLER(WM_CLOSE, OnWindowClose)
         MESSAGE_HANDLER(WM_DESTROY, OnDestroy)
         MESSAGE_HANDLER(SearchCompleteMessage, OnSearchComplete)
+        MESSAGE_HANDLER(PersistColumnWidthsMessage, OnPersistColumnWidths)
         COMMAND_ID_HANDLER(IDC_SEARCH_EXECUTE, OnExecuteSearch)
         COMMAND_ID_HANDLER(IDC_ADVANCED_SEARCH_EXECUTE, OnExecuteAdvancedSearch)
         COMMAND_ID_HANDLER(IDC_ADVANCED_SEARCH_CLEAR, OnClearAdvancedSearch)
@@ -48,6 +50,8 @@ public:
         NOTIFY_HANDLER(IDC_SEARCH_RESULTS, LVN_ODCACHEHINT, OnCacheHint)
         NOTIFY_HANDLER(IDC_SEARCH_RESULTS, LVN_COLUMNCLICK, OnColumnClick)
         NOTIFY_HANDLER(IDC_SEARCH_RESULTS, LVN_ITEMCHANGED, OnResultItemChanged)
+        NOTIFY_CODE_HANDLER(HDN_ENDTRACKW, OnHeaderWidthChanged)
+        NOTIFY_CODE_HANDLER(HDN_DIVIDERDBLCLICKW, OnHeaderWidthChanged)
         CHAIN_MSG_MAP(WTL::CDialogResize<SearchDialog>)
     END_MSG_MAP()
 
@@ -118,12 +122,14 @@ private:
     LRESULT OnWindowClose(UINT message, WPARAM wparam, LPARAM lparam, BOOL& handled);
     LRESULT OnDestroy(UINT message, WPARAM wparam, LPARAM lparam, BOOL& handled);
     LRESULT OnSearchComplete(UINT message, WPARAM wparam, LPARAM lparam, BOOL& handled);
+    LRESULT OnPersistColumnWidths(UINT message, WPARAM wparam, LPARAM lparam, BOOL& handled);
     LRESULT OnCloseCommand(WORD notifyCode, WORD id, HWND control, BOOL& handled);
     LRESULT OnGetDisplayInfo(int id, LPNMHDR header, BOOL& handled);
     LRESULT OnCacheHint(int id, LPNMHDR header, BOOL& handled);
     LRESULT OnTabChanged(int id, LPNMHDR header, BOOL& handled);
     LRESULT OnColumnClick(int id, LPNMHDR header, BOOL& handled);
     LRESULT OnResultItemChanged(int id, LPNMHDR header, BOOL& handled);
+    LRESULT OnHeaderWidthChanged(int id, LPNMHDR header, BOOL& handled);
     void Initialize();
     void Search();
     void AdvancedSearch();
@@ -142,6 +148,7 @@ private:
     void UpdateSortIndicators();
     void UpdateStatusParts();
     void UpdateStatusText();
+    bool PersistColumnWidths() const;
     std::vector<wit::core::FileEntry> SelectedEntriesInRange(int firstRow, int lastRow);
     void RestoreSelection(std::vector<wit::core::FileEntry> selectedEntries,
         std::int64_t focusedId, bool focusedIsDirectory);

@@ -1,10 +1,12 @@
 #include "wit_gui/SearchPane.h"
 #include "wit_gui/FileListPane.h"
 #include <wit_infra/PathHelpers.h>
+#include <wit_infra/AppSettings.h>
 #include "wit_infra/StringUtils.h"
 #include <wit_infra/Win32Helpers.h>
 #include <CommCtrl.h>
 #include <algorithm>
+#include <array>
 #include <format>
 #include <iterator>
 #include <optional>
@@ -16,6 +18,32 @@
 
 namespace wit::ui {
 namespace {
+struct SearchColumnDefinition {
+    const wchar_t* key;
+    const wchar_t* name;
+    int defaultWidth;
+    int format;
+};
+
+constexpr int kMinimumColumnWidth = 20;
+constexpr int kMaximumColumnWidth = 4000;
+constexpr std::array<SearchColumnDefinition, 5> kSearchColumns{{
+    {L"SearchResults.Name", L"File, Folder or Disk", 145, LVCFMT_LEFT},
+    {L"SearchResults.Type", L"Type", 66, LVCFMT_LEFT},
+    {L"SearchResults.Size", L"Size", 110, LVCFMT_RIGHT},
+    {L"SearchResults.Path", L"Path", 170, LVCFMT_LEFT},
+    {L"SearchResults.Modified", L"Modified", 105, LVCFMT_LEFT},
+}};
+
+bool IsValidColumnWidth(int width) {
+    return width >= kMinimumColumnWidth && width <= kMaximumColumnWidth;
+}
+
+int SearchColumnWidth(const wit::platform::AppSettings& settings, const SearchColumnDefinition& column) {
+    const auto saved = settings.fileListColumnWidths.find(column.key);
+    return saved != settings.fileListColumnWidths.end() && IsValidColumnWidth(saved->second)
+        ? saved->second : column.defaultWidth;
+}
 void CopyText(std::wstring_view text, wchar_t* buffer, std::size_t bufferSize) {
     if (!buffer || bufferSize == 0) return;
     StringCchCopyNW(buffer, bufferSize, text.data(), text.size());
@@ -267,6 +295,10 @@ LRESULT SearchDialog::OnSearchComplete(UINT, WPARAM, LPARAM, BOOL&) {
     return 0;
 }
 
+LRESULT SearchDialog::OnPersistColumnWidths(UINT, WPARAM, LPARAM, BOOL&) {
+    (void)PersistColumnWidths();
+    return 0;
+}
 LRESULT SearchDialog::OnCloseCommand(WORD, WORD, HWND, BOOL&) {
     DestroyWindow();
     return 0;
@@ -312,6 +344,14 @@ LRESULT SearchDialog::OnResultItemChanged(int, LPNMHDR header, BOOL&) {
     return 0;
 }
 
+LRESULT SearchDialog::OnHeaderWidthChanged(int, LPNMHDR header, BOOL& handled) {
+    if (!header || !results_ || header->hwndFrom != ListView_GetHeader(results_)) {
+        handled = FALSE;
+        return 0;
+    }
+    PostMessageW(PersistColumnWidthsMessage, 0, 0);
+    return 0;
+}
 void SearchDialog::Initialize() {
     HWND tabs = GetDlgItem(IDC_SEARCH_TABS);
     TCITEMW item{TCIF_TEXT};
@@ -330,26 +370,15 @@ void SearchDialog::Initialize() {
     }
     ListView_SetExtendedListViewStyle(results_, LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER);
 
-    LVCOLUMNW column{LVCF_TEXT | LVCF_WIDTH | LVCF_FMT};
-    column.fmt = LVCFMT_LEFT;
-    column.cx = 145;
-    column.pszText = const_cast<LPWSTR>(L"File, Folder or Disk");
-    ListView_InsertColumn(results_, 0, &column);
-    column.cx = 66;
-    column.pszText = const_cast<LPWSTR>(L"Type");
-    ListView_InsertColumn(results_, 1, &column);
-    column.fmt = LVCFMT_RIGHT;
-    column.cx = 110;
-    column.pszText = const_cast<LPWSTR>(L"Size");
-    ListView_InsertColumn(results_, 2, &column);
-    column.fmt = LVCFMT_LEFT;
-    column.cx = 170;
-    column.pszText = const_cast<LPWSTR>(L"Path");
-    ListView_InsertColumn(results_, 3, &column);
-    column.cx = 105;
-    column.pszText = const_cast<LPWSTR>(L"Modified");
-    ListView_InsertColumn(results_, 4, &column);
-    UpdateSortIndicators();
+    const auto settings = wit::platform::LoadAppSettings();
+    for (std::size_t index = 0; index < kSearchColumns.size(); ++index) {
+        const auto& definition = kSearchColumns[index];
+        LVCOLUMNW column{LVCF_TEXT | LVCF_WIDTH | LVCF_FMT};
+        column.fmt = definition.format;
+        column.cx = SearchColumnWidth(settings, definition);
+        column.pszText = const_cast<LPWSTR>(definition.name);
+        ListView_InsertColumn(results_, static_cast<int>(index), &column);
+    }    UpdateSortIndicators();
     UpdateStatusParts();
     UpdateStatusText();
 
@@ -667,6 +696,17 @@ void SearchDialog::UpdateStatusText() {
     const auto elapsedText = elapsedSeconds_ > 0.0
         ? std::format(L"{:.2f} s", elapsedSeconds_) : std::wstring{};
     SendMessageW(status_, SB_SETTEXTW, 3, reinterpret_cast<LPARAM>(elapsedText.c_str()));
+}
+bool SearchDialog::PersistColumnWidths() const {
+    if (!results_) return false;
+    auto settings = wit::platform::LoadAppSettings();
+    for (std::size_t index = 0; index < kSearchColumns.size(); ++index) {
+        const int width = ListView_GetColumnWidth(results_, static_cast<int>(index));
+        if (IsValidColumnWidth(width)) {
+            settings.fileListColumnWidths[kSearchColumns[index].key] = width;
+        }
+    }
+    return wit::platform::SaveAppSettings(settings);
 }
 bool SearchDialog::PrepareContextMenuSelection(LPARAM lparam, POINT& screenPoint) {
     if (!results_ || total_ <= 0) return false;

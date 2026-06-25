@@ -16,12 +16,14 @@ public:
     void SetDatabase(sqlite3* db);
 
     PreparedSearchResult PrepareByName(
-        const std::wstring& nameTerm, int limit, wit::core::FileSort sort = {}) override;
+        const std::wstring& nameTerm, int limit, wit::core::FileSort sort = {},
+        bool caseSensitive = false) override;
     PreparedSearchResult PrepareAdvanced(
         const AdvancedSearchExpression& expression, int limit, wit::core::FileSort sort = {}) override;
-    int CountByName(const std::wstring& nameTerm) override;
+    int CountByName(const std::wstring& nameTerm, bool caseSensitive = false) override;
     std::vector<wit::core::FileEntry> PageByName(
-        const std::wstring& nameTerm, int offset, int limit, wit::core::FileSort sort = {}) override;
+        const std::wstring& nameTerm, int offset, int limit, wit::core::FileSort sort = {},
+        bool caseSensitive = false) override;
     int CountAdvanced(const AdvancedSearchExpression& expression) override;
     std::vector<wit::core::FileEntry> PageAdvanced(
         const AdvancedSearchExpression& expression,
@@ -38,7 +40,8 @@ private:
     void SetLastError(sqlite3* db, const wchar_t* fallback);
     int PageCacheCountLocked(sqlite3* db);
     std::vector<wit::core::FileEntry> PageByNameLocked(
-        const std::wstring& nameTerm, int offset, int limit, wit::core::FileSort sort);
+        const std::wstring& nameTerm, int offset, int limit, wit::core::FileSort sort,
+        bool caseSensitive);
     std::vector<wit::core::FileEntry> PageAdvancedLocked(
         const AdvancedSearchExpression& expression, int offset, int limit, wit::core::FileSort sort);
 

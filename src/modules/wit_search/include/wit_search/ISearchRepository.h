@@ -19,16 +19,18 @@ public:
     virtual ~ISearchRepository() = default;
 
     virtual PreparedSearchResult PrepareByName(
-        const std::wstring& nameTerm, int limit, wit::core::FileSort sort = {}) = 0;
+        const std::wstring& nameTerm, int limit, wit::core::FileSort sort = {},
+        bool caseSensitive = false) = 0;
     virtual PreparedSearchResult PrepareAdvanced(
         const AdvancedSearchExpression& expression, int limit, wit::core::FileSort sort = {}) = 0;
 
-    virtual int CountByName(const std::wstring& nameTerm) = 0;
+    virtual int CountByName(const std::wstring& nameTerm, bool caseSensitive = false) = 0;
     virtual std::vector<wit::core::FileEntry> PageByName(
         const std::wstring& nameTerm,
         int offset,
         int limit,
-        wit::core::FileSort sort = {}) = 0;
+        wit::core::FileSort sort = {},
+        bool caseSensitive = false) = 0;
     virtual void CancelPending() = 0;
     virtual std::wstring LastErrorMessage() const = 0;
     virtual int CountAdvanced(const AdvancedSearchExpression& expression) = 0;

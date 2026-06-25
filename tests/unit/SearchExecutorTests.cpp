@@ -141,6 +141,21 @@ TEST(SearchExecutor, PageByNameSupportsAsteriskWildcards) {
     EXPECT_EQ(executor.CountByName(L"_"), 0) << "SQL LIKE metacharacters remain literal";
 }
 
+TEST(SearchExecutor, PageByNameCanMatchCaseSensitively) {
+    MemoryDatabase database;
+    database.Execute("UPDATE files SET name='Alpha-file.txt' WHERE id=1;");
+    wit::search::SqliteSearchExecutor executor(database.Raw());
+
+    EXPECT_EQ(executor.CountByName(L"alpha"), 2);
+    EXPECT_EQ(executor.CountByName(L"alpha", true), 1);
+    EXPECT_EQ(executor.CountByName(L"Alpha", true), 1);
+
+    const auto exactCase = executor.PageByName(L"Alpha*", 0, 10, {}, true);
+    ASSERT_EQ(exactCase.size(), 1u);
+    EXPECT_EQ(exactCase[0].name, L"Alpha-file.txt");
+    EXPECT_TRUE(executor.PageByName(L"alpha*txt", 0, 10, {}, true).empty());
+}
+
 TEST(SearchExecutor, PageByNameSortsFoldersAndFilesTogetherBySize) {
     MemoryDatabase database;
     database.Execute("UPDATE folders SET content_size=44 WHERE id=1;");

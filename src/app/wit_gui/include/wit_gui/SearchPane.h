@@ -100,6 +100,7 @@ private:
     LocateResultHandler onLocate_;
     std::function<void()> onClose_;
     std::wstring nameTerm_;
+    bool caseSensitive_{};
     wit::search::AdvancedSearchExpression advancedExpression_;
     ResultMode resultMode_{ResultMode::Quick};
     int total_{};

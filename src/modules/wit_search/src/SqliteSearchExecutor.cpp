@@ -33,6 +33,27 @@ std::string ItemNameLikePattern(const std::wstring& term) {
     return pattern;
 }
 
+std::string ItemNameGlobPattern(const std::wstring& term) {
+    const auto utf8 = wit::platform::ToUtf8(term);
+    const bool hasWildcard = utf8.find('*') != std::string::npos;
+    std::string pattern;
+    if (!hasWildcard) pattern.push_back('*');
+
+    for (const auto character : utf8) {
+        switch (character) {
+        case '*':
+            if (pattern.empty() || pattern.back() != '*') pattern.push_back('*');
+            break;
+        case '?': pattern += "[?]"; break;
+        case '[': pattern += "[[]"; break;
+        case ']': pattern += "[]]"; break;
+        default: pattern.push_back(character); break;
+        }
+    }
+    if (!hasWildcard) pattern.push_back('*');
+    return pattern;
+}
+
 std::wstring Text(sqlite3_stmt* stmt, int column) {
     const auto* value = reinterpret_cast<const char*>(sqlite3_column_text(stmt, column));
     return value ? wit::platform::ToUtf16(value) : std::wstring{};
@@ -201,9 +222,10 @@ std::string SortCacheKey(wit::core::FileSort sort) {
     return std::to_string(static_cast<int>(sort.column)) + (sort.ascending ? ":a" : ":d");
 }
 
-std::string NameCacheKey(const std::wstring& nameTerm, wit::core::FileSort sort) {
+std::string NameCacheKey(const std::wstring& nameTerm, wit::core::FileSort sort, bool caseSensitive) {
     const auto term = wit::platform::ToUtf8(nameTerm);
-    return "name:" + std::to_string(term.size()) + ":" + term + ":" + SortCacheKey(sort);
+    return "name:" + std::string(caseSensitive ? "case:" : "nocase:") +
+        std::to_string(term.size()) + ":" + term + ":" + SortCacheKey(sort);
 }
 
 std::string AdvancedCacheKey(const AdvancedSearchExpression& expression, wit::core::FileSort sort) {
@@ -260,14 +282,15 @@ std::string CombinedCacheInsertSql(
         fileWhereClause + ") AS combined " + CombinedOrderByFor(sort) + ";";
 }
 
-bool BuildNamePageCache(sqlite3* db, const std::wstring& nameTerm, wit::core::FileSort sort) {
+bool BuildNamePageCache(
+    sqlite3* db, const std::wstring& nameTerm, wit::core::FileSort sort, bool caseSensitive) {
     if (!ExecSql(db, "SAVEPOINT wit_search_cache;") || !ResetPageCache(db)) {
         return FinishPageCache(db, false);
     }
 
-    const auto pattern = ItemNameLikePattern(nameTerm);
-    const auto sql = CombinedCacheInsertSql(
-        "c.name LIKE ? ESCAPE '\\'", "f.name LIKE ? ESCAPE '\\'", sort);
+    const auto pattern = caseSensitive ? ItemNameGlobPattern(nameTerm) : ItemNameLikePattern(nameTerm);
+    const std::string match = caseSensitive ? "name GLOB ?" : "name LIKE ? ESCAPE '\\'";
+    const auto sql = CombinedCacheInsertSql("c." + match, "f." + match, sort);
     wit::storage::SQLiteStatement statement(db, sql.c_str());
     statement.BindText(1, pattern);
     statement.BindText(2, pattern);
@@ -454,11 +477,11 @@ int SqliteSearchExecutor::PageCacheCountLocked(sqlite3* db) {
 }
 
 PreparedSearchResult SqliteSearchExecutor::PrepareByName(
-    const std::wstring& nameTerm, int limit, wit::core::FileSort sort) {
+    const std::wstring& nameTerm, int limit, wit::core::FileSort sort, bool caseSensitive) {
     std::scoped_lock lock(operationMutex_);
     pageCachePinned_ = false;
     PreparedSearchResult result;
-    result.entries = PageByNameLocked(nameTerm, 0, limit, sort);
+    result.entries = PageByNameLocked(nameTerm, 0, limit, sort, caseSensitive);
     if (!LastErrorMessage().empty()) return result;
     result.total = PageCacheCountLocked(ActiveDatabase());
     if (pageCacheValid_) pageCachePinned_ = true;
@@ -477,7 +500,7 @@ PreparedSearchResult SqliteSearchExecutor::PrepareAdvanced(
     return result;
 }
 
-int SqliteSearchExecutor::CountByName(const std::wstring& nameTerm) {
+int SqliteSearchExecutor::CountByName(const std::wstring& nameTerm, bool caseSensitive) {
     std::scoped_lock lock(operationMutex_);
     sqlite3* db = ActiveDatabase();
     pageCacheValid_ = false;
@@ -488,10 +511,13 @@ int SqliteSearchExecutor::CountByName(const std::wstring& nameTerm) {
         lastError_.clear();
     }
     if (!db) return 0;
-    wit::storage::SQLiteStatement statement(db,
-        "SELECT (SELECT COUNT(*) FROM files WHERE name LIKE ? ESCAPE '\\') + "
-        "(SELECT COUNT(*) FROM folders WHERE name LIKE ? ESCAPE '\\');");
-    const auto pattern = ItemNameLikePattern(nameTerm);
+    const char* sql = caseSensitive
+        ? "SELECT (SELECT COUNT(*) FROM files WHERE name GLOB ?) + "
+          "(SELECT COUNT(*) FROM folders WHERE name GLOB ?);"
+        : "SELECT (SELECT COUNT(*) FROM files WHERE name LIKE ? ESCAPE '\\') + "
+          "(SELECT COUNT(*) FROM folders WHERE name LIKE ? ESCAPE '\\');";
+    wit::storage::SQLiteStatement statement(db, sql);
+    const auto pattern = caseSensitive ? ItemNameGlobPattern(nameTerm) : ItemNameLikePattern(nameTerm);
     statement.BindText(1, pattern);
     statement.BindText(2, pattern);
     if (sqlite3_step(statement.Raw()) == SQLITE_ROW) return sqlite3_column_int(statement.Raw(), 0);
@@ -500,13 +526,13 @@ int SqliteSearchExecutor::CountByName(const std::wstring& nameTerm) {
 }
 
 std::vector<wit::core::FileEntry> SqliteSearchExecutor::PageByName(
-    const std::wstring& nameTerm, int offset, int limit, wit::core::FileSort sort) {
+    const std::wstring& nameTerm, int offset, int limit, wit::core::FileSort sort, bool caseSensitive) {
     std::scoped_lock lock(operationMutex_);
-    return PageByNameLocked(nameTerm, offset, limit, sort);
+    return PageByNameLocked(nameTerm, offset, limit, sort, caseSensitive);
 }
 
 std::vector<wit::core::FileEntry> SqliteSearchExecutor::PageByNameLocked(
-    const std::wstring& nameTerm, int offset, int limit, wit::core::FileSort sort) {
+    const std::wstring& nameTerm, int offset, int limit, wit::core::FileSort sort, bool caseSensitive) {
     sqlite3* db = ActiveDatabase();
     if (!db || limit <= 0) return {};
     EnsureNaturalNoCaseCollation(db);
@@ -515,7 +541,7 @@ std::vector<wit::core::FileEntry> SqliteSearchExecutor::PageByNameLocked(
         std::scoped_lock errorLock(errorMutex_);
         lastError_.clear();
     }
-    const auto queryKey = NameCacheKey(nameTerm, sort);
+    const auto queryKey = NameCacheKey(nameTerm, sort, caseSensitive);
     const auto currentKey = DatabaseGenerationKey() + ":" + queryKey;
     const bool reusePrepared = pageCachePinned_ && pageCacheValid_ && pageCacheQueryKey_ == queryKey;
     if (!reusePrepared && (!pageCacheValid_ || pageCacheKey_ != currentKey)) {
@@ -524,7 +550,7 @@ std::vector<wit::core::FileEntry> SqliteSearchExecutor::PageByNameLocked(
         pageCacheKey_.clear();
         pageCacheQueryKey_.clear();
         const auto build = BuildPageCacheWithStableGeneration(ownsSearchDb_,
-            [&] { return BuildNamePageCache(db, nameTerm, sort); },
+            [&] { return BuildNamePageCache(db, nameTerm, sort, caseSensitive); },
             [&] { return DatabaseGenerationKey(); });
         pageCacheValid_ = build.success;
         if (build.success) {

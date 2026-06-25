@@ -48,10 +48,10 @@ void PumpMessages() {
 class BlockingSearchRepository final : public wit::search::ISearchRepository {
 public:
     wit::search::PreparedSearchResult PrepareByName(
-        const std::wstring& nameTerm, int limit, wit::core::FileSort sort) override {
+        const std::wstring& nameTerm, int limit, wit::core::FileSort sort, bool caseSensitive) override {
         wit::search::PreparedSearchResult result;
-        result.total = CountByName(nameTerm);
-        if (result.total > 0) result.entries = PageByName(nameTerm, 0, limit, sort);
+        result.total = CountByName(nameTerm, caseSensitive);
+        if (result.total > 0) result.entries = PageByName(nameTerm, 0, limit, sort, caseSensitive);
         return result;
     }
 
@@ -63,19 +63,19 @@ public:
         return result;
     }
 
-    int CountByName(const std::wstring&) override {
+    int CountByName(const std::wstring&, bool) override {
         countStarted = true;
         while (!cancelled.load()) std::this_thread::yield();
         return 0;
     }
 
     std::vector<wit::core::FileEntry> PageByName(
-        const std::wstring&, int, int, wit::core::FileSort) override {
+        const std::wstring&, int, int, wit::core::FileSort, bool) override {
         return {};
     }
 
     int CountAdvanced(const wit::search::AdvancedSearchExpression&) override {
-        return CountByName({});
+        return CountByName({}, false);
     }
 
     std::vector<wit::core::FileEntry> PageAdvanced(
@@ -98,10 +98,10 @@ public:
 class ImmediateSearchRepository final : public wit::search::ISearchRepository {
 public:
     wit::search::PreparedSearchResult PrepareByName(
-        const std::wstring& nameTerm, int limit, wit::core::FileSort sort) override {
+        const std::wstring& nameTerm, int limit, wit::core::FileSort sort, bool caseSensitive) override {
         wit::search::PreparedSearchResult result;
-        result.total = CountByName(nameTerm);
-        if (result.total > 0) result.entries = PageByName(nameTerm, 0, limit, sort);
+        result.total = CountByName(nameTerm, caseSensitive);
+        if (result.total > 0) result.entries = PageByName(nameTerm, 0, limit, sort, caseSensitive);
         return result;
     }
 
@@ -113,10 +113,10 @@ public:
         return result;
     }
 
-    int CountByName(const std::wstring&) override { return 1; }
+    int CountByName(const std::wstring&, bool) override { return 1; }
 
     std::vector<wit::core::FileEntry> PageByName(
-        const std::wstring&, int, int, wit::core::FileSort) override {
+        const std::wstring&, int, int, wit::core::FileSort, bool) override {
         wit::core::FileEntry entry;
         entry.name = L"replacement.txt";
         entry.extension = L"txt";
@@ -129,7 +129,7 @@ public:
 
     std::vector<wit::core::FileEntry> PageAdvanced(
         const wit::search::AdvancedSearchExpression&, int, int, wit::core::FileSort) override {
-        return PageByName({}, 0, 1, {});
+        return PageByName({}, 0, 1, {}, false);
     }
 
     void CancelPending() override {}

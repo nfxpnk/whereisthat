@@ -422,7 +422,9 @@ std::wstring SearchDialog::DialogText(int controlId) const {
 
 void SearchDialog::ShowTabPage(int index) {
     const bool advanced = index == 1;
-    const int quickControls[] = {IDC_SEARCH_LABEL_NAME, IDC_SEARCH_NAME, IDC_SEARCH_EXECUTE};
+    const int quickControls[] = {
+        IDC_SEARCH_LABEL_NAME, IDC_SEARCH_NAME, IDC_SEARCH_EXECUTE, IDC_SEARCH_CASE_SENSITIVE
+    };
     const int advancedControls[] = {
         IDC_ADVANCED_SEARCH_LABEL_CRITERIA,
         IDC_ADVANCED_SEARCH_QUERY,
@@ -453,6 +455,7 @@ void SearchDialog::Search() {
     }
 
     nameTerm_ = term;
+    caseSensitive_ = IsDlgButtonChecked(IDC_SEARCH_CASE_SENSITIVE) == BST_CHECKED;
     advancedExpression_ = {};
     resultMode_ = ResultMode::Quick;
     BeginSearchLoad();
@@ -487,6 +490,7 @@ void SearchDialog::BeginSearchLoad() {
     const auto requestId = ++searchRequestId_;
     const auto mode = resultMode_;
     const auto nameTerm = nameTerm_;
+    const auto caseSensitive = caseSensitive_;
     const auto expression = advancedExpression_;
     const auto sort = sort_;
     auto* repository = search_;
@@ -499,13 +503,13 @@ void SearchDialog::BeginSearchLoad() {
     UpdateStatusText();
     SetDlgItemTextW(IDC_SEARCH_SUMMARY, L"Searching...");
 
-    searchWorker_ = std::jthread([this, window, requestId, mode, nameTerm, expression, sort, repository](
+    searchWorker_ = std::jthread([this, window, requestId, mode, nameTerm, caseSensitive, expression, sort, repository](
         std::stop_token stopToken) {
         AsyncSearchResult result;
         result.requestId = requestId;
         const auto startedAt = std::chrono::steady_clock::now();
         auto prepared = mode == ResultMode::Quick
-            ? repository->PrepareByName(nameTerm, PageSize, sort)
+            ? repository->PrepareByName(nameTerm, PageSize, sort, caseSensitive)
             : repository->PrepareAdvanced(expression, PageSize, sort);
         if (stopToken.stop_requested()) return;
         result.total = prepared.total;
@@ -567,7 +571,7 @@ void SearchDialog::CachePage(int pageStart) {
     CachedPage page;
     page.start = normalizedStart;
     page.items = resultMode_ == ResultMode::Quick
-        ? search_->PageByName(nameTerm_, normalizedStart, PageSize, sort_)
+        ? search_->PageByName(nameTerm_, normalizedStart, PageSize, sort_, caseSensitive_)
         : search_->PageAdvanced(advancedExpression_, normalizedStart, PageSize, sort_);
     if (page.items.empty()) {
         const auto error = search_->LastErrorMessage();

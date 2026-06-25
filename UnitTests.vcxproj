@@ -65,6 +65,7 @@ copy /Y "$(ProjectDir)third_party\libarchive\bin\*.dll" "$(OutDir)"</Command>
         <ClCompile Include="src\app\wit_gui\src\CatalogWorkflowController.cpp" />
         <ClCompile Include="src\app\wit_gui\src\GeneralSettingsDialog.cpp" />
         <ClCompile Include="src\app\wit_gui\src\FileListPane.cpp" />
+        <ClCompile Include="src\app\wit_gui\src\BrowserItemIcons.cpp" />
         <ClCompile Include="src\app\wit_gui\src\SearchPane.cpp" />
         <ClCompile Include="src\modules\wit_catalog\src\CatalogSession.cpp" />
         <ClCompile Include="src\app\wit_gui\src\ScanCoordinator.cpp" />

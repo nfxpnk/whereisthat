@@ -61,6 +61,7 @@ copy /Y "$(ProjectDir)third_party\libarchive\bin\*.dll" "$(OutDir)"</Command>
         <ClCompile Include="src\app\wit_gui\src\MainWindowChrome.cpp"/>
         <ClCompile Include="src\app\wit_gui\src\ProgressDialog.cpp"/>
         <ClCompile Include="src\app\wit_gui\src\ScanCoordinator.cpp"/>
+        <ClCompile Include="src\app\wit_gui\src\BrowserItemIcons.cpp"/>
         <ClCompile Include="src\app\wit_gui\src\SearchPane.cpp"/>
         <ClCompile Include="src\app\wit_gui\src\TreeViewPane.cpp"/>
         <ClCompile Include="src\app\wit_win32\src\BaseDialog.cpp"/>

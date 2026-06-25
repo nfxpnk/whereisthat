@@ -6,21 +6,14 @@
 #include <CommCtrl.h>
 #include <algorithm>
 #include <array>
-#include <cwctype>
 #include <format>
 #include <iterator>
 #include <optional>
 #include <strsafe.h>
 #include <string_view>
-#include <unordered_map>
 
 namespace wit::ui {
 namespace {
-struct FileExtensionImage {
-    const wchar_t* extension;
-    int image;
-};
-
 struct ColumnDefinition {
     const wchar_t* key;
     const wchar_t* name;
@@ -91,139 +84,6 @@ void InsertColumns(HWND hwnd, const std::array<ColumnDefinition, Size>& columns,
         const auto& column = columns[index];
         InsertColumn(hwnd, static_cast<int>(index), column.name, WidthForColumn(settings, column), column.format);
     }
-}
-
-bool FileExtensionEquals(std::wstring_view extension, std::wstring_view candidate) {
-    return std::ranges::equal(extension, candidate,
-        [](wchar_t left, wchar_t right) { return std::towlower(left) == std::towlower(right); });
-}
-
-bool IsArchiveFileExtension(std::wstring_view extension) {
-    constexpr std::array<std::wstring_view, 12> extensions{
-        L"zip", L"7z", L"rar", L"tar", L"tgz", L"gz", L"bz2", L"xz", L"cab", L"arj", L"lha", L"iso"
-    };
-    return std::ranges::any_of(extensions,
-        [extension](std::wstring_view candidate) { return FileExtensionEquals(extension, candidate); });
-}
-
-int ImageForFileExtension(std::wstring_view extension) {
-    static const std::unordered_map<std::wstring, int> kFileExtensionImages = [] {
-        constexpr std::array<FileExtensionImage, 100> images{{
-        { L"txt", BrowserFileTxtImage },
-        { L"doc", BrowserFileDocImage },
-        { L"docx", BrowserFileDocxImage },
-        { L"rtf", BrowserFileRtfImage },
-        { L"pdf", BrowserFilePdfImage },
-        { L"odt", BrowserFileOdtImage },
-        { L"xls", BrowserFileXlsImage },
-        { L"xlsx", BrowserFileXlsxImage },
-        { L"csv", BrowserFileCsvImage },
-        { L"ppt", BrowserFilePptImage },
-        { L"pptx", BrowserFilePptxImage },
-        { L"pps", BrowserFilePpsImage },
-        { L"ppsx", BrowserFilePpsxImage },
-        { L"mdb", BrowserFileMdbImage },
-        { L"accdb", BrowserFileAccdbImage },
-        { L"jpg", BrowserFileJpgImage },
-        { L"jpeg", BrowserFileJpegImage },
-        { L"png", BrowserFilePngImage },
-        { L"gif", BrowserFileGifImage },
-        { L"bmp", BrowserFileBmpImage },
-        { L"tif", BrowserFileTifImage },
-        { L"tiff", BrowserFileTiffImage },
-        { L"webp", BrowserFileWebpImage },
-        { L"svg", BrowserFileSvgImage },
-        { L"ico", BrowserFileIcoImage },
-        { L"heic", BrowserFileHeicImage },
-        { L"raw", BrowserFileRawImage },
-        { L"psd", BrowserFilePsdImage },
-        { L"ai", BrowserFileAiImage },
-        { L"eps", BrowserFileEpsImage },
-        { L"mp3", BrowserFileMp3Image },
-        { L"wav", BrowserFileWavImage },
-        { L"wma", BrowserFileWmaImage },
-        { L"aac", BrowserFileAacImage },
-        { L"flac", BrowserFileFlacImage },
-        { L"ogg", BrowserFileOggImage },
-        { L"m4a", BrowserFileM4aImage },
-        { L"mid", BrowserFileMidImage },
-        { L"midi", BrowserFileMidiImage },
-        { L"aiff", BrowserFileAiffImage },
-        { L"mp4", BrowserFileMp4Image },
-        { L"avi", BrowserFileAviImage },
-        { L"mkv", BrowserFileMkvImage },
-        { L"mov", BrowserFileMovImage },
-        { L"wmv", BrowserFileWmvImage },
-        { L"flv", BrowserFileFlvImage },
-        { L"webm", BrowserFileWebmImage },
-        { L"mpeg", BrowserFileMpegImage },
-        { L"mpg", BrowserFileMpgImage },
-        { L"m4v", BrowserFileM4vImage },
-        { L"zip", BrowserFileZipImage },
-        { L"rar", BrowserFileRarImage },
-        { L"7z", BrowserFile7ZImage },
-        { L"tar", BrowserFileTarImage },
-        { L"gz", BrowserFileGzImage },
-        { L"bz2", BrowserFileBz2Image },
-        { L"xz", BrowserFileXzImage },
-        { L"iso", BrowserFileIsoImage },
-        { L"cab", BrowserFileCabImage },
-        { L"dmg", BrowserFileDmgImage },
-        { L"exe", BrowserFileExeImage },
-        { L"msi", BrowserFileMsiImage },
-        { L"bat", BrowserFileBatImage },
-        { L"cmd", BrowserFileCmdImage },
-        { L"com", BrowserFileComImage },
-        { L"scr", BrowserFileScrImage },
-        { L"dll", BrowserFileDllImage },
-        { L"sys", BrowserFileSysImage },
-        { L"drv", BrowserFileDrvImage },
-        { L"ocx", BrowserFileOcxImage },
-        { L"ini", BrowserFileIniImage },
-        { L"cfg", BrowserFileCfgImage },
-        { L"conf", BrowserFileConfImage },
-        { L"log", BrowserFileLogImage },
-        { L"tmp", BrowserFileTmpImage },
-        { L"bak", BrowserFileBakImage },
-        { L"dat", BrowserFileDatImage },
-        { L"db", BrowserFileDbImage },
-        { L"sqlite", BrowserFileSqliteImage },
-        { L"reg", BrowserFileRegImage },
-        { L"html", BrowserFileHtmlImage },
-        { L"htm", BrowserFileHtmImage },
-        { L"css", BrowserFileCssImage },
-        { L"js", BrowserFileJsImage },
-        { L"json", BrowserFileJsonImage },
-        { L"xml", BrowserFileXmlImage },
-        { L"yaml", BrowserFileYamlImage },
-        { L"yml", BrowserFileYmlImage },
-        { L"php", BrowserFilePhpImage },
-        { L"asp", BrowserFileAspImage },
-        { L"py", BrowserFilePyImage },
-        { L"java", BrowserFileJavaImage },
-        { L"class", BrowserFileClassImage },
-        { L"c", BrowserFileCImage },
-        { L"cpp", BrowserFileCppImage },
-        { L"h", BrowserFileHImage },
-        { L"cs", BrowserFileCsImage },
-        { L"rb", BrowserFileRbImage },
-        { L"go", BrowserFileGoImage },
-        { L"sh", BrowserFileShImage },
-        }};
-        std::unordered_map<std::wstring, int> map;
-        map.reserve(images.size());
-        for (const auto& image : images) {
-            map.emplace(image.extension, image.image);
-        }
-        return map;
-    }();
-
-    std::wstring key(extension);
-    std::ranges::transform(key, key.begin(), [](wchar_t character) {
-        return static_cast<wchar_t>(std::towlower(character));
-    });
-    const auto match = kFileExtensionImages.find(key);
-    return match != kFileExtensionImages.end() ? match->second : I_IMAGENONE;
 }
 
 void CopyText(std::wstring_view text, wchar_t* buffer, std::size_t bufferSize) {
@@ -564,13 +424,7 @@ int FileListView::ImageFor(int row) {
         return item->type == wit::core::BrowserItemType::DiskGroup ? BrowserFolderImage : BrowserDriveImage;
     }
     const auto* entry = EntryAt(row);
-    if (!entry) return I_IMAGENONE;
-    if (entry->isDirectory) return entry->isArchive ? BrowserArchiveImage : BrowserFolderImage;
-    const std::wstring_view extension = entry->extension;
-    const int fileImage = ImageForFileExtension(extension);
-    if (fileImage != I_IMAGENONE) return fileImage;
-    if (IsArchiveFileExtension(extension)) return BrowserArchiveImage;
-    return BrowserDocumentImage;
+    return entry ? ImageForBrowserEntry(*entry) : I_IMAGENONE;
 }
 
 void FileListView::TextFor(int row, int column, wchar_t* buffer, std::size_t bufferSize) {

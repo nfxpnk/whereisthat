@@ -94,6 +94,7 @@ private:
 
     HWND results_{};
     HWND status_{};
+    HIMAGELIST searchImages_{};
     HWND launchOwner_{};
     wit::search::ISearchRepository* search_{};
     LocateResultHandler onLocate_;

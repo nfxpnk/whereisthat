@@ -152,27 +152,49 @@ double MeasureMilliseconds(Func&& func) {
 }
 }
 
-TEST(SearchPaneIcons, UsesBrowserFileListIconRules) {
-    wit::core::FileEntry folder;
-    folder.isDirectory = true;
-    EXPECT_EQ(wit::ui::ImageForFileEntry(folder), wit::ui::BrowserFolderImage);
+TEST(SearchPaneIcons, OwnsAnIndependentImageList) {
+    INITCOMMONCONTROLSEX controls{sizeof(controls), ICC_LISTVIEW_CLASSES | ICC_BAR_CLASSES};
+    ASSERT_TRUE(InitCommonControlsEx(&controls));
+    AtlModuleGuard module;
+    ASSERT_TRUE(module.initialized());
 
-    folder.isArchive = true;
-    EXPECT_EQ(wit::ui::ImageForFileEntry(folder), wit::ui::BrowserArchiveImage);
+    const auto owner = CreateWindowExW(0, L"STATIC", L"", WS_OVERLAPPED,
+        0, 0, 100, 100, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+    ASSERT_NE(owner, nullptr);
+    const auto browserList = CreateWindowExW(0, WC_LISTVIEWW, L"",
+        WS_CHILD | LVS_REPORT | LVS_SHAREIMAGELISTS, 0, 0, 100, 100,
+        owner, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_FILES)),
+        GetModuleHandleW(nullptr), nullptr);
+    ASSERT_NE(browserList, nullptr);
+    const auto browserImages = ImageList_Create(16, 16, ILC_COLOR32, 1, 0);
+    ASSERT_NE(browserImages, nullptr);
+    HBITMAP bitmap = CreateBitmap(16, 16, 1, 32, nullptr);
+    ASSERT_NE(bitmap, nullptr);
+    ASSERT_EQ(ImageList_Add(browserImages, bitmap, nullptr), 0);
+    DeleteObject(bitmap);
+    ListView_SetImageList(browserList, browserImages, LVSIL_SMALL);
 
-    wit::core::FileEntry textFile;
-    textFile.extension = L"txt";
-    EXPECT_EQ(wit::ui::ImageForFileEntry(textFile), wit::ui::BrowserFileTxtImage);
+    ImmediateSearchRepository repository;
+    wit::ui::SearchDialog dialog;
+    ASSERT_TRUE(dialog.Show(owner, &repository, [] {}));
+    PumpMessages();
+    const auto searchWindow = FindWindowW(nullptr, L"Search for Items");
+    ASSERT_NE(searchWindow, nullptr);
+    const auto searchList = GetDlgItem(searchWindow, IDC_SEARCH_RESULTS);
+    ASSERT_NE(searchList, nullptr);
+    const auto searchImages = ListView_GetImageList(searchList, LVSIL_SMALL);
+    ASSERT_NE(searchImages, nullptr);
+    EXPECT_NE(searchImages, browserImages);
+    EXPECT_EQ(ImageList_GetImageCount(searchImages), 105);
 
-    wit::core::FileEntry archiveFile;
-    archiveFile.extension = L"arj";
-    EXPECT_EQ(wit::ui::ImageForFileEntry(archiveFile), wit::ui::BrowserArchiveImage);
+    dialog.Close();
+    PumpMessages();
+    EXPECT_EQ(ImageList_GetImageCount(browserImages), 1)
+        << "closing search must not destroy the tree/main-list image list";
 
-    wit::core::FileEntry unknownFile;
-    unknownFile.extension = L"unknown";
-    EXPECT_EQ(wit::ui::ImageForFileEntry(unknownFile), wit::ui::BrowserDocumentImage);
+    ImageList_Destroy(browserImages);
+    DestroyWindow(owner);
 }
-
 TEST(SearchPaneLifetime, RebindingCancelsTheOldRepositoryBeforeReplacement) {
     INITCOMMONCONTROLSEX controls{sizeof(controls), ICC_LISTVIEW_CLASSES | ICC_BAR_CLASSES};
     ASSERT_TRUE(InitCommonControlsEx(&controls));

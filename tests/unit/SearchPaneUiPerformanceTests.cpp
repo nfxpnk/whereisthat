@@ -6,6 +6,7 @@
 #include <wit_gui/SearchPane.h>
 #include <CommCtrl.h>
 #include <Windows.h>
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <filesystem>
@@ -231,7 +232,8 @@ TEST(SearchPaneLifetime, RebindingCancelsTheOldRepositoryBeforeReplacement) {
 TEST(SearchPaneColumns, LoadsAndPersistsIndependentWidths) {
     AppSettingsGuard settingsGuard;
     auto settings = wit::platform::LoadAppSettings();
-    settings.fileListColumnWidths[L"SearchResults.Name"] = 321;
+    settings.fileListColumnWidths[L"BrowserContent.Name"] = 222;
+    settings.searchListColumnWidths[L"SearchResults.Name"] = 321;
     ASSERT_TRUE(wit::platform::SaveAppSettings(settings));
 
     INITCOMMONCONTROLSEX controls{sizeof(controls), ICC_LISTVIEW_CLASSES | ICC_BAR_CLASSES};
@@ -244,25 +246,52 @@ TEST(SearchPaneColumns, LoadsAndPersistsIndependentWidths) {
     ASSERT_TRUE(dialog.Show(nullptr, &repository, [] {}));
     PumpMessages();
 
-    const auto searchWindow = FindWindowW(nullptr, L"Search for Items");
+    auto searchWindow = FindWindowW(nullptr, L"Search for Items");
     ASSERT_NE(searchWindow, nullptr);
-    const auto results = GetDlgItem(searchWindow, IDC_SEARCH_RESULTS);
+    auto results = GetDlgItem(searchWindow, IDC_SEARCH_RESULTS);
     ASSERT_NE(results, nullptr);
     EXPECT_EQ(ListView_GetColumnWidth(results, 0), 321);
 
-    ASSERT_TRUE(ListView_SetColumnWidth(results, 0, 333));
-    NMHEADERW notification{};
-    notification.hdr.hwndFrom = ListView_GetHeader(results);
-    notification.hdr.idFrom = static_cast<UINT_PTR>(GetDlgCtrlID(notification.hdr.hwndFrom));
-    notification.hdr.code = HDN_ENDTRACKW;
-    SendMessageW(searchWindow, WM_NOTIFY, notification.hdr.idFrom,
-        reinterpret_cast<LPARAM>(&notification));
+    constexpr std::array<int, 5> widths{333, 144, 155, 366, 177};
+    constexpr std::array<const wchar_t*, 5> keys{
+        L"SearchResults.Name", L"SearchResults.Type", L"SearchResults.Size",
+        L"SearchResults.Path", L"SearchResults.Modified"
+    };
+    for (std::size_t index = 0; index < widths.size(); ++index) {
+        ASSERT_TRUE(ListView_SetColumnWidth(results, static_cast<int>(index), widths[index]));
+    }
+
+    // Persist when the user releases the mouse after dragging a real search header divider.
+    SendMessageW(ListView_GetHeader(results), WM_LBUTTONUP, 0, 0);
     PumpMessages();
 
-    const auto persisted = wit::platform::LoadAppSettings();
-    const auto saved = persisted.fileListColumnWidths.find(L"SearchResults.Name");
-    ASSERT_NE(saved, persisted.fileListColumnWidths.end());
-    EXPECT_EQ(saved->second, 333);
+    auto persisted = wit::platform::LoadAppSettings();
+    for (std::size_t index = 0; index < keys.size(); ++index) {
+        const auto saved = persisted.searchListColumnWidths.find(keys[index]);
+        ASSERT_NE(saved, persisted.searchListColumnWidths.end());
+        EXPECT_EQ(saved->second, widths[index]);
+    }
+    EXPECT_EQ(persisted.fileListColumnWidths.at(L"BrowserContent.Name"), 222);
+
+    // Saving a partial or stale settings snapshot must never delete existing column widths.
+    persisted.fileListColumnWidths.erase(L"BrowserContent.Name");
+    persisted.searchListColumnWidths.erase(L"SearchResults.Path");
+    ASSERT_TRUE(wit::platform::SaveAppSettings(persisted));
+    persisted = wit::platform::LoadAppSettings();
+    EXPECT_EQ(persisted.fileListColumnWidths.at(L"BrowserContent.Name"), 222);
+    EXPECT_EQ(persisted.searchListColumnWidths.at(L"SearchResults.Path"), widths[3]);
+
+    dialog.Close();
+    PumpMessages();
+    ASSERT_TRUE(dialog.Show(nullptr, &repository, [] {}));
+    PumpMessages();
+    searchWindow = FindWindowW(nullptr, L"Search for Items");
+    ASSERT_NE(searchWindow, nullptr);
+    results = GetDlgItem(searchWindow, IDC_SEARCH_RESULTS);
+    ASSERT_NE(results, nullptr);
+    for (std::size_t index = 0; index < widths.size(); ++index) {
+        EXPECT_EQ(ListView_GetColumnWidth(results, static_cast<int>(index)), widths[index]);
+    }
 
     dialog.Close();
     PumpMessages();

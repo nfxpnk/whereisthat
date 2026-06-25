@@ -17,6 +17,7 @@ constexpr const wchar_t* kCatalogsSection = L"Catalogs";
 constexpr const wchar_t* kOpenCatalogCountKey = L"OpenCatalogCount";
 constexpr const wchar_t* kLastActiveCatalogKey = L"LastActiveCatalog";
 constexpr const wchar_t* kFileListColumnWidthsSection = L"FileListColumnWidths";
+constexpr const wchar_t* kSearchListColumnWidthsSection = L"SearchListColumnWidths";
 constexpr int kMaximumContentSortColumn = 4;
 
 std::wstring ExecutableDirectory() {
@@ -106,14 +107,25 @@ bool TryParseOpenCatalogKey(std::wstring_view key, int& index) {
     return TryParseInt(key.substr(prefix.size()), index);
 }
 
-void LoadFileListColumnWidths(AppSettings& settings, const std::wstring& path) {
-    for (const auto& entry : ReadProfileSection(kFileListColumnWidthsSection, path)) {
+void LoadColumnWidths(std::map<std::wstring, int>& widths, const wchar_t* section, const std::wstring& path) {
+    for (const auto& entry : ReadProfileSection(section, path)) {
         const auto separator = entry.find(L'=');
         if (separator == std::wstring::npos || separator == 0) continue;
         int width{};
         if (!TryParseInt(std::wstring_view(entry).substr(separator + 1), width)) continue;
-        settings.fileListColumnWidths.emplace(entry.substr(0, separator), width);
+        widths.emplace(entry.substr(0, separator), width);
     }
+}
+
+bool SaveColumnWidths(const std::map<std::wstring, int>& widths, const wchar_t* section,
+    const std::wstring& path) {
+    bool success = true;
+    for (const auto& [key, value] : widths) {
+        const auto formatted = std::format(L"{}", value);
+        success = WritePrivateProfileStringW(section, key.c_str(), formatted.c_str(), path.c_str()) != FALSE &&
+            success;
+    }
+    return success;
 }
 
 }
@@ -229,7 +241,16 @@ AppSettings LoadAppSettings() {
             [&settings](const auto& recentPath) { return SamePath(recentPath, settings.lastCatalogPath); });
         if (found == settings.recentCatalogPaths.end()) RememberRecentCatalog(settings, settings.lastCatalogPath);
     }
-    LoadFileListColumnWidths(settings, path);
+    LoadColumnWidths(settings.fileListColumnWidths, kFileListColumnWidthsSection, path);
+    LoadColumnWidths(settings.searchListColumnWidths, kSearchListColumnWidthsSection, path);
+    for (auto entry = settings.fileListColumnWidths.begin(); entry != settings.fileListColumnWidths.end();) {
+        if (entry->first.starts_with(L"SearchResults.")) {
+            settings.searchListColumnWidths.try_emplace(entry->first, entry->second);
+            entry = settings.fileListColumnWidths.erase(entry);
+        } else {
+            ++entry;
+        }
+    }
     wit::platform::SetDateTimeFormatOverride(settings.dateTimeFormat);
     return settings;
 }
@@ -263,11 +284,8 @@ bool SaveAppSettings(const AppSettings& settings) {
         success = WritePrivateProfileStringW(L"RecentCatalogs", key.c_str(), value, path.c_str()) != FALSE &&
             success;
     }
-    for (const auto& [key, value] : settings.fileListColumnWidths) {
-        const auto formatted = std::format(L"{}", value);
-        success = WritePrivateProfileStringW(kFileListColumnWidthsSection, key.c_str(), formatted.c_str(),
-            path.c_str()) != FALSE && success;
-    }
+    success = SaveColumnWidths(settings.fileListColumnWidths, kFileListColumnWidthsSection, path) && success;
+    success = SaveColumnWidths(settings.searchListColumnWidths, kSearchListColumnWidthsSection, path) && success;
     success = WriteOpenCatalogSettings(settings.openCatalogPaths, settings.lastActiveCatalog) && success;
     if (success) wit::platform::SetDateTimeFormatOverride(settings.dateTimeFormat);
     return success;

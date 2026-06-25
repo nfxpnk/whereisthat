@@ -44,8 +44,8 @@ bool IsValidColumnWidth(int width) {
 }
 
 int SearchColumnWidth(const wit::platform::AppSettings& settings, const SearchColumnDefinition& column) {
-    const auto saved = settings.fileListColumnWidths.find(column.key);
-    return saved != settings.fileListColumnWidths.end() && IsValidColumnWidth(saved->second)
+    const auto saved = settings.searchListColumnWidths.find(column.key);
+    return saved != settings.searchListColumnWidths.end() && IsValidColumnWidth(saved->second)
         ? saved->second : column.defaultWidth;
 }
 void CopyText(std::wstring_view text, wchar_t* buffer, std::size_t bufferSize) {
@@ -245,6 +245,11 @@ LRESULT SearchDialog::OnWindowClose(UINT, WPARAM, LPARAM, BOOL&) {
 
 LRESULT SearchDialog::OnDestroy(UINT, WPARAM, LPARAM, BOOL&) {
     CancelSearchLoad();
+    (void)PersistColumnWidths();
+    if (results_) {
+        const HWND header = ListView_GetHeader(results_);
+        if (header) RemoveWindowSubclass(header, HeaderSubclassProc, 1);
+    }
     if (results_ && searchImages_) ListView_SetImageList(results_, nullptr, LVSIL_SMALL);
     if (searchImages_) {
         ImageList_Destroy(searchImages_);
@@ -361,6 +366,18 @@ LRESULT SearchDialog::OnHeaderWidthChanged(int, LPNMHDR header, BOOL& handled) {
     PostMessageW(PersistColumnWidthsMessage, 0, 0);
     return 0;
 }
+
+LRESULT CALLBACK SearchDialog::HeaderSubclassProc(HWND window, UINT message, WPARAM wparam, LPARAM lparam,
+    UINT_PTR subclassId, DWORD_PTR referenceData) {
+    auto* dialog = reinterpret_cast<SearchDialog*>(referenceData);
+    if (message == WM_LBUTTONUP && dialog && dialog->m_hWnd) {
+        dialog->PostMessageW(PersistColumnWidthsMessage, 0, 0);
+    } else if (message == WM_NCDESTROY) {
+        RemoveWindowSubclass(window, HeaderSubclassProc, subclassId);
+    }
+    return DefSubclassProc(window, message, wparam, lparam);
+}
+
 void SearchDialog::Initialize() {
     HWND tabs = GetDlgItem(IDC_SEARCH_TABS);
     TCITEMW item{TCIF_TEXT};
@@ -372,6 +389,8 @@ void SearchDialog::Initialize() {
 
     results_ = GetDlgItem(IDC_SEARCH_RESULTS);
     status_ = GetDlgItem(IDC_SEARCH_STATUS);
+    const HWND resultsHeader = ListView_GetHeader(results_);
+    if (resultsHeader) SetWindowSubclass(resultsHeader, HeaderSubclassProc, 1, reinterpret_cast<DWORD_PTR>(this));
     searchImages_ = CreateBrowserItemImageList();
     if (searchImages_) ListView_SetImageList(results_, searchImages_, LVSIL_SMALL);
     ListView_SetExtendedListViewStyle(results_, LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER);
@@ -710,7 +729,7 @@ bool SearchDialog::PersistColumnWidths() const {
     for (std::size_t index = 0; index < kSearchColumns.size(); ++index) {
         const int width = ListView_GetColumnWidth(results_, static_cast<int>(index));
         if (IsValidColumnWidth(width)) {
-            settings.fileListColumnWidths[kSearchColumns[index].key] = width;
+            settings.searchListColumnWidths[kSearchColumns[index].key] = width;
         }
     }
     return wit::platform::SaveAppSettings(settings);

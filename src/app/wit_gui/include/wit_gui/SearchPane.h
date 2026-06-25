@@ -131,6 +131,8 @@ private:
     LRESULT OnColumnClick(int id, LPNMHDR header, BOOL& handled);
     LRESULT OnResultItemChanged(int id, LPNMHDR header, BOOL& handled);
     LRESULT OnHeaderWidthChanged(int id, LPNMHDR header, BOOL& handled);
+    static LRESULT CALLBACK HeaderSubclassProc(HWND window, UINT message, WPARAM wparam, LPARAM lparam,
+        UINT_PTR subclassId, DWORD_PTR referenceData);
     void Initialize();
     void Search();
     void AdvancedSearch();

@@ -12,10 +12,12 @@
 namespace wit::platform {
 namespace {
 constexpr std::size_t kMaximumRecentCatalogs = 10;
+constexpr std::size_t kMaximumQuickSearchQueries = 20;
 constexpr int kDefaultMainSplitterPosition = 360;
 constexpr const wchar_t* kCatalogsSection = L"Catalogs";
 constexpr const wchar_t* kOpenCatalogCountKey = L"OpenCatalogCount";
 constexpr const wchar_t* kLastActiveCatalogKey = L"LastActiveCatalog";
+constexpr const wchar_t* kQuickSearchHistorySection = L"QuickSearchHistory";
 constexpr const wchar_t* kFileListColumnWidthsSection = L"FileListColumnWidths";
 constexpr const wchar_t* kSearchListColumnWidthsSection = L"SearchListColumnWidths";
 constexpr int kMaximumContentSortColumn = 4;
@@ -236,6 +238,11 @@ AppSettings LoadAppSettings() {
         auto recentPath = ReadProfileString(L"RecentCatalogs", key.c_str(), path);
         if (!recentPath.empty()) RememberRecentCatalog(settings, recentPath);
     }
+    for (std::size_t index = kMaximumQuickSearchQueries; index > 0; --index) {
+        const auto key = std::format(L"Query{}", index);
+        auto query = ReadProfileString(kQuickSearchHistorySection, key.c_str(), path);
+        if (!query.empty()) RememberQuickSearchQuery(settings, query);
+    }
     if (!settings.lastCatalogPath.empty()) {
         const auto found = std::find_if(settings.recentCatalogPaths.begin(), settings.recentCatalogPaths.end(),
             [&settings](const auto& recentPath) { return SamePath(recentPath, settings.lastCatalogPath); });
@@ -284,6 +291,13 @@ bool SaveAppSettings(const AppSettings& settings) {
         success = WritePrivateProfileStringW(L"RecentCatalogs", key.c_str(), value, path.c_str()) != FALSE &&
             success;
     }
+    for (std::size_t index = 0; index < kMaximumQuickSearchQueries; ++index) {
+        const auto key = std::format(L"Query{}", index + 1);
+        const wchar_t* value = index < settings.quickSearchHistory.size()
+            ? settings.quickSearchHistory[index].c_str() : nullptr;
+        success = WritePrivateProfileStringW(kQuickSearchHistorySection, key.c_str(), value, path.c_str()) != FALSE &&
+            success;
+    }
     success = SaveColumnWidths(settings.fileListColumnWidths, kFileListColumnWidthsSection, path) && success;
     success = SaveColumnWidths(settings.searchListColumnWidths, kSearchListColumnWidthsSection, path) && success;
     success = WriteOpenCatalogSettings(settings.openCatalogPaths, settings.lastActiveCatalog) && success;
@@ -299,6 +313,15 @@ void RememberRecentCatalog(AppSettings& settings, const std::wstring& path) {
     settings.recentCatalogPaths.insert(settings.recentCatalogPaths.begin(), path);
     if (settings.recentCatalogPaths.size() > kMaximumRecentCatalogs) {
         settings.recentCatalogPaths.resize(kMaximumRecentCatalogs);
+    }
+}
+
+void RememberQuickSearchQuery(AppSettings& settings, const std::wstring& query) {
+    if (query.empty()) return;
+    std::erase(settings.quickSearchHistory, query);
+    settings.quickSearchHistory.insert(settings.quickSearchHistory.begin(), query);
+    if (settings.quickSearchHistory.size() > kMaximumQuickSearchQueries) {
+        settings.quickSearchHistory.resize(kMaximumQuickSearchQueries);
     }
 }
 

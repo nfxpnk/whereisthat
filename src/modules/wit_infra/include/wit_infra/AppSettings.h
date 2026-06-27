@@ -24,6 +24,7 @@ struct AppSettings {
     int lastActiveCatalog{};
     bool hasMultiCatalogSettings{};
     std::vector<std::wstring> recentCatalogPaths;
+    std::vector<std::wstring> quickSearchHistory;
     std::map<std::wstring, int> fileListColumnWidths;
     std::map<std::wstring, int> searchListColumnWidths;
     int contentSortColumn{};
@@ -36,5 +37,6 @@ OpenCatalogSettings ReadOpenCatalogSettings();
 AppSettings LoadAppSettings();
 [[nodiscard]] bool SaveAppSettings(const AppSettings& settings);
 void RememberRecentCatalog(AppSettings& settings, const std::wstring& path);
+void RememberQuickSearchQuery(AppSettings& settings, const std::wstring& query);
 
 }

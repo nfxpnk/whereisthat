@@ -6,6 +6,7 @@
 #include <wit_gui/SearchPane.h>
 #include <CommCtrl.h>
 #include <Windows.h>
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <chrono>
@@ -143,6 +144,22 @@ std::wstring StatusPartText(HWND status, int part) {
     text.resize(length);
     return text;
 }
+
+std::wstring WindowText(HWND window) {
+    const int length = GetWindowTextLengthW(window);
+    std::wstring text(static_cast<std::size_t>(length) + 1, L'\0');
+    GetWindowTextW(window, text.data(), length + 1);
+    text.resize(static_cast<std::size_t>(length));
+    return text;
+}
+
+DWORD SelectionStart(HWND window) {
+    DWORD start{};
+    DWORD end{};
+    SendMessageW(window, EM_GETSEL, reinterpret_cast<WPARAM>(&start), reinterpret_cast<LPARAM>(&end));
+    return start;
+}
+
 template <typename Func>
 double MeasureMilliseconds(Func&& func) {
     const auto started = std::chrono::steady_clock::now();
@@ -306,6 +323,63 @@ TEST(SearchPaneColumns, LoadsAndPersistsIndependentWidths) {
     dialog.Close();
     PumpMessages();
 }
+
+TEST(SearchPaneHistory, PersistsLastTwentyAndNavigatesWithArrows) {
+    AppSettingsGuard settingsGuard;
+    auto settings = wit::platform::LoadAppSettings();
+    settings.quickSearchHistory.clear();
+    for (int index = 1; index <= 21; ++index) {
+        wit::platform::RememberQuickSearchQuery(settings, L"query " + std::to_wstring(index));
+    }
+    ASSERT_TRUE(wit::platform::SaveAppSettings(settings));
+
+    INITCOMMONCONTROLSEX controls{sizeof(controls), ICC_LISTVIEW_CLASSES | ICC_BAR_CLASSES};
+    ASSERT_TRUE(InitCommonControlsEx(&controls));
+    AtlModuleGuard module;
+    ASSERT_TRUE(module.initialized());
+
+    ImmediateSearchRepository repository;
+    wit::ui::SearchDialog dialog;
+    ASSERT_TRUE(dialog.Show(nullptr, &repository, [] {}));
+    PumpMessages();
+
+    const auto searchWindow = FindWindowW(nullptr, L"Search for Items");
+    ASSERT_NE(searchWindow, nullptr);
+    const auto edit = GetDlgItem(searchWindow, IDC_SEARCH_NAME);
+    ASSERT_NE(edit, nullptr);
+
+    ASSERT_TRUE(SetWindowTextW(edit, L"draft"));
+    SendMessageW(edit, WM_KEYDOWN, VK_UP, 0);
+    EXPECT_EQ(WindowText(edit), L"query 21");
+    EXPECT_EQ(SelectionStart(edit), WindowText(edit).size());
+    SendMessageW(edit, WM_KEYDOWN, VK_UP, 0);
+    EXPECT_EQ(WindowText(edit), L"query 20");
+    EXPECT_EQ(SelectionStart(edit), WindowText(edit).size());
+    SendMessageW(edit, WM_KEYDOWN, VK_DOWN, 0);
+    EXPECT_EQ(WindowText(edit), L"query 21");
+    EXPECT_EQ(SelectionStart(edit), WindowText(edit).size());
+    SendMessageW(edit, WM_KEYDOWN, VK_DOWN, 0);
+    EXPECT_EQ(WindowText(edit), L"draft");
+    EXPECT_EQ(SelectionStart(edit), WindowText(edit).size());
+    SendMessageW(edit, EM_SETSEL, 2, 2);
+    SendMessageW(edit, WM_KEYDOWN, VK_DOWN, 0);
+    EXPECT_EQ(WindowText(edit), L"draft");
+    EXPECT_EQ(SelectionStart(edit), 2u);
+
+    ASSERT_TRUE(SetWindowTextW(edit, L"query 22"));
+    SendMessageW(GetDlgItem(searchWindow, IDC_SEARCH_EXECUTE), BM_CLICK, 0, 0);
+    PumpMessages();
+
+    const auto saved = wit::platform::LoadAppSettings();
+    ASSERT_EQ(saved.quickSearchHistory.size(), 20u);
+    EXPECT_EQ(saved.quickSearchHistory.front(), L"query 22");
+    EXPECT_EQ(std::ranges::find(saved.quickSearchHistory, L"query 1"), saved.quickSearchHistory.end());
+    EXPECT_EQ(std::ranges::find(saved.quickSearchHistory, L"query 2"), saved.quickSearchHistory.end());
+
+    dialog.Close();
+    PumpMessages();
+}
+
 TEST(SearchPaneStatus, ShowsCountFocusedSelectionAndElapsedTime) {
     INITCOMMONCONTROLSEX controls{sizeof(controls), ICC_LISTVIEW_CLASSES | ICC_BAR_CLASSES};
     ASSERT_TRUE(InitCommonControlsEx(&controls));

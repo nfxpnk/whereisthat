@@ -112,6 +112,9 @@ private:
     std::optional<AsyncSearchResult> pendingSearchResult_;
     std::uint64_t searchRequestId_{};
     double elapsedSeconds_{};
+    std::vector<std::wstring> quickSearchHistory_;
+    int quickSearchHistoryIndex_{-1};
+    std::wstring quickSearchHistoryDraft_;
 
     LRESULT OnInitDialog(UINT message, WPARAM wparam, LPARAM lparam, BOOL& handled);
     LRESULT OnSize(UINT message, WPARAM wparam, LPARAM lparam, BOOL& handled);
@@ -134,8 +137,13 @@ private:
     LRESULT OnHeaderWidthChanged(int id, LPNMHDR header, BOOL& handled);
     static LRESULT CALLBACK HeaderSubclassProc(HWND window, UINT message, WPARAM wparam, LPARAM lparam,
         UINT_PTR subclassId, DWORD_PTR referenceData);
+    static LRESULT CALLBACK SearchNameSubclassProc(HWND window, UINT message, WPARAM wparam, LPARAM lparam,
+        UINT_PTR subclassId, DWORD_PTR referenceData);
     void Initialize();
     void Search();
+    void RememberQuickSearchQuery(const std::wstring& query);
+    bool NavigateQuickSearchHistory(int direction);
+    void SetQuickSearchTextAtEnd(const std::wstring& text);
     void AdvancedSearch();
     void BeginSearchLoad();
     void CancelSearchLoad();

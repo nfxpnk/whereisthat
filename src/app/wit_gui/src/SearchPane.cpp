@@ -251,6 +251,8 @@ LRESULT SearchDialog::OnDestroy(UINT, WPARAM, LPARAM, BOOL&) {
         if (header) RemoveWindowSubclass(header, HeaderSubclassProc, 1);
     }
     if (results_ && searchImages_) ListView_SetImageList(results_, nullptr, LVSIL_SMALL);
+    const HWND searchName = GetDlgItem(IDC_SEARCH_NAME);
+    if (searchName) RemoveWindowSubclass(searchName, SearchNameSubclassProc, 1);
     if (searchImages_) {
         ImageList_Destroy(searchImages_);
         searchImages_ = nullptr;
@@ -264,6 +266,9 @@ LRESULT SearchDialog::OnDestroy(UINT, WPARAM, LPARAM, BOOL&) {
     advancedExpression_ = {};
     resultMode_ = ResultMode::Quick;
     total_ = 0;
+    quickSearchHistory_.clear();
+    quickSearchHistoryIndex_ = -1;
+    quickSearchHistoryDraft_.clear();
     ClearCache();
     auto onClose = std::move(onClose_);
     onClose_ = {};
@@ -378,6 +383,24 @@ LRESULT CALLBACK SearchDialog::HeaderSubclassProc(HWND window, UINT message, WPA
     return DefSubclassProc(window, message, wparam, lparam);
 }
 
+LRESULT CALLBACK SearchDialog::SearchNameSubclassProc(HWND window, UINT message, WPARAM wparam, LPARAM lparam,
+    UINT_PTR subclassId, DWORD_PTR referenceData) {
+    auto* dialog = reinterpret_cast<SearchDialog*>(referenceData);
+    if (message == WM_KEYDOWN && dialog && dialog->m_hWnd) {
+        if (wparam == VK_UP) {
+            dialog->NavigateQuickSearchHistory(1);
+            return 0;
+        }
+        if (wparam == VK_DOWN) {
+            dialog->NavigateQuickSearchHistory(-1);
+            return 0;
+        }
+    } else if (message == WM_NCDESTROY) {
+        RemoveWindowSubclass(window, SearchNameSubclassProc, subclassId);
+    }
+    return DefSubclassProc(window, message, wparam, lparam);
+}
+
 void SearchDialog::Initialize() {
     HWND tabs = GetDlgItem(IDC_SEARCH_TABS);
     TCITEMW item{TCIF_TEXT};
@@ -396,6 +419,10 @@ void SearchDialog::Initialize() {
     ListView_SetExtendedListViewStyle(results_, LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER);
 
     const auto settings = wit::platform::LoadAppSettings();
+    quickSearchHistory_ = settings.quickSearchHistory;
+    if (const HWND searchName = GetDlgItem(IDC_SEARCH_NAME)) {
+        SetWindowSubclass(searchName, SearchNameSubclassProc, 1, reinterpret_cast<DWORD_PTR>(this));
+    }
     for (std::size_t index = 0; index < kSearchColumns.size(); ++index) {
         const auto& definition = kSearchColumns[index];
         LVCOLUMNW column{LVCF_TEXT | LVCF_WIDTH | LVCF_FMT};
@@ -458,7 +485,50 @@ void SearchDialog::Search() {
     caseSensitive_ = IsDlgButtonChecked(IDC_SEARCH_CASE_SENSITIVE) == BST_CHECKED;
     advancedExpression_ = {};
     resultMode_ = ResultMode::Quick;
+    RememberQuickSearchQuery(term);
     BeginSearchLoad();
+}
+
+void SearchDialog::RememberQuickSearchQuery(const std::wstring& query) {
+    auto settings = wit::platform::LoadAppSettings();
+    wit::platform::RememberQuickSearchQuery(settings, query);
+    if (wit::platform::SaveAppSettings(settings)) {
+        quickSearchHistory_ = settings.quickSearchHistory;
+        quickSearchHistoryIndex_ = -1;
+        quickSearchHistoryDraft_.clear();
+    }
+}
+
+bool SearchDialog::NavigateQuickSearchHistory(int direction) {
+    if (quickSearchHistory_.empty()) return false;
+
+    int next = quickSearchHistoryIndex_;
+    if (next < 0) {
+        if (direction < 0) return false;
+        quickSearchHistoryDraft_ = DialogText(IDC_SEARCH_NAME);
+        next = 0;
+    } else {
+        next += direction;
+    }
+
+    if (next < 0) {
+        quickSearchHistoryIndex_ = -1;
+        SetQuickSearchTextAtEnd(quickSearchHistoryDraft_);
+        return true;
+    }
+    if (next >= static_cast<int>(quickSearchHistory_.size())) {
+        next = static_cast<int>(quickSearchHistory_.size()) - 1;
+    }
+
+    quickSearchHistoryIndex_ = next;
+    SetQuickSearchTextAtEnd(quickSearchHistory_[static_cast<std::size_t>(next)]);
+    return true;
+}
+
+void SearchDialog::SetQuickSearchTextAtEnd(const std::wstring& text) {
+    SetDlgItemTextW(IDC_SEARCH_NAME, text.c_str());
+    const auto length = static_cast<WPARAM>(text.size());
+    SendDlgItemMessageW(IDC_SEARCH_NAME, EM_SETSEL, length, static_cast<LPARAM>(length));
 }
 
 void SearchDialog::AdvancedSearch() {

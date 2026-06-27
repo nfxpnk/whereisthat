@@ -33,6 +33,7 @@ bool CatalogSession::SaveSettings(const wit::platform::AppSettings& settings) {
     AssertOwnerThread();
     auto settingsToSave = settings;
     const auto currentSettings = wit::platform::LoadAppSettings();
+    settingsToSave.quickSearchHistory = currentSettings.quickSearchHistory;
     settingsToSave.fileListColumnWidths = currentSettings.fileListColumnWidths;
     settingsToSave.searchListColumnWidths = currentSettings.searchListColumnWidths;
     if (!wit::platform::SaveAppSettings(settingsToSave)) return false;

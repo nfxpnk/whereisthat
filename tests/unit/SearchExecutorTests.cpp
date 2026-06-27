@@ -307,3 +307,25 @@ TEST(SearchExecutor, AdvancedSearchFiltersWithBoundCriteria) {
     ASSERT_TRUE(folderParsed.success);
     EXPECT_EQ(executor.CountAdvanced(folderParsed.expression), 2);
 }
+
+TEST(SearchExecutor, AdvancedSearchRejectsMalformedExpressionShape) {
+    MemoryDatabase database;
+    wit::search::SqliteSearchExecutor executor(database.Raw());
+
+    const auto parsed = wit::search::ParseAdvancedSearchQuery(L"filename = \"alpha-file.txt\"");
+    ASSERT_TRUE(parsed.success);
+
+    auto malformed = parsed.expression;
+    malformed.criteria.push_back(parsed.expression.criteria.front());
+
+    EXPECT_EQ(executor.CountAdvanced(malformed), 0);
+    EXPECT_EQ(executor.LastErrorMessage(), L"Advanced search expression is malformed.");
+
+    EXPECT_TRUE(executor.PageAdvanced(malformed, 0, 10).empty());
+    EXPECT_EQ(executor.LastErrorMessage(), L"Advanced search expression is malformed.");
+
+    const auto prepared = executor.PrepareAdvanced(malformed, 10);
+    EXPECT_EQ(prepared.total, 0);
+    EXPECT_TRUE(prepared.entries.empty());
+    EXPECT_EQ(executor.LastErrorMessage(), L"Advanced search expression is malformed.");
+}

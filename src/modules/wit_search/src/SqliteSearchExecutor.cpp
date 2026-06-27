@@ -140,6 +140,11 @@ AdvancedSql BuildAdvancedWhere(const AdvancedSearchExpression& expression, bool 
     return sql;
 }
 
+bool IsValidAdvancedExpressionShape(const AdvancedSearchExpression& expression) {
+    return expression.criteria.empty() ||
+        expression.logicalOperators.size() + 1 == expression.criteria.size();
+}
+
 void BindAdvancedParams(wit::storage::SQLiteStatement& statement, const std::vector<SqlParamValue>& params, int start = 1) {
     int index = start;
     for (const auto& param : params) {
@@ -589,6 +594,10 @@ int SqliteSearchExecutor::CountAdvanced(const AdvancedSearchExpression& expressi
         lastError_.clear();
     }
     if (!db || expression.criteria.empty()) return 0;
+    if (!IsValidAdvancedExpressionShape(expression)) {
+        SetLastError(nullptr, L"Advanced search expression is malformed.");
+        return 0;
+    }
     const auto folders = CountAdvancedInTable(db, expression, true);
     if (folders.sqliteResult != SQLITE_OK) {
         SetLastError(db, L"Could not count search results.");
@@ -616,6 +625,10 @@ std::vector<wit::core::FileEntry> SqliteSearchExecutor::PageAdvancedLocked(
     {
         std::scoped_lock errorLock(errorMutex_);
         lastError_.clear();
+    }
+    if (!IsValidAdvancedExpressionShape(expression)) {
+        SetLastError(nullptr, L"Advanced search expression is malformed.");
+        return {};
     }
     const auto queryKey = AdvancedCacheKey(expression, sort);
     const auto currentKey = DatabaseGenerationKey() + ":" + queryKey;

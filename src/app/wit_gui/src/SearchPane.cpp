@@ -204,7 +204,15 @@ LRESULT SearchDialog::OnExecuteAdvancedSearch(WORD, WORD, HWND, BOOL&) {
 }
 
 LRESULT SearchDialog::OnClearAdvancedSearch(WORD, WORD, HWND, BOOL&) {
+    CancelSearchLoad();
     SetDlgItemTextW(IDC_ADVANCED_SEARCH_QUERY, L"");
+    advancedExpression_ = {};
+    resultMode_ = ResultMode::Advanced;
+    total_ = 0;
+    ClearCache();
+    ListView_SetItemCountEx(results_, 0, LVSICF_NOINVALIDATEALL);
+    elapsedSeconds_ = 0.0;
+    UpdateStatusText();
     SetDlgItemTextW(IDC_SEARCH_SUMMARY, L"Enter advanced search criteria.");
     return 0;
 }

@@ -420,6 +420,51 @@ TEST(SearchPaneStatus, ShowsCountFocusedSelectionAndElapsedTime) {
     dialog.Close();
     PumpMessages();
 }
+
+TEST(SearchPaneAdvancedSearch, ClearResetsResultsAndStatus) {
+    INITCOMMONCONTROLSEX controls{sizeof(controls), ICC_LISTVIEW_CLASSES | ICC_BAR_CLASSES};
+    ASSERT_TRUE(InitCommonControlsEx(&controls));
+    AtlModuleGuard module;
+    ASSERT_TRUE(module.initialized());
+
+    ImmediateSearchRepository repository;
+    wit::ui::SearchDialog dialog;
+    ASSERT_TRUE(dialog.Show(nullptr, &repository, [] {}));
+    PumpMessages();
+
+    const auto searchWindow = FindWindowW(nullptr, L"Search for Items");
+    ASSERT_NE(searchWindow, nullptr);
+    const auto results = GetDlgItem(searchWindow, IDC_SEARCH_RESULTS);
+    const auto status = GetDlgItem(searchWindow, IDC_SEARCH_STATUS);
+    const auto summary = GetDlgItem(searchWindow, IDC_SEARCH_SUMMARY);
+    const auto query = GetDlgItem(searchWindow, IDC_ADVANCED_SEARCH_QUERY);
+    ASSERT_NE(results, nullptr);
+    ASSERT_NE(status, nullptr);
+    ASSERT_NE(summary, nullptr);
+    ASSERT_NE(query, nullptr);
+
+    ASSERT_TRUE(SetWindowTextW(query, L"filename = \"replacement.txt\""));
+    SendMessageW(GetDlgItem(searchWindow, IDC_ADVANCED_SEARCH_EXECUTE), BM_CLICK, 0, 0);
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (ListView_GetItemCount(results) != 1 && std::chrono::steady_clock::now() < deadline) {
+        PumpMessages();
+        Sleep(1);
+    }
+    ASSERT_EQ(ListView_GetItemCount(results), 1);
+    EXPECT_EQ(StatusPartText(status, 0), L"Items on list: 1");
+
+    SendMessageW(GetDlgItem(searchWindow, IDC_ADVANCED_SEARCH_CLEAR), BM_CLICK, 0, 0);
+    PumpMessages();
+
+    EXPECT_EQ(WindowText(query), L"");
+    EXPECT_EQ(ListView_GetItemCount(results), 0);
+    EXPECT_EQ(WindowText(summary), L"Enter advanced search criteria.");
+    EXPECT_EQ(StatusPartText(status, 0), L"Items on list: 0");
+
+    dialog.Close();
+    PumpMessages();
+}
+
 TEST(DISABLED_SearchPaneUiPerformance, SearchAndScrollFakeCatalog) {
     const auto catalogPath = std::filesystem::current_path() / L"tools" / L"catalog-test" /
         L"fake-search-catalog.sqlite";

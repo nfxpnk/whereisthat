@@ -1,0 +1,22 @@
+ID: WIT-013
+File and line number: src/app/wit_gui/src/MainWindowChrome.cpp:452-462
+Severity: Low
+Category: performance, GDI
+
+Problem:
+Status painting creates/deletes brushes on every draw.
+
+Why it matters:
+This creates unnecessary GDI churn on frequent repaints.
+
+Suggested fix:
+Use stock/system brushes where possible or cache owned brushes with cleanup.
+
+Risk of fixing:
+Low
+
+Estimated effort:
+Small
+
+Confidence level:
+High

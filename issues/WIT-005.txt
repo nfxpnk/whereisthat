@@ -1,0 +1,22 @@
+ID: WIT-005
+File and line number: src/app/wit_gui/src/SearchPane.cpp:636-692, src/app/wit_gui/src/SearchPane.cpp:780-806
+Severity: Medium
+Category: performance, UI responsiveness
+
+Problem:
+Virtual list callbacks page from SQLite synchronously via EntryAt() / CachePage(), including status updates iterating selected rows.
+
+Why it matters:
+Fast scrolling or large selections can block painting/input.
+
+Suggested fix:
+Prefetch pages asynchronously, bound status work, and cache selected totals incrementally.
+
+Risk of fixing:
+Medium
+
+Estimated effort:
+Medium/Large
+
+Confidence level:
+High

@@ -1,0 +1,22 @@
+ID: WIT-007
+File and line number: src/modules/wit_scanner/src/Crc32.cpp:90-112
+Severity: Medium
+Category: leak, maintainability
+
+Problem:
+The file HANDLE is closed manually after allocating a thread-local buffer.
+
+Why it matters:
+Allocation or unexpected exception after CreateFileW can leak the file handle.
+
+Suggested fix:
+Use existing HandleGuard or a unique_handle-style wrapper.
+
+Risk of fixing:
+Low
+
+Estimated effort:
+Small
+
+Confidence level:
+Medium

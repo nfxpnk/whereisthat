@@ -1,0 +1,22 @@
+ID: WIT-001
+File and line number: src/modules/wit_infra/src/Win32Helpers.cpp:187, src/modules/wit_infra/src/Win32Helpers.cpp:194
+Severity: High
+Category: crash, error handling
+
+Problem:
+ToUtf8 and ToUtf16 allocate size - 1 without checking whether WideCharToMultiByte or MultiByteToWideChar returned 0.
+
+Why it matters:
+Malformed UTF-16/UTF-8 or conversion failure can underflow to a huge allocation and crash.
+
+Suggested fix:
+Check size <= 0, return empty/error result, and consider logging GetLastError.
+
+Risk of fixing:
+Low
+
+Estimated effort:
+Small
+
+Confidence level:
+High

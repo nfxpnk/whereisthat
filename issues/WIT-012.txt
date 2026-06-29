@@ -1,0 +1,22 @@
+ID: WIT-012
+File and line number: src/modules/wit_database/src/SqliteConnection.cpp:51-55, src/modules/wit_database/src/SqliteConnection.cpp:59-66
+Severity: Low
+Category: error handling, maintainability
+
+Problem:
+sqlite3_close result is ignored, and Exec does not guard null db_/sql.
+
+Why it matters:
+Outstanding statements can make close fail silently; null exec paths are fragile.
+
+Suggested fix:
+Assert/log close failures and guard Exec.
+
+Risk of fixing:
+Low
+
+Estimated effort:
+Small
+
+Confidence level:
+Medium

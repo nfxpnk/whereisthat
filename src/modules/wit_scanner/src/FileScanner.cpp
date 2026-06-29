@@ -12,6 +12,7 @@
 #include <cstddef>
 #include <cwctype>
 #include <map>
+#include <memory>
 #include <optional>
 #include <span>
 #include <stop_token>
@@ -24,6 +25,50 @@ namespace {
 // Debug aid: when enabled, slows file scanning enough to observe progress reporting and cancellation behavior.
 constexpr std::int64_t kScanFileDelayMicroseconds = 50000;
 constexpr std::uint64_t kProgressReportItemInterval = 250;
+
+class UniqueFindHandle {
+public:
+    UniqueFindHandle() = default;
+    explicit UniqueFindHandle(HANDLE handle) : handle_(handle) {}
+    UniqueFindHandle(const UniqueFindHandle&) = delete;
+    UniqueFindHandle& operator=(const UniqueFindHandle&) = delete;
+    UniqueFindHandle(UniqueFindHandle&& other) noexcept : handle_(std::exchange(other.handle_, INVALID_HANDLE_VALUE)) {}
+    UniqueFindHandle& operator=(UniqueFindHandle&& other) noexcept {
+        if (this != &other) {
+            reset(std::exchange(other.handle_, INVALID_HANDLE_VALUE));
+        }
+        return *this;
+    }
+    ~UniqueFindHandle() {
+        reset();
+    }
+
+    [[nodiscard]] HANDLE get() const {
+        return handle_;
+    }
+
+    [[nodiscard]] bool valid() const {
+        return handle_ != INVALID_HANDLE_VALUE;
+    }
+
+    void reset(HANDLE handle = INVALID_HANDLE_VALUE) {
+        if (handle_ != INVALID_HANDLE_VALUE) {
+            FindClose(handle_);
+        }
+        handle_ = handle;
+    }
+
+private:
+    HANDLE handle_{INVALID_HANDLE_VALUE};
+};
+
+struct ArchiveReaderDeleter {
+    void operator()(struct archive* reader) const noexcept {
+        if (reader) archive_read_free(reader);
+    }
+};
+
+using UniqueArchiveReader = std::unique_ptr<struct archive, ArchiveReaderDeleter>;
 
 std::wstring WildcardFor(const std::wstring& path) {
     const auto last = path.empty() ? L'\0' : path.back();
@@ -107,39 +152,37 @@ std::wstring ArchiveError(struct archive* reader) {
 
 ArchiveReadResult ReadArchive(const std::wstring& path, bool calculateCrc, std::stop_token stopToken,
     ParsedArchive& parsed, std::wstring& failure, wit::infra::ScanProfile* profile) {
-    auto* reader = archive_read_new();
+    UniqueArchiveReader reader{archive_read_new()};
     if (!reader) {
         failure = L"libarchive reader allocation failed";
         return ArchiveReadResult::NotReadable;
     }
-    archive_read_support_filter_all(reader);
-    archive_read_support_format_7zip(reader);
-    archive_read_support_format_ar(reader);
-    archive_read_support_format_cab(reader);
-    archive_read_support_format_cpio(reader);
-    archive_read_support_format_iso9660(reader);
-    archive_read_support_format_lha(reader);
-    archive_read_support_format_rar(reader);
-    archive_read_support_format_rar5(reader);
-    archive_read_support_format_tar(reader);
-    archive_read_support_format_xar(reader);
-    archive_read_support_format_zip(reader);
-    if (archive_read_open_filename_w(reader, path.c_str(), 64 * 1024) != ARCHIVE_OK) {
-        failure = ArchiveError(reader);
-        archive_read_free(reader);
+    archive_read_support_filter_all(reader.get());
+    archive_read_support_format_7zip(reader.get());
+    archive_read_support_format_ar(reader.get());
+    archive_read_support_format_cab(reader.get());
+    archive_read_support_format_cpio(reader.get());
+    archive_read_support_format_iso9660(reader.get());
+    archive_read_support_format_lha(reader.get());
+    archive_read_support_format_rar(reader.get());
+    archive_read_support_format_rar5(reader.get());
+    archive_read_support_format_tar(reader.get());
+    archive_read_support_format_xar(reader.get());
+    archive_read_support_format_zip(reader.get());
+    if (archive_read_open_filename_w(reader.get(), path.c_str(), 64 * 1024) != ARCHIVE_OK) {
+        failure = ArchiveError(reader.get());
         return ArchiveReadResult::NotReadable;
     }
     bool success = true;
     for (;;) {
         if (stopToken.stop_requested()) {
-            archive_read_free(reader);
             return ArchiveReadResult::Cancelled;
         }
         struct archive_entry* entry{};
-        const auto next = archive_read_next_header(reader, &entry);
+        const auto next = archive_read_next_header(reader.get(), &entry);
         if (next == ARCHIVE_EOF) break;
         if (next != ARCHIVE_OK) {
-            failure = ArchiveError(reader);
+            failure = ArchiveError(reader.get());
             success = false;
             break;
         }
@@ -159,8 +202,8 @@ ArchiveReadResult ReadArchive(const std::wstring& path, bool calculateCrc, std::
         member.isDirectory = archive_entry_filetype(entry) == AE_IFDIR;
         member.modifiedAt = archive_entry_mtime_is_set(entry) ? archive_entry_mtime(entry) : 0;
         if (member.isDirectory) {
-            if (archive_read_data_skip(reader) != ARCHIVE_OK) {
-                failure = ArchiveError(reader);
+            if (archive_read_data_skip(reader.get()) != ARCHIVE_OK) {
+                failure = ArchiveError(reader.get());
                 success = false;
                 break;
             }
@@ -169,18 +212,17 @@ ArchiveReadResult ReadArchive(const std::wstring& path, bool calculateCrc, std::
             std::vector<unsigned char> buffer(64 * 1024);
             for (;;) {
                 if (stopToken.stop_requested()) {
-                    archive_read_free(reader);
                     return ArchiveReadResult::Cancelled;
                 }
                 la_ssize_t read{};
                 {
                     const auto timer = profile ? std::make_optional<wit::infra::ScopedScanTimer>(
                         profile->timingsNs.archiveRead) : std::nullopt;
-                    read = archive_read_data(reader, buffer.data(), buffer.size());
+                    read = archive_read_data(reader.get(), buffer.data(), buffer.size());
                 }
                 if (read == 0) break;
                 if (read < 0) {
-                    failure = ArchiveError(reader);
+                    failure = ArchiveError(reader.get());
                     success = false;
                     break;
                 }
@@ -195,7 +237,6 @@ ArchiveReadResult ReadArchive(const std::wstring& path, bool calculateCrc, std::
         }
         parsed.members.push_back(std::move(member));
     }
-    archive_read_free(reader);
     return success ? ArchiveReadResult::Readable : ArchiveReadResult::NotReadable;
 }
 
@@ -302,16 +343,15 @@ bool FileScanner::CountFiles(const std::wstring& rootPath, std::uint64_t& totalF
         folders.pop_back();
         WIN32_FIND_DATAW findData{};
         const auto query = WildcardFor(path);
-        HANDLE findHandle = FindFirstFileExW(query.c_str(), FindExInfoBasic, &findData, FindExSearchNameMatch,
-            nullptr, FIND_FIRST_EX_LARGE_FETCH);
-        if (findHandle == INVALID_HANDLE_VALUE && GetLastError() == ERROR_INVALID_PARAMETER) {
-            findHandle = FindFirstFileExW(query.c_str(), FindExInfoBasic, &findData, FindExSearchNameMatch,
-                nullptr, 0);
+        UniqueFindHandle findHandle{FindFirstFileExW(query.c_str(), FindExInfoBasic, &findData,
+            FindExSearchNameMatch, nullptr, FIND_FIRST_EX_LARGE_FETCH)};
+        if (!findHandle.valid() && GetLastError() == ERROR_INVALID_PARAMETER) {
+            findHandle.reset(FindFirstFileExW(query.c_str(), FindExInfoBasic, &findData, FindExSearchNameMatch,
+                nullptr, 0));
         }
-        if (findHandle == INVALID_HANDLE_VALUE) continue;
+        if (!findHandle.valid()) continue;
         do {
             if (stopToken.stop_requested()) {
-                FindClose(findHandle);
                 return false;
             }
             if (wcscmp(findData.cFileName, L".") == 0 || wcscmp(findData.cFileName, L"..") == 0) continue;
@@ -322,8 +362,7 @@ bool FileScanner::CountFiles(const std::wstring& rootPath, std::uint64_t& totalF
             } else {
                 ++totalFiles;
             }
-        } while (FindNextFileW(findHandle, &findData));
-        FindClose(findHandle);
+        } while (FindNextFileW(findHandle.get(), &findData));
     }
     return true;
 }
@@ -402,26 +441,25 @@ bool FileScanner::ScanFolder(const std::wstring& rootPath, std::int64_t diskId, 
                     profile->timingsNs.metadataBuild) : std::nullopt;
                 query = WildcardFor(frame.path);
             }
-            HANDLE findHandle{};
+            UniqueFindHandle findHandle;
             {
                 const auto timer = profile ? std::make_optional<wit::infra::ScopedScanTimer>(
                     profile->timingsNs.directoryEnumeration) : std::nullopt;
-                findHandle = FindFirstFileExW(query.c_str(), FindExInfoBasic, &findData, FindExSearchNameMatch,
-                    nullptr, FIND_FIRST_EX_LARGE_FETCH);
-                if (findHandle == INVALID_HANDLE_VALUE && GetLastError() == ERROR_INVALID_PARAMETER) {
-                    findHandle = FindFirstFileExW(query.c_str(), FindExInfoBasic, &findData, FindExSearchNameMatch,
-                        nullptr, 0);
+                findHandle.reset(FindFirstFileExW(query.c_str(), FindExInfoBasic, &findData, FindExSearchNameMatch,
+                    nullptr, FIND_FIRST_EX_LARGE_FETCH));
+                if (!findHandle.valid() && GetLastError() == ERROR_INVALID_PARAMETER) {
+                    findHandle.reset(FindFirstFileExW(query.c_str(), FindExInfoBasic, &findData,
+                        FindExSearchNameMatch, nullptr, 0));
                 }
             }
-            if (findHandle != INVALID_HANDLE_VALUE) {
+            if (findHandle.valid()) {
                 const auto nextEntry = [&]() {
                     const auto timer = profile ? std::make_optional<wit::infra::ScopedScanTimer>(
                         profile->timingsNs.directoryEnumeration) : std::nullopt;
-                    return FindNextFileW(findHandle, &findData) != FALSE;
+                    return FindNextFileW(findHandle.get(), &findData) != FALSE;
                 };
                 do {
                     if (stopToken.stop_requested()) {
-                        FindClose(findHandle);
                         return fail();
                     }
                     if (wcscmp(findData.cFileName, L".") == 0 || wcscmp(findData.cFileName, L"..") == 0) {
@@ -443,7 +481,6 @@ bool FileScanner::ScanFolder(const std::wstring& rootPath, std::int64_t diskId, 
                         }
                         const auto childId = db.InsertFolder(folder, profile);
                         if (childId == 0) {
-                            FindClose(findHandle);
                             return fail();
                         }
                         ++folderCount;
@@ -476,13 +513,11 @@ bool FileScanner::ScanFolder(const std::wstring& rootPath, std::int64_t diskId, 
                                 read = ReadArchive(fullPath, calculateCrc, stopToken, parsed, failure, profile);
                             }
                             if (read == ArchiveReadResult::Cancelled) {
-                                FindClose(findHandle);
                                 return fail();
                             }
                             if (read == ArchiveReadResult::Readable) {
                                 StoredArchive stored;
                                 if (!StoreArchive(parsed, fullPath, findData, diskId, frame.id, db, stored, profile)) {
-                                    FindClose(findHandle);
                                     return fail();
                                 }
                                 ++archiveCount;
@@ -532,11 +567,9 @@ bool FileScanner::ScanFolder(const std::wstring& rootPath, std::int64_t diskId, 
                                 }
                             }
                             if (crcCancelled || stopToken.stop_requested()) {
-                                FindClose(findHandle);
                                 return fail();
                             }
                             if (!db.InsertFile(entry, profile)) {
-                                FindClose(findHandle);
                                 return fail();
                             }
                             frame.contentSize += entry.size;
@@ -558,7 +591,6 @@ bool FileScanner::ScanFolder(const std::wstring& rootPath, std::int64_t diskId, 
                         reportProgress({scannedFiles, folderCount, fullPath});
                     }
                 } while (nextEntry());
-                FindClose(findHandle);
             }
         }
         if (frame.nextChild < frame.children.size()) {

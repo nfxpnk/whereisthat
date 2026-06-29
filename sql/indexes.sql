@@ -33,3 +33,9 @@ CREATE INDEX IF NOT EXISTS idx_files_disk_name
 
 CREATE INDEX IF NOT EXISTS idx_files_extension
     ON files(extension);
+
+CREATE INDEX IF NOT EXISTS idx_files_folder_extension_name
+    ON files(folder_id, extension, name, id);
+
+CREATE INDEX IF NOT EXISTS idx_folders_parent_entry_type_name
+    ON folders(disk_id, parent_folder_id, entry_type, name, id);

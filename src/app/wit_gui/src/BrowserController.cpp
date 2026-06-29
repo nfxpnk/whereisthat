@@ -47,6 +47,12 @@ wit::core::FileSort ToolbarSortFromRootSort(wit::core::BrowserRootSort sort) {
     return toolbarSort;
 }
 
+std::wstring FolderEntryPath(const wit::core::FileEntry& entry, const std::wstring& fallbackParent) {
+    if (!entry.fullPath.empty()) return entry.fullPath;
+    if (!entry.parentPath.empty()) return wit::platform::Join(entry.parentPath, entry.name);
+    return wit::platform::Join(fallbackParent, entry.name);
+}
+
 }
 
 void BrowserController::Attach(HWND tree, HWND files, HWND back, HWND forward, HWND address,
@@ -276,7 +282,7 @@ bool BrowserController::LocateFile(wit::core::CatalogId catalogId, const wit::co
     target.catalogId = catalogId;
     target.location.isRoot = false;
     target.location.sourceId = sourceId;
-    target.location.path = isDirectory ? wit::platform::Join(parentPath, name) : parentPath;
+    target.location.path = isDirectory ? FolderEntryPath(entry, parentPath) : parentPath;
 
     selectingTree_ = true;
     const wit::infra::ScopeGuard resetSelectingTree([this]() { selectingTree_ = false; });
@@ -308,17 +314,20 @@ LRESULT BrowserController::OnTreeExpanding(LPNMHDR header) {
 
 LRESULT BrowserController::OnFileGetDispInfo(LPNMHDR header) {
     auto* displayInfo = reinterpret_cast<NMLVDISPINFOW*>(header);
+    const int row = displayInfo->item.iItem;
+    const bool rowCached = files_.ShowsBrowserItems()
+        ? files_.CachedBrowserItemAt(row) != nullptr
+        : files_.CachedEntryAt(row) != nullptr;
     if (displayInfo->item.mask & LVIF_IMAGE) {
-        displayInfo->item.iImage = files_.ImageFor(displayInfo->item.iItem);
+        displayInfo->item.iImage = files_.ImageFor(row);
     }
     if (displayInfo->item.mask & LVIF_TEXT) {
-        files_.TextFor(displayInfo->item.iItem, displayInfo->item.iSubItem,
+        files_.TextFor(row, displayInfo->item.iSubItem,
             displayInfo->item.pszText, displayInfo->item.cchTextMax);
     }
-    displayInfo->item.mask |= LVIF_DI_SETITEM;
+    if (rowCached) displayInfo->item.mask |= LVIF_DI_SETITEM;
     return 0;
 }
-
 LRESULT BrowserController::OnFileCacheHint(LPNMHDR header) {
     const auto* hint = reinterpret_cast<NMLVCACHEHINT*>(header);
     files_.PreloadRange(hint->iFrom, hint->iTo);
@@ -422,7 +431,7 @@ std::optional<std::wstring> BrowserController::ExplorerTargetForFocusedItem(bool
         }
         if (const auto* entry = files_.EntryAt(row)) {
             if (entry->isDirectory && !entry->isArchive) {
-                return wit::platform::Join(entry->parentPath, entry->name);
+                return FolderEntryPath(*entry, currentTarget_.location.path);
             }
             selectItem = true;
             return wit::platform::Join(entry->parentPath, entry->name);
@@ -460,7 +469,7 @@ bool BrowserController::GoToFileListFolder(int row) {
         const auto* entry = files_.EntryAt(row);
         if (!entry || !entry->isDirectory) return false;
         next.location = currentTarget_.location;
-        next.location.path = wit::platform::Join(currentTarget_.location.path, entry->name);
+        next.location.path = FolderEntryPath(*entry, currentTarget_.location.path);
     }
     NavigateTo(next, true);
     return true;

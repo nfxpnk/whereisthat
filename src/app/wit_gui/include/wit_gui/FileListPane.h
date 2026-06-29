@@ -107,6 +107,7 @@ private:
     std::size_t activeRetiredWorkers_{};
     bool stopReaper_{};
     std::jthread reaper_;
+    std::shared_ptr<std::mutex> repositoryMutex_{std::make_shared<std::mutex>()};
     std::vector<wit::core::FileEntry> pendingSelectedEntries_;
     std::int64_t pendingFocusedId_{};
     bool pendingFocusedIsDirectory_{};

@@ -350,17 +350,19 @@ void FileListView::BeginLocationLoad() {
     const int pageStart = (std::max)(0, loadPageStart_);
     const bool browserItems = ShowsBrowserItems();
     auto* repository = browser;
+    auto repositoryMutex = repositoryMutex_;
     const HWND window = hwnd;
     auto mailbox = std::make_shared<AsyncLoadMailbox>();
     loadMailbox_ = mailbox;
     const std::weak_ptr<AsyncLoadMailbox> mailboxReference = mailbox;
 
-    loadWorker_ = std::jthread([requestId, loadLocation, fileSort, rootSort, pageStart, browserItems, repository, window,
-        mailboxReference](std::stop_token stopToken) {
+    loadWorker_ = std::jthread([requestId, loadLocation, fileSort, rootSort, pageStart, browserItems, repository,
+        repositoryMutex, window, mailboxReference](std::stop_token stopToken) {
         AsyncLoadResult result;
         result.requestId = requestId;
         result.pageStart = pageStart;
         result.browserItems = browserItems;
+        std::scoped_lock repositoryLock(*repositoryMutex);
         result.total = browserItems ? repository->GetBrowserRootItemCount(loadLocation)
             : repository->GetBrowserItemCount(loadLocation);
         if (stopToken.stop_requested()) return;
@@ -462,9 +464,9 @@ LRESULT FileListView::OnLoadComplete() {
         }
         mailbox->pendingResult.reset();
     }
+    if (!result || !hwnd) return 0;
     RetireWorker(loadWorker_);
     if (mailbox == loadMailbox_) loadMailbox_.reset();
-    if (!result || !hwnd) return 0;
 
     ClearCache();
     browserPageStart = -1;
@@ -496,9 +498,9 @@ LRESULT FileListView::OnPageReady() {
         }
         mailbox->pendingResult.reset();
     }
+    if (!result || !hwnd) return 0;
     RetireWorker(pageWorker_);
     if (mailbox == pageMailbox_) pageMailbox_.reset();
-    if (!result || !hwnd) return 0;
 
     int first{};
     int last{-1};
@@ -616,16 +618,18 @@ void FileListView::SchedulePageLoad(int pageStartValue) {
     const auto rootSort = rootSort_;
     const bool browserItems = ShowsBrowserItems();
     auto* repository = browser;
+    auto repositoryMutex = repositoryMutex_;
     const HWND window = hwnd;
     auto mailbox = std::make_shared<AsyncPageMailbox>();
     pageMailbox_ = mailbox;
     const std::weak_ptr<AsyncPageMailbox> mailboxReference = mailbox;
 
     pageWorker_ = std::jthread([requestId, normalizedStart, pageLocation, fileSort, rootSort, browserItems,
-        repository, window, mailboxReference](std::stop_token stopToken) {
+        repository, repositoryMutex, window, mailboxReference](std::stop_token stopToken) {
         AsyncPageResult result;
         result.requestId = requestId;
         result.browserItems = browserItems;
+        std::scoped_lock repositoryLock(*repositoryMutex);
         if (browserItems) {
             result.browserPageStart = normalizedStart;
             result.browserPage = repository->GetBrowserRootItemsPage(pageLocation, normalizedStart, PageSize, rootSort);
@@ -680,7 +684,10 @@ void FileListView::CacheFilePage(int pageStartValue) {
 
     CachedFilePage cachedPage;
     cachedPage.start = normalizedStart;
-    cachedPage.items = browser->GetBrowserItemsPage(location, normalizedStart, PageSize, sort_);
+    {
+        std::scoped_lock repositoryLock(*repositoryMutex_);
+        cachedPage.items = browser->GetBrowserItemsPage(location, normalizedStart, PageSize, sort_);
+    }
     cachedPage.lastUsed = ++cacheClock_;
     cachedFilePages_.push_back(std::move(cachedPage));
 
@@ -726,7 +733,10 @@ const wit::core::BrowserItem* FileListView::BrowserItemAt(int row) {
     if (!browser || !ShowsBrowserItems() || row < 0 || row >= total) return nullptr;
     const int pageStart = (row / PageSize) * PageSize;
     if (browserPageStart != pageStart) {
-        browserPage = browser->GetBrowserRootItemsPage(location, pageStart, PageSize, rootSort_);
+        {
+            std::scoped_lock repositoryLock(*repositoryMutex_);
+            browserPage = browser->GetBrowserRootItemsPage(location, pageStart, PageSize, rootSort_);
+        }
         browserPageStart = pageStart;
     }
     return CachedBrowserItemAt(row);

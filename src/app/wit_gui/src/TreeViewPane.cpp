@@ -308,7 +308,7 @@ void CatalogTreeView::Expand(HTREEITEM item) {
     const auto folders = database->GetChildFolders(location.sourceId, location.path);
     for (const auto& folder : folders) {
         auto child = location;
-        child.path = wit::platform::Join(location.path, folder.name);
+        child.path = folder.fullPath.empty() ? wit::platform::Join(location.path, folder.name) : folder.fullPath;
         InsertNode(item, node->target.catalogId, folder.name, child, false,
             database->HasChildFolders(child.sourceId, child.path),
             folder.isArchive ? BrowserArchiveImage : BrowserFolderImage);

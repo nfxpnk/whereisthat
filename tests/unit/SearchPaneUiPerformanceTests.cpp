@@ -1,6 +1,8 @@
 #include <gtest/gtest.h>
 #include <wit_database/Database.h>
 #include <wit_infra/AppSettings.h>
+#include <wit_infra/PathHelpers.h>
+#include <wit_types/FolderEntry.h>
 #include <wit_gui/BrowserItemIcons.h>
 #include <wit_gui/FileListPane.h>
 #include <wit_gui/SearchPane.h>
@@ -135,6 +137,40 @@ public:
 
     void CancelPending() override {}
     std::wstring LastErrorMessage() const override { return {}; }
+};
+
+class BlockingBrowserRepository final : public wit::storage::IBrowserRepository {
+public:
+    int GetBrowserItemCount(const wit::core::BrowserLocation&) override {
+        countStarted = true;
+        while (!releaseCount.load()) Sleep(1);
+        return 1;
+    }
+    int GetBrowserRootItemCount(const wit::core::BrowserLocation&) override { return 0; }
+
+    std::vector<wit::core::BrowserItem> GetBrowserRootItemsPage(
+        const wit::core::BrowserLocation&, int, int, wit::core::BrowserRootSort) override {
+        return {};
+    }
+
+    std::vector<wit::core::FileEntry> GetBrowserItemsPage(
+        const wit::core::BrowserLocation&, int, int, wit::core::FileSort) override {
+        wit::core::FileEntry entry;
+        entry.id = 1;
+        entry.name = L"loaded.txt";
+        entry.extension = L"txt";
+        return {std::move(entry)};
+    }
+
+    bool HasChildFolders(std::int64_t, const std::wstring&) override { return false; }
+
+    std::vector<wit::core::FileEntry> GetChildFolders(
+        std::int64_t, const std::wstring&) override {
+        return {};
+    }
+
+    std::atomic_bool countStarted{};
+    std::atomic_bool releaseCount{};
 };
 
 class CountingBrowserRepository final : public wit::storage::IBrowserRepository {
@@ -278,6 +314,44 @@ TEST(SearchPaneLifetime, RebindingCancelsTheOldRepositoryBeforeReplacement) {
 
     dialog.Close();
     PumpMessages();
+}
+
+TEST(FileListViewPerformance, StaleLoadMessageDoesNotCancelCurrentFolderLoad) {
+    INITCOMMONCONTROLSEX controls{sizeof(controls), ICC_LISTVIEW_CLASSES};
+    ASSERT_TRUE(InitCommonControlsEx(&controls));
+
+    const HWND fileList = CreateWindowExW(0, WC_LISTVIEWW, L"", WS_POPUP | LVS_REPORT | LVS_OWNERDATA,
+        0, 0, 640, 480, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+    ASSERT_NE(fileList, nullptr);
+
+    BlockingBrowserRepository repository;
+    wit::ui::FileListView fileListView;
+    fileListView.Attach(fileList);
+
+    wit::core::BrowserLocation location;
+    location.isRoot = false;
+    location.sourceId = 1;
+    location.path = L"X:\\Folder";
+    fileListView.SetLocation(location, &repository);
+
+    const auto startedDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (!repository.countStarted.load() && std::chrono::steady_clock::now() < startedDeadline) {
+        PumpMessages();
+        Sleep(1);
+    }
+    ASSERT_TRUE(repository.countStarted.load());
+
+    SendMessageW(fileList, WM_APP + 47, 0, 0);
+    repository.releaseCount = true;
+
+    const auto loadedDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (ListView_GetItemCount(fileList) != 1 && std::chrono::steady_clock::now() < loadedDeadline) {
+        PumpMessages();
+        Sleep(1);
+    }
+    ASSERT_EQ(ListView_GetItemCount(fileList), 1);
+    ASSERT_NE(fileListView.CachedEntryAt(0), nullptr);
+    DestroyWindow(fileList);
 }
 
 TEST(FileListViewPerformance, CacheHintDoesNotSynchronouslyReadPages) {
@@ -657,9 +731,9 @@ TEST(BrowserFileListPerformance, MainListScrollAndSortFakeCatalogDoesNotGoBlank)
 
     const auto sortStarted = std::chrono::steady_clock::now();
     const double sortDispatchMs = MeasureMilliseconds([&] {
-        fileListView.SetSort({wit::core::FileSortColumn::Size, true});
+        fileListView.SetSort({wit::core::FileSortColumn::Type, true});
     });
-    EXPECT_LT(sortDispatchMs, 250.0) << "main list sort must not block the UI thread";
+    EXPECT_LT(sortDispatchMs, 250.0) << "main list type sort must not block the UI thread";
     ASSERT_TRUE(waitForRow(ListView_GetTopIndex(fileList)));
     const double sortFillMs = std::chrono::duration<double, std::milli>(
         std::chrono::steady_clock::now() - sortStarted).count();
@@ -667,16 +741,256 @@ TEST(BrowserFileListPerformance, MainListScrollAndSortFakeCatalogDoesNotGoBlank)
     fileListView.TextFor(ListView_GetTopIndex(fileList), 0, text, std::size(text));
     EXPECT_NE(std::wstring(text), L"");
 
+    const auto typeScrollStarted = std::chrono::steady_clock::now();
+    ASSERT_TRUE(ListView_EnsureVisible(fileList, 128000, FALSE));
+    fileListView.PreloadRange(128000, 128000);
+    ASSERT_TRUE(waitForRow(128000)) << "type-sorted deep scroll page should not stay blank";
+    const double typeScrollFillMs = std::chrono::duration<double, std::milli>(
+        std::chrono::steady_clock::now() - typeScrollStarted).count();
+    text[0] = L'\0';
+    fileListView.TextFor(128000, 0, text, std::size(text));
+    EXPECT_NE(std::wstring(text), L"");
+
     std::cout << "MAIN_LIST_PERF fake_catalog_items=500000"
         << " open_dispatch_ms=" << openDispatchMs
         << " load_completion_ms=" << loadCompletionMs
         << " scroll_fill_ms=" << scrollFillMs
-        << " sort_dispatch_ms=" << sortDispatchMs
-        << " sort_fill_ms=" << sortFillMs
+        << " type_sort_dispatch_ms=" << sortDispatchMs
+        << " type_sort_fill_ms=" << sortFillMs
+        << " type_scroll_fill_ms=" << typeScrollFillMs
         << std::endl;
 
     DestroyWindow(fileList);
     database.Close();
+}
+
+TEST(BrowserFileListPerformance, MainListUsesStoredFolderPathWhenNameIsNotALeaf) {
+    const auto testRoot = std::filesystem::temp_directory_path() /
+        (L"whereisthat-main-list-stored-path-" + std::to_wstring(GetCurrentProcessId()));
+    const auto catalogPath = testRoot / L"stored-path.db";
+    std::filesystem::remove_all(testRoot);
+    std::filesystem::create_directories(testRoot);
+
+    wit::storage::Database database;
+    ASSERT_TRUE(database.CreateNew(catalogPath.wstring(), true));
+
+    wit::core::Disk disk{};
+    disk.diskName = L"Imported";
+    disk.diskNumber = 1;
+    disk.sourcePath = L"ImportedDisk";
+    disk.totalCapacity = 1024;
+    disk.freeSpace = 512;
+    disk.addedAt = 100;
+    disk.updatedAt = 100;
+    disk.diskType = wit::core::DiskType::VirtualDisk;
+    disk.id = database.AddDisk(disk);
+    ASSERT_NE(disk.id, 0);
+
+    wit::core::FolderEntry root{};
+    root.diskId = disk.id;
+    root.path = disk.sourcePath;
+    root.name = L"ImportedDisk";
+    root.modifiedAt = 100;
+    root.attributes = FILE_ATTRIBUTE_DIRECTORY;
+    root.id = database.InsertFolder(root);
+    ASSERT_NE(root.id, 0);
+
+    wit::core::FolderEntry parent{};
+    parent.diskId = disk.id;
+    parent.parentFolderId = root.id;
+    parent.hasParent = true;
+    parent.path = wit::platform::Join(root.path, L"parent");
+    parent.name = L"parent";
+    parent.modifiedAt = 101;
+    parent.attributes = FILE_ATTRIBUTE_DIRECTORY;
+    parent.id = database.InsertFolder(parent);
+    ASSERT_NE(parent.id, 0);
+
+    wit::core::FolderEntry imported{};
+    imported.diskId = disk.id;
+    imported.parentFolderId = parent.id;
+    imported.hasParent = true;
+    imported.path = wit::platform::Join(parent.path, L"actual-child");
+    imported.name = imported.path;
+    imported.modifiedAt = 102;
+    imported.attributes = FILE_ATTRIBUTE_DIRECTORY;
+    imported.id = database.InsertFolder(imported);
+    ASSERT_NE(imported.id, 0);
+
+    wit::core::FileEntry nestedFile{};
+    nestedFile.catalogId = disk.id;
+    nestedFile.folderId = imported.id;
+    nestedFile.name = L"inside.txt";
+    nestedFile.extension = L"txt";
+    nestedFile.size = 5;
+    nestedFile.modifiedAt = 103;
+    nestedFile.attributes = FILE_ATTRIBUTE_ARCHIVE;
+    ASSERT_TRUE(database.InsertFile(nestedFile));
+
+    INITCOMMONCONTROLSEX controls{sizeof(controls), ICC_LISTVIEW_CLASSES};
+    ASSERT_TRUE(InitCommonControlsEx(&controls));
+
+    const HWND fileList = CreateWindowExW(0, WC_LISTVIEWW, L"", WS_POPUP | LVS_REPORT | LVS_OWNERDATA,
+        0, 0, 900, 600, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+    ASSERT_NE(fileList, nullptr);
+
+    wit::ui::FileListView fileListView;
+    fileListView.Attach(fileList);
+
+    auto waitForCount = [&](int expected) {
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+        while (ListView_GetItemCount(fileList) != expected && std::chrono::steady_clock::now() < deadline) {
+            PumpMessages();
+            Sleep(1);
+        }
+        return ListView_GetItemCount(fileList) == expected;
+    };
+    auto waitForRow = [&](int row) {
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+        while (!fileListView.CachedEntryAt(row) && std::chrono::steady_clock::now() < deadline) {
+            fileListView.PreloadRange(row, row);
+            PumpMessages();
+            Sleep(1);
+        }
+        return fileListView.CachedEntryAt(row) != nullptr;
+    };
+
+    wit::core::BrowserLocation location;
+    location.isRoot = false;
+    location.sourceId = disk.id;
+    location.sourceName = disk.diskName;
+    location.sourceRoot = disk.sourcePath;
+    location.path = parent.path;
+    fileListView.SetLocation(location, &database.BrowserRepository());
+    ASSERT_TRUE(waitForCount(1));
+    ASSERT_TRUE(waitForRow(0));
+    const auto* folder = fileListView.CachedEntryAt(0);
+    ASSERT_NE(folder, nullptr);
+    ASSERT_TRUE(folder->isDirectory);
+    ASSERT_EQ(folder->fullPath, imported.path);
+    ASSERT_NE(wit::platform::Join(location.path, folder->name), imported.path);
+
+    fileListView.SetLocation({false, false, 0, L"", disk.id, disk.diskName, disk.sourcePath, folder->fullPath},
+        &database.BrowserRepository());
+    ASSERT_TRUE(waitForCount(1)) << "navigation must use folders.path, not parentPath + name";
+    ASSERT_TRUE(waitForRow(0));
+
+    wchar_t text[260]{};
+    fileListView.TextFor(0, 0, text, std::size(text));
+    EXPECT_EQ(std::wstring(text), L"inside.txt");
+
+    DestroyWindow(fileList);
+    database.Close();
+    std::filesystem::remove_all(testRoot);
+}
+TEST(BrowserFileListPerformance, MainListFolderNavigationLoadsChildRows) {
+    const auto testRoot = std::filesystem::temp_directory_path() /
+        (L"whereisthat-main-list-navigation-" + std::to_wstring(GetCurrentProcessId()));
+    const auto catalogPath = testRoot / L"nested.db";
+    std::filesystem::remove_all(testRoot);
+    std::filesystem::create_directories(testRoot);
+
+    wit::storage::Database database;
+    ASSERT_TRUE(database.CreateNew(catalogPath.wstring(), true));
+
+    wit::core::Disk disk{};
+    disk.diskName = L"Nested";
+    disk.diskNumber = 1;
+    disk.sourcePath = L"X:\\NestedDisk";
+    disk.totalCapacity = 1024;
+    disk.freeSpace = 512;
+    disk.addedAt = 100;
+    disk.updatedAt = 100;
+    disk.diskType = wit::core::DiskType::VirtualDisk;
+    disk.id = database.AddDisk(disk);
+    ASSERT_NE(disk.id, 0);
+
+    wit::core::FolderEntry root{};
+    root.diskId = disk.id;
+    root.path = disk.sourcePath;
+    root.name = L"NestedDisk";
+    root.modifiedAt = 100;
+    root.attributes = FILE_ATTRIBUTE_DIRECTORY;
+    root.contentSize = 5;
+    root.id = database.InsertFolder(root);
+    ASSERT_NE(root.id, 0);
+
+    wit::core::FolderEntry child{};
+    child.diskId = disk.id;
+    child.parentFolderId = root.id;
+    child.hasParent = true;
+    child.path = wit::platform::Join(root.path, L"child");
+    child.name = L"child";
+    child.modifiedAt = 101;
+    child.attributes = FILE_ATTRIBUTE_DIRECTORY;
+    child.contentSize = 5;
+    child.id = database.InsertFolder(child);
+    ASSERT_NE(child.id, 0);
+
+    wit::core::FileEntry nestedFile{};
+    nestedFile.catalogId = disk.id;
+    nestedFile.folderId = child.id;
+    nestedFile.name = L"inside.txt";
+    nestedFile.extension = L"txt";
+    nestedFile.size = 5;
+    nestedFile.modifiedAt = 102;
+    nestedFile.attributes = FILE_ATTRIBUTE_ARCHIVE;
+    ASSERT_TRUE(database.InsertFile(nestedFile));
+
+    INITCOMMONCONTROLSEX controls{sizeof(controls), ICC_LISTVIEW_CLASSES};
+    ASSERT_TRUE(InitCommonControlsEx(&controls));
+
+    const HWND fileList = CreateWindowExW(0, WC_LISTVIEWW, L"", WS_POPUP | LVS_REPORT | LVS_OWNERDATA,
+        0, 0, 900, 600, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+    ASSERT_NE(fileList, nullptr);
+
+    wit::ui::FileListView fileListView;
+    fileListView.Attach(fileList);
+
+    auto waitForCount = [&](int expected) {
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+        while (ListView_GetItemCount(fileList) != expected && std::chrono::steady_clock::now() < deadline) {
+            PumpMessages();
+            Sleep(1);
+        }
+        return ListView_GetItemCount(fileList) == expected;
+    };
+    auto waitForRow = [&](int row) {
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+        while (!fileListView.CachedEntryAt(row) && std::chrono::steady_clock::now() < deadline) {
+            fileListView.PreloadRange(row, row);
+            PumpMessages();
+            Sleep(1);
+        }
+        return fileListView.CachedEntryAt(row) != nullptr;
+    };
+
+    wit::core::BrowserLocation location;
+    location.isRoot = false;
+    location.sourceId = disk.id;
+    location.sourceName = disk.diskName;
+    location.sourceRoot = disk.sourcePath;
+    location.path = disk.sourcePath;
+    fileListView.SetLocation(location, &database.BrowserRepository());
+    ASSERT_TRUE(waitForCount(1));
+    ASSERT_TRUE(waitForRow(0));
+    const auto* folder = fileListView.CachedEntryAt(0);
+    ASSERT_NE(folder, nullptr);
+    ASSERT_TRUE(folder->isDirectory);
+    ASSERT_EQ(folder->name, L"child");
+
+    location.path = wit::platform::Join(location.path, folder->name);
+    fileListView.SetLocation(location, &database.BrowserRepository());
+    ASSERT_TRUE(waitForCount(1)) << "opening a folder from the main list must repopulate child rows";
+    ASSERT_TRUE(waitForRow(0));
+
+    wchar_t text[260]{};
+    fileListView.TextFor(0, 0, text, std::size(text));
+    EXPECT_EQ(std::wstring(text), L"inside.txt");
+
+    DestroyWindow(fileList);
+    database.Close();
+    std::filesystem::remove_all(testRoot);
 }
 TEST(DISABLED_SearchPaneUiPerformance, SearchAndScrollFakeCatalog) {
     const auto catalogPath = std::filesystem::current_path() / L"tools" / L"catalog-test" /

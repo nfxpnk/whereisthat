@@ -1,0 +1,22 @@
+ID: WIT-015
+File and line number: src/app/wit_gui/src/FileListPane.cpp:193-208, src/app/wit_gui/src/FileListPane.cpp:349-382, src/app/wit_gui/src/FileListPane.cpp:391-400, src/app/wit_gui/src/BrowserController.cpp:312-324
+Severity: Medium
+Category: performance, UI responsiveness
+
+Problem:
+The main browser virtual list performs synchronous repository calls from UI paths. SetLocation synchronously counts items, LVN_GETDISPINFO calls ImageFor/TextFor, and those call EntryAt/BrowserItemAt, which can synchronously page from SQLite. LVN_ODCACHEHINT is currently a no-op.
+
+Why it matters:
+Opening large folders, fast scrolling, or slow catalog storage can block list painting and input on the UI thread. This is similar to the search results paging issue, but in the main browser pane.
+
+Suggested fix:
+Make virtual-list callbacks cache-only, implement asynchronous page prefetch for content/root pages, and update/redraw rows when pages arrive. Keep synchronous loads only for explicit user actions where behavior must be immediate.
+
+Risk of fixing:
+Medium
+
+Estimated effort:
+Medium/Large
+
+Confidence level:
+High

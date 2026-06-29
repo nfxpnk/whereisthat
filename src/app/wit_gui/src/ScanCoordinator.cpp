@@ -88,33 +88,14 @@ bool ScanCoordinator::Start(wit::storage::Database* source, const wit::core::Sca
     bool enableScanFileDelay, ScanId& scanId) {
     AssertOwnerThread();
     if (IsRunning() || !deliveryWindow_ || !source) return false;
-    auto candidate = std::make_unique<wit::storage::Database>();
-    std::uint64_t workingCopyCreateNs{};
-    {
-        wit::infra::ScopedScanTimer timer(workingCopyCreateNs);
-        if (!candidate->CreateWorkingCopy(*source)) return false;
-    }
-    const auto rootPath = std::filesystem::absolute(request.scanRoot);
-    const std::wstring root = rootPath.wstring();
-    const std::wstring diskName = request.diskName.empty()
-        ? wit::platform::DisplayNameForPath(rootPath) : request.diskName;
-    std::int64_t diskNumber{};
-    try {
-        if (!request.diskNumber.empty()) diskNumber = std::stoll(request.diskNumber);
-    } catch (...) {
-        diskNumber = 0;
-    }
     scanId = nextScanId_++;
     if (scanId == 0) scanId = nextScanId_++;
     activeScanId_ = scanId;
     activeCatalogId_ = request.destinationCatalogId;
     cancellationRequested_ = false;
-    worker_ = std::jthread([this, scanId, root, diskName, diskNumber, request, enableScanFileDelay,
-        workingCopyCreateNs,
-        staged = std::move(candidate)](std::stop_token stopToken) mutable {
+    worker_ = std::jthread([this, scanId, source, request, enableScanFileDelay](std::stop_token stopToken) {
         try {
-            RunScan(stopToken, scanId, root, diskName, diskNumber, request, enableScanFileDelay, std::move(staged),
-                workingCopyCreateNs);
+            RunScan(stopToken, scanId, source, request, enableScanFileDelay);
         } catch (const std::exception& error) {
             ScanResult result;
             result.id = scanId;
@@ -199,17 +180,26 @@ LRESULT ScanCoordinator::DispatchNotification(UINT message, WPARAM wparam, LPARA
     return 0;
 }
 
-void ScanCoordinator::RunScan(std::stop_token stopToken, ScanId scanId, std::wstring root, std::wstring diskName,
-    std::int64_t diskNumber, wit::core::ScanRequest request, bool enableScanFileDelay,
-    std::unique_ptr<wit::storage::Database> staged, std::uint64_t workingCopyCreateNs) {
+void ScanCoordinator::RunScan(std::stop_token stopToken, ScanId scanId, wit::storage::Database* source,
+    wit::core::ScanRequest request, bool enableScanFileDelay) {
+    const auto rootPath = std::filesystem::absolute(request.scanRoot);
+    const std::wstring root = rootPath.wstring();
+    const std::wstring diskName = request.diskName.empty()
+        ? wit::platform::DisplayNameForPath(rootPath) : request.diskName;
+    std::int64_t diskNumber{};
+    try {
+        if (!request.diskNumber.empty()) diskNumber = std::stoll(request.diskNumber);
+    } catch (...) {
+        diskNumber = 0;
+    }
+
     wit::infra::ScanProfile profile;
     profile.scanId = static_cast<std::uint64_t>(scanId);
     profile.root = root;
     profile.options.calculateCrc = request.calculateCrc;
     profile.options.browseArchives = request.browseArchives;
     profile.options.countFilesBeforeScan = false;
-    profile.timingsNs.workingCopyCreate = workingCopyCreateNs;
-    profile.timingsNs.total = workingCopyCreateNs;
+
     ScanResult result;
     result.id = scanId;
     result.destinationCatalogId = request.destinationCatalogId;
@@ -240,6 +230,7 @@ void ScanCoordinator::RunScan(std::stop_token stopToken, ScanId scanId, std::wst
     } profileFinalizer{profile, result, profileWritten};
     std::optional<wit::infra::ScopedScanTimer> totalTimer;
     totalTimer.emplace(profile.timingsNs.total);
+    auto staged = std::make_unique<wit::storage::Database>();
     const auto cancelled = [&]() {
         if (!stopToken.stop_requested()) return false;
         if (staged->IsOpen()) {
@@ -255,6 +246,10 @@ void ScanCoordinator::RunScan(std::stop_token stopToken, ScanId scanId, std::wst
     wit::core::FileScanner scanner({enableScanFileDelay});
     PublishProgress(scanId, {0, 0, 0, 0, false, false});
     bool success = !cancelled();
+    if (success) {
+        wit::infra::ScopedScanTimer timer(profile.timingsNs.workingCopyCreate);
+        success = staged->CreateWorkingCopy(*source);
+    }
 
     std::int64_t id{};
     if (success && !cancelled()) {

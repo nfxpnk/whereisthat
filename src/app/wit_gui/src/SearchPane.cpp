@@ -31,6 +31,7 @@ struct SearchColumnDefinition {
 
 constexpr int kMinimumColumnWidth = 20;
 constexpr int kMaximumColumnWidth = 4000;
+constexpr int MaxSelectedRowsForStatus = 256;
 constexpr std::array<SearchColumnDefinition, 5> kSearchColumns{{
     {L"SearchResults.Name", L"File, Folder or Disk", 145, LVCFMT_LEFT},
     {L"SearchResults.Type", L"Type", 66, LVCFMT_LEFT},
@@ -136,12 +137,13 @@ void OpenInExplorerOrAlert(HWND owner, const std::wstring& path, bool selectItem
 }
 }
 
-SearchDialog::SearchDialog() : searchReaper_([this]() { ReapSearchWorkers(); }) {
+SearchDialog::SearchDialog() : searchReaper_([this]() { ReapWorkers(); }) {
 }
 
 SearchDialog::~SearchDialog() {
     CancelSearchLoad();
-    DrainSearchWorkers();
+    CancelPageLoad();
+    DrainWorkers();
     {
         std::scoped_lock lock(searchReaperMutex_);
         stopSearchReaper_ = true;
@@ -156,7 +158,8 @@ bool SearchDialog::Show(HWND owner, wit::search::ISearchRepository* search, Loca
     const bool repositoryChanged = search_ && search_ != search;
     if (m_hWnd && repositoryChanged) {
         CancelSearchLoad();
-        DrainSearchWorkers();
+        CancelPageLoad();
+        DrainWorkers();
     }
     launchOwner_ = owner;
     search_ = search;
@@ -222,6 +225,7 @@ LRESULT SearchDialog::OnExecuteAdvancedSearch(WORD, WORD, HWND, BOOL&) {
 
 LRESULT SearchDialog::OnClearAdvancedSearch(WORD, WORD, HWND, BOOL&) {
     CancelSearchLoad();
+    CancelPageLoad();
     SetDlgItemTextW(IDC_ADVANCED_SEARCH_QUERY, L"");
     advancedExpression_ = {};
     resultMode_ = ResultMode::Advanced;
@@ -270,7 +274,8 @@ LRESULT SearchDialog::OnWindowClose(UINT, WPARAM, LPARAM, BOOL&) {
 
 LRESULT SearchDialog::OnDestroy(UINT, WPARAM, LPARAM, BOOL&) {
     CancelSearchLoad();
-    DrainSearchWorkers();
+    CancelPageLoad();
+    DrainWorkers();
     (void)PersistColumnWidths();
     if (results_) {
         const HWND header = ListView_GetHeader(results_);
@@ -313,7 +318,7 @@ LRESULT SearchDialog::OnSearchComplete(UINT, WPARAM, LPARAM, BOOL&) {
         mailbox->pendingResult.reset();
     }
     if (!result || !results_) return 0;
-    RetireSearchWorker();
+    RetireWorker(searchWorker_);
     if (mailbox == searchMailbox_) searchMailbox_.reset();
     elapsedSeconds_ = result->elapsedSeconds;
 
@@ -346,6 +351,44 @@ LRESULT SearchDialog::OnPersistColumnWidths(UINT, WPARAM, LPARAM, BOOL&) {
     (void)PersistColumnWidths();
     return 0;
 }
+
+LRESULT SearchDialog::OnPageReady(UINT, WPARAM, LPARAM, BOOL&) {
+    std::optional<AsyncPageResult> result;
+    const auto mailbox = pageMailbox_;
+    if (mailbox) {
+        std::scoped_lock lock(mailbox->mutex);
+        if (mailbox->pendingResult && mailbox->pendingResult->requestId == pageRequestId_) {
+            result = std::move(mailbox->pendingResult);
+        }
+        mailbox->pendingResult.reset();
+    }
+    RetireWorker(pageWorker_);
+    if (!result || !results_) return 0;
+    if (mailbox == pageMailbox_) pageMailbox_.reset();
+    if (!result->error.empty()) {
+        SetDlgItemTextW(IDC_SEARCH_SUMMARY, result->error.c_str());
+        return 0;
+    }
+    auto existing = std::ranges::find_if(cachedPages_,
+        [start = result->page.start](const CachedPage& page) { return page.start == start; });
+    result->page.lastUsed = ++cacheClock_;
+    const int first = result->page.start;
+    const int last = first + static_cast<int>(result->page.items.size()) - 1;
+    if (existing != cachedPages_.end()) {
+        *existing = std::move(result->page);
+    } else {
+        cachedPages_.push_back(std::move(result->page));
+    }
+    while (cachedPages_.size() > MaxCachedPages) {
+        const auto oldest = std::ranges::min_element(cachedPages_,
+            [](const CachedPage& left, const CachedPage& right) { return left.lastUsed < right.lastUsed; });
+        if (oldest == cachedPages_.end()) break;
+        cachedPages_.erase(oldest);
+    }
+    if (last >= first) ListView_RedrawItems(results_, first, last);
+    UpdateStatusText();
+    return 0;
+}
 LRESULT SearchDialog::OnCloseCommand(WORD, WORD, HWND, BOOL&) {
     DestroyWindow();
     return 0;
@@ -358,7 +401,8 @@ LRESULT SearchDialog::OnGetDisplayInfo(int, LPNMHDR header, BOOL&) {
             displayInfo->item.pszText, displayInfo->item.cchTextMax);
     }
     if (displayInfo->item.mask & LVIF_IMAGE) {
-        const auto* entry = EntryAt(displayInfo->item.iItem);
+        const auto* entry = CachedEntryAt(displayInfo->item.iItem);
+        if (!entry) SchedulePageLoad(displayInfo->item.iItem);
         displayInfo->item.iImage = entry ? ImageForBrowserEntry(*entry) : I_IMAGENONE;
     }
     displayInfo->item.mask |= LVIF_DI_SETITEM;
@@ -497,6 +541,7 @@ void SearchDialog::Search() {
     const auto term = DialogText(IDC_SEARCH_NAME);
     if (term.find_first_not_of(L" \t\r\n") == std::wstring::npos) {
         CancelSearchLoad();
+        CancelPageLoad();
         nameTerm_.clear();
         advancedExpression_ = {};
         resultMode_ = ResultMode::Quick;
@@ -564,6 +609,7 @@ void SearchDialog::AdvancedSearch() {
     const auto parsed = wit::search::ParseAdvancedSearchQuery(query);
     if (!parsed.success) {
         CancelSearchLoad();
+        CancelPageLoad();
         advancedExpression_ = {};
         resultMode_ = ResultMode::Advanced;
         total_ = 0;
@@ -583,6 +629,7 @@ void SearchDialog::AdvancedSearch() {
 
 void SearchDialog::BeginSearchLoad() {
     CancelSearchLoad();
+    CancelPageLoad();
     if (!search_ || !results_) return;
 
     const auto requestId = ++searchRequestId_;
@@ -627,34 +674,44 @@ void SearchDialog::BeginSearchLoad() {
     });
 }
 
+void SearchDialog::CancelPageLoad() {
+    ++pageRequestId_;
+    pageMailbox_.reset();
+    if (pageWorker_.joinable()) {
+        pageWorker_.request_stop();
+        if (search_) search_->CancelPending();
+        RetireWorker(pageWorker_);
+    }
+}
+
 void SearchDialog::CancelSearchLoad() {
     ++searchRequestId_;
     searchMailbox_.reset();
     if (searchWorker_.joinable()) {
         searchWorker_.request_stop();
         if (search_) search_->CancelPending();
-        RetireSearchWorker();
+        RetireWorker(searchWorker_);
     }
 }
 
-void SearchDialog::RetireSearchWorker() {
-    if (!searchWorker_.joinable()) return;
+void SearchDialog::RetireWorker(std::jthread& worker) {
+    if (!worker.joinable()) return;
     {
         std::scoped_lock lock(searchReaperMutex_);
-        retiredSearchWorkers_.push_back(std::move(searchWorker_));
+        retiredSearchWorkers_.push_back(std::move(worker));
         ++activeRetiredSearchWorkers_;
     }
     searchReaperCondition_.notify_one();
 }
 
-void SearchDialog::DrainSearchWorkers() {
+void SearchDialog::DrainWorkers() {
     std::unique_lock lock(searchReaperMutex_);
     searchReaperCondition_.wait(lock, [this]() {
         return activeRetiredSearchWorkers_ == 0;
     });
 }
 
-void SearchDialog::ReapSearchWorkers() {
+void SearchDialog::ReapWorkers() {
     for (;;) {
         std::jthread retired;
         {
@@ -687,6 +744,17 @@ void SearchDialog::PublishSearchResult(const std::weak_ptr<AsyncSearchMailbox>& 
         sharedMailbox->pendingResult = std::move(result);
     }
     if (window) ::PostMessageW(window, SearchCompleteMessage, 0, 0);
+}
+
+void SearchDialog::PublishPageResult(const std::weak_ptr<AsyncPageMailbox>& mailbox, HWND window,
+    AsyncPageResult result) {
+    const auto sharedMailbox = mailbox.lock();
+    if (!sharedMailbox) return;
+    {
+        std::scoped_lock lock(sharedMailbox->mutex);
+        sharedMailbox->pendingResult = std::move(result);
+    }
+    if (window) ::PostMessageW(window, PageReadyMessage, 0, 0);
 }
 
 void SearchDialog::ClearCache() {
@@ -733,6 +801,43 @@ void SearchDialog::CachePage(int pageStart) {
     }
 }
 
+void SearchDialog::SchedulePageLoad(int pageStart) {
+    if (!search_ || pageStart < 0 || pageStart >= total_) return;
+    if (resultMode_ == ResultMode::Quick && nameTerm_.empty()) return;
+    if (resultMode_ == ResultMode::Advanced && advancedExpression_.criteria.empty()) return;
+
+    const int normalizedStart = (pageStart / PageSize) * PageSize;
+    const auto cached = std::ranges::find_if(cachedPages_,
+        [normalizedStart](const CachedPage& page) { return page.start == normalizedStart; });
+    if (cached != cachedPages_.end()) return;
+    if (pageWorker_.joinable()) return;
+
+    const auto requestId = ++pageRequestId_;
+    const auto mode = resultMode_;
+    const auto nameTerm = nameTerm_;
+    const auto caseSensitive = caseSensitive_;
+    const auto expression = advancedExpression_;
+    const auto sort = sort_;
+    auto* repository = search_;
+    const HWND window = m_hWnd;
+    auto mailbox = std::make_shared<AsyncPageMailbox>();
+    pageMailbox_ = mailbox;
+    const std::weak_ptr<AsyncPageMailbox> mailboxReference = mailbox;
+
+    pageWorker_ = std::jthread([window, requestId, normalizedStart, mode, nameTerm, caseSensitive, expression, sort,
+        repository, mailboxReference](std::stop_token stopToken) {
+        AsyncPageResult result;
+        result.requestId = requestId;
+        result.page.start = normalizedStart;
+        result.page.items = mode == ResultMode::Quick
+            ? repository->PageByName(nameTerm, normalizedStart, PageSize, sort, caseSensitive)
+            : repository->PageAdvanced(expression, normalizedStart, PageSize, sort);
+        if (stopToken.stop_requested()) return;
+        if (result.page.items.empty()) result.error = repository->LastErrorMessage();
+        PublishPageResult(mailboxReference, window, std::move(result));
+    });
+}
+
 void SearchDialog::PreloadRange(int firstRow, int lastRow) {
     if (total_ <= 0) return;
     firstRow = std::clamp(firstRow, 0, total_ - 1);
@@ -741,8 +846,26 @@ void SearchDialog::PreloadRange(int firstRow, int lastRow) {
     const int firstPage = firstRow / PageSize;
     const int lastPage = lastRow / PageSize;
     for (int page = firstPage; page <= lastPage; ++page) {
-        CachePage(page * PageSize);
+        const int start = page * PageSize;
+        const auto cached = std::ranges::find_if(cachedPages_,
+            [start](const CachedPage& cachedPage) { return cachedPage.start == start; });
+        if (cached == cachedPages_.end()) {
+            SchedulePageLoad(start);
+            return;
+        }
     }
+}
+
+const wit::core::FileEntry* SearchDialog::CachedEntryAt(int row) {
+    if (row < 0 || row >= total_) return nullptr;
+    const int pageStart = (row / PageSize) * PageSize;
+    const auto found = std::ranges::find_if(cachedPages_,
+        [pageStart](const CachedPage& page) { return page.start == pageStart; });
+    if (found == cachedPages_.end()) return nullptr;
+
+    found->lastUsed = ++cacheClock_;
+    const int index = row - found->start;
+    return index >= 0 && index < static_cast<int>(found->items.size()) ? &found->items[index] : nullptr;
 }
 
 const wit::core::FileEntry* SearchDialog::EntryAt(int row) {
@@ -849,23 +972,29 @@ void SearchDialog::UpdateStatusText() {
     const auto items = std::format(L"Items on list: {}", total_);
     SendMessageW(status_, SB_SETTEXTW, 0, reinterpret_cast<LPARAM>(items.c_str()));
 
-    const auto* focused = FocusedEntry();
+    const auto* focused = results_ ? CachedEntryAt(ListView_GetNextItem(results_, -1, LVNI_FOCUSED)) : nullptr;
     const auto focusedText = focused ? FileEntryStatusText(*focused) : std::wstring{};
     SendMessageW(status_, SB_SETTEXTW, 1, reinterpret_cast<LPARAM>(focusedText.c_str()));
 
     int selectedCount{};
     std::uint64_t selectedSize{};
+    int sampledSelectedRows{};
+    bool selectedSizeComplete = true;
     if (results_) {
+        selectedCount = ListView_GetSelectedCount(results_);
         for (int row = ListView_GetNextItem(results_, -1, LVNI_SELECTED); row >= 0;
             row = ListView_GetNextItem(results_, row, LVNI_SELECTED)) {
-            if (const auto* entry = EntryAt(row)) {
-                ++selectedCount;
-                selectedSize += entry->size;
+            if (++sampledSelectedRows > MaxSelectedRowsForStatus) {
+                selectedSizeComplete = false;
+                break;
             }
+            if (const auto* entry = CachedEntryAt(row)) selectedSize += entry->size;
+            else selectedSizeComplete = false;
         }
     }
-    const auto selectedText = std::format(L"Selected items: {} (total {})",
-        selectedCount, CompactFileSize(selectedSize));
+    const auto selectedText = selectedSizeComplete
+        ? std::format(L"Selected items: {} (total {})", selectedCount, CompactFileSize(selectedSize))
+        : std::format(L"Selected items: {}", selectedCount);
     SendMessageW(status_, SB_SETTEXTW, 2, reinterpret_cast<LPARAM>(selectedText.c_str()));
 
     const auto elapsedText = elapsedSeconds_ > 0.0
@@ -970,8 +1099,11 @@ void SearchDialog::ShowResultsContextMenu(POINT screenPoint) {
 void SearchDialog::TextFor(int row, int column, wchar_t* buffer, std::size_t bufferSize) {
     if (!buffer || bufferSize == 0) return;
     buffer[0] = L'\0';
-    const auto* entry = EntryAt(row);
-    if (!entry) return;
+    const auto* entry = CachedEntryAt(row);
+    if (!entry) {
+        SchedulePageLoad(row);
+        return;
+    }
     const auto& file = *entry;
     switch (column) {
     case 0:

@@ -97,16 +97,22 @@ const char* OrderExpressionFor(wit::core::FileSortColumn column, bool folders) {
         return folders ? "c.modified_at" : "f.modified_at";
     case wit::core::FileSortColumn::Name:
     default:
-        return folders ? "c.name COLLATE WIN_NATURAL_NOCASE" : "f.name COLLATE WIN_NATURAL_NOCASE";
+        return folders ? "c.name" : "f.name";
     }
 }
 
 std::string OrderByFor(wit::core::FileSort sort, bool folders) {
+    if (sort.column == wit::core::FileSortColumn::Name) {
+        const char* prefix = folders ? "c" : "f";
+        return std::string{"ORDER BY "} + prefix + ".name" + (sort.ascending ? " ASC," : " DESC,") +
+            prefix + ".id ASC ";
+    }
+
     std::string order{"ORDER BY "};
     order += OrderExpressionFor(sort.column, folders);
     order += sort.ascending ? " ASC," : " DESC,";
-    order += folders ? " c.name COLLATE WIN_NATURAL_NOCASE ASC,c.id ASC "
-        : " f.name COLLATE WIN_NATURAL_NOCASE ASC,f.id ASC ";
+    order += folders ? " c.name ASC,c.id ASC "
+        : " f.name ASC,f.id ASC ";
     return order;
 }
 

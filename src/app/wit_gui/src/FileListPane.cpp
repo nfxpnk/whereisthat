@@ -338,16 +338,7 @@ void FileListView::UpdateSortIndicators() {
     UpdateListViewSortIndicators(hwnd, ContentColumnFromSortColumn(sort_.column), sort_.ascending);
 }
 
-void FileListView::PreloadRange(int firstRow, int lastRow) {
-    if (!browser || ShowsBrowserItems() || total <= 0) return;
-    firstRow = std::clamp(firstRow, 0, total - 1);
-    lastRow = std::clamp(lastRow, firstRow, total - 1);
-
-    const int firstPage = (std::max)(0, (firstRow / PageSize) - 1);
-    const int lastPage = (std::min)((total - 1) / PageSize, (lastRow / PageSize) + 1);
-    for (int pageIndex = firstPage; pageIndex <= lastPage; ++pageIndex) {
-        CacheFilePage(pageIndex * PageSize);
-    }
+void FileListView::PreloadRange(int, int) {
 }
 
 void FileListView::ClearCache() {

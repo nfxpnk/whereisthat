@@ -25,6 +25,7 @@ public:
     ~SearchDialog();
     static constexpr UINT SearchCompleteMessage = WM_APP + 44;
     static constexpr UINT PersistColumnWidthsMessage = WM_APP + 45;
+    static constexpr UINT PageReadyMessage = WM_APP + 46;
 
     using LocateResultHandler = std::function<bool(const wit::core::FileEntry&)>;
 
@@ -43,6 +44,7 @@ public:
         MESSAGE_HANDLER(WM_DESTROY, OnDestroy)
         MESSAGE_HANDLER(SearchCompleteMessage, OnSearchComplete)
         MESSAGE_HANDLER(PersistColumnWidthsMessage, OnPersistColumnWidths)
+        MESSAGE_HANDLER(PageReadyMessage, OnPageReady)
         COMMAND_ID_HANDLER(IDC_SEARCH_EXECUTE, OnExecuteSearch)
         COMMAND_ID_HANDLER(IDC_ADVANCED_SEARCH_EXECUTE, OnExecuteAdvancedSearch)
         COMMAND_ID_HANDLER(IDC_ADVANCED_SEARCH_CLEAR, OnClearAdvancedSearch)
@@ -93,6 +95,17 @@ private:
         double elapsedSeconds{};
     };
 
+    struct AsyncPageResult {
+        std::uint64_t requestId{};
+        CachedPage page;
+        std::wstring error;
+    };
+
+    struct AsyncPageMailbox {
+        std::mutex mutex;
+        std::optional<AsyncPageResult> pendingResult;
+    };
+
     struct AsyncSearchMailbox {
         std::mutex mutex;
         std::optional<AsyncSearchResult> pendingResult;
@@ -118,6 +131,9 @@ private:
     std::vector<CachedPage> cachedPages_;
     std::jthread searchWorker_;
     std::shared_ptr<AsyncSearchMailbox> searchMailbox_;
+    std::jthread pageWorker_;
+    std::shared_ptr<AsyncPageMailbox> pageMailbox_;
+    std::uint64_t pageRequestId_{};
     std::mutex searchReaperMutex_;
     std::condition_variable searchReaperCondition_;
     std::vector<std::jthread> retiredSearchWorkers_;
@@ -142,6 +158,7 @@ private:
     LRESULT OnDestroy(UINT message, WPARAM wparam, LPARAM lparam, BOOL& handled);
     LRESULT OnSearchComplete(UINT message, WPARAM wparam, LPARAM lparam, BOOL& handled);
     LRESULT OnPersistColumnWidths(UINT message, WPARAM wparam, LPARAM lparam, BOOL& handled);
+    LRESULT OnPageReady(UINT message, WPARAM wparam, LPARAM lparam, BOOL& handled);
     LRESULT OnCloseCommand(WORD notifyCode, WORD id, HWND control, BOOL& handled);
     LRESULT OnGetDisplayInfo(int id, LPNMHDR header, BOOL& handled);
     LRESULT OnCacheHint(int id, LPNMHDR header, BOOL& handled);
@@ -161,17 +178,22 @@ private:
     void AdvancedSearch();
     void BeginSearchLoad();
     void CancelSearchLoad();
-    void RetireSearchWorker();
-    void DrainSearchWorkers();
-    void ReapSearchWorkers();
+    void CancelPageLoad();
+    void RetireWorker(std::jthread& worker);
+    void DrainWorkers();
+    void ReapWorkers();
     static void PublishSearchResult(const std::weak_ptr<AsyncSearchMailbox>& mailbox, HWND window,
         AsyncSearchResult result);
+    static void PublishPageResult(const std::weak_ptr<AsyncPageMailbox>& mailbox, HWND window,
+        AsyncPageResult result);
     void ShowTabPage(int index);
     std::wstring DialogText(int controlId) const;
     void ClearCache();
     void ResetResultItemCache();
     void CachePage(int pageStart);
+    void SchedulePageLoad(int pageStart);
     void PreloadRange(int firstRow, int lastRow);
+    const wit::core::FileEntry* CachedEntryAt(int row);
     const wit::core::FileEntry* EntryAt(int row);
     const wit::core::FileEntry* FocusedEntry();
     void ToggleSortForColumn(int column);

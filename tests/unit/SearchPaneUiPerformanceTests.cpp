@@ -137,6 +137,40 @@ public:
     std::wstring LastErrorMessage() const override { return {}; }
 };
 
+class CountingBrowserRepository final : public wit::storage::IBrowserRepository {
+public:
+    int GetBrowserItemCount(const wit::core::BrowserLocation&) override { return 500000; }
+    int GetBrowserRootItemCount(const wit::core::BrowserLocation&) override { return 0; }
+
+    std::vector<wit::core::BrowserItem> GetBrowserRootItemsPage(
+        const wit::core::BrowserLocation&, int, int, wit::core::BrowserRootSort) override {
+        return {};
+    }
+
+    std::vector<wit::core::FileEntry> GetBrowserItemsPage(
+        const wit::core::BrowserLocation&, int offset, int limit, wit::core::FileSort) override {
+        ++pageCalls;
+        std::vector<wit::core::FileEntry> entries;
+        entries.reserve(static_cast<std::size_t>(limit));
+        for (int index = 0; index < limit; ++index) {
+            wit::core::FileEntry entry;
+            entry.id = offset + index + 1;
+            entry.name = L"file" + std::to_wstring(offset + index) + L".txt";
+            entry.extension = L"txt";
+            entries.push_back(std::move(entry));
+        }
+        return entries;
+    }
+
+    bool HasChildFolders(std::int64_t, const std::wstring&) override { return false; }
+
+    std::vector<wit::core::FileEntry> GetChildFolders(
+        std::int64_t, const std::wstring&) override {
+        return {};
+    }
+
+    int pageCalls{};
+};
 std::wstring StatusPartText(HWND status, int part) {
     const auto length = LOWORD(SendMessageW(status, SB_GETTEXTLENGTHW, part, 0));
     std::wstring text(static_cast<std::size_t>(length) + 1, L'\0');
@@ -246,6 +280,33 @@ TEST(SearchPaneLifetime, RebindingCancelsTheOldRepositoryBeforeReplacement) {
     PumpMessages();
 }
 
+TEST(FileListViewPerformance, CacheHintDoesNotSynchronouslyReadPages) {
+    INITCOMMONCONTROLSEX controls{sizeof(controls), ICC_LISTVIEW_CLASSES};
+    ASSERT_TRUE(InitCommonControlsEx(&controls));
+
+    const HWND fileList = CreateWindowExW(0, WC_LISTVIEWW, L"", WS_POPUP | LVS_REPORT | LVS_OWNERDATA,
+        0, 0, 640, 480, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+    ASSERT_NE(fileList, nullptr);
+
+    CountingBrowserRepository repository;
+    wit::ui::FileListView fileListView;
+    fileListView.Attach(fileList);
+
+    wit::core::BrowserLocation location;
+    location.isRoot = false;
+    location.sourceId = 1;
+    location.path = L"X:\\FakeSearchStressDisk";
+    fileListView.SetLocation(location, &repository);
+
+    fileListView.PreloadRange(250000, 250080);
+    EXPECT_EQ(repository.pageCalls, 0);
+
+    const auto* entry = fileListView.EntryAt(250000);
+    ASSERT_NE(entry, nullptr);
+    EXPECT_EQ(repository.pageCalls, 1);
+
+    DestroyWindow(fileList);
+}
 TEST(SearchPaneColumns, LoadsAndPersistsIndependentWidths) {
     AppSettingsGuard settingsGuard;
     auto settings = wit::platform::LoadAppSettings();
@@ -463,6 +524,45 @@ TEST(SearchPaneAdvancedSearch, ClearResetsResultsAndStatus) {
 
     dialog.Close();
     PumpMessages();
+}
+
+TEST(BrowserFileListPerformance, PagesFakeCatalogByNameWithoutBlocking) {
+    const auto catalogPath = std::filesystem::current_path() / L"tools" / L"catalog-test" /
+        L"fake-search-catalog.sqlite";
+    if (!std::filesystem::exists(catalogPath)) {
+        GTEST_SKIP() << "tools\\catalog-test\\fake-search-catalog.sqlite is not available";
+    }
+
+    wit::storage::Database database;
+    ASSERT_TRUE(database.OpenExisting(catalogPath.wstring()));
+    const auto disks = database.GetDisksPage(0, 1);
+    ASSERT_FALSE(disks.empty());
+
+    wit::core::BrowserLocation location;
+    location.isRoot = false;
+    location.sourceId = disks.front().id;
+    location.sourceName = disks.front().diskName;
+    location.sourceRoot = disks.front().sourcePath;
+    location.path = disks.front().sourcePath;
+
+    if (database.GetBrowserItemCount(location) != 500000) {
+        const auto rootItems = database.GetBrowserItemsPage(location, 0, 10, {});
+        const auto stressFolder = std::ranges::find_if(rootItems, [](const auto& item) {
+            return item.isDirectory;
+        });
+        ASSERT_NE(stressFolder, rootItems.end());
+        location.path += L"\\" + stressFolder->name;
+    }
+    ASSERT_EQ(database.GetBrowserItemCount(location), 500000);
+
+    const auto started = std::chrono::steady_clock::now();
+    for (int offset : {0, 128000, 256000, 400000}) {
+        const auto page = database.GetBrowserItemsPage(location, offset, 512, {});
+        ASSERT_EQ(page.size(), 512u);
+    }
+    const auto elapsedMs = std::chrono::duration<double, std::milli>(
+        std::chrono::steady_clock::now() - started).count();
+    EXPECT_LT(elapsedMs, 150.0) << "default browser scrolling must stay on the indexed name path";
 }
 
 TEST(DISABLED_SearchPaneUiPerformance, SearchAndScrollFakeCatalog) {

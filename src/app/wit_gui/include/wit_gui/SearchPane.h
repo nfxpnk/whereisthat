@@ -7,6 +7,7 @@
 #include "wit_search/ISearchRepository.h"
 #include <CommCtrl.h>
 #include <chrono>
+#include <condition_variable>
 #include <functional>
 #include <string>
 #include <cstdint>
@@ -20,6 +21,8 @@ namespace wit::ui {
 class SearchDialog : public ATL::CDialogImpl<SearchDialog>, public WTL::CDialogResize<SearchDialog> {
 public:
     enum { IDD = IDD_SEARCH_ITEMS };
+    SearchDialog();
+    ~SearchDialog();
     static constexpr UINT SearchCompleteMessage = WM_APP + 44;
     static constexpr UINT PersistColumnWidthsMessage = WM_APP + 45;
 
@@ -115,6 +118,12 @@ private:
     std::vector<CachedPage> cachedPages_;
     std::jthread searchWorker_;
     std::shared_ptr<AsyncSearchMailbox> searchMailbox_;
+    std::mutex searchReaperMutex_;
+    std::condition_variable searchReaperCondition_;
+    std::vector<std::jthread> retiredSearchWorkers_;
+    std::size_t activeRetiredSearchWorkers_{};
+    bool stopSearchReaper_{};
+    std::jthread searchReaper_;
     std::uint64_t searchRequestId_{};
     double elapsedSeconds_{};
     std::vector<std::wstring> quickSearchHistory_;
@@ -152,6 +161,9 @@ private:
     void AdvancedSearch();
     void BeginSearchLoad();
     void CancelSearchLoad();
+    void RetireSearchWorker();
+    void DrainSearchWorkers();
+    void ReapSearchWorkers();
     static void PublishSearchResult(const std::weak_ptr<AsyncSearchMailbox>& mailbox, HWND window,
         AsyncSearchResult result);
     void ShowTabPage(int index);

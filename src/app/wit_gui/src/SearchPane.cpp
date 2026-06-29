@@ -136,11 +136,28 @@ void OpenInExplorerOrAlert(HWND owner, const std::wstring& path, bool selectItem
 }
 }
 
+SearchDialog::SearchDialog() : searchReaper_([this]() { ReapSearchWorkers(); }) {
+}
+
+SearchDialog::~SearchDialog() {
+    CancelSearchLoad();
+    DrainSearchWorkers();
+    {
+        std::scoped_lock lock(searchReaperMutex_);
+        stopSearchReaper_ = true;
+    }
+    searchReaperCondition_.notify_one();
+    if (searchReaper_.joinable()) searchReaper_.join();
+}
+
 bool SearchDialog::Show(HWND owner, wit::search::ISearchRepository* search, LocateResultHandler onLocate,
     std::function<void()> onClose) {
     if (!search) return false;
     const bool repositoryChanged = search_ && search_ != search;
-    if (m_hWnd && repositoryChanged) CancelSearchLoad();
+    if (m_hWnd && repositoryChanged) {
+        CancelSearchLoad();
+        DrainSearchWorkers();
+    }
     launchOwner_ = owner;
     search_ = search;
     onLocate_ = std::move(onLocate);
@@ -253,6 +270,7 @@ LRESULT SearchDialog::OnWindowClose(UINT, WPARAM, LPARAM, BOOL&) {
 
 LRESULT SearchDialog::OnDestroy(UINT, WPARAM, LPARAM, BOOL&) {
     CancelSearchLoad();
+    DrainSearchWorkers();
     (void)PersistColumnWidths();
     if (results_) {
         const HWND header = ListView_GetHeader(results_);
@@ -295,7 +313,7 @@ LRESULT SearchDialog::OnSearchComplete(UINT, WPARAM, LPARAM, BOOL&) {
         mailbox->pendingResult.reset();
     }
     if (!result || !results_) return 0;
-    if (searchWorker_.joinable()) searchWorker_.join();
+    RetireSearchWorker();
     if (mailbox == searchMailbox_) searchMailbox_.reset();
     elapsedSeconds_ = result->elapsedSeconds;
 
@@ -615,7 +633,48 @@ void SearchDialog::CancelSearchLoad() {
     if (searchWorker_.joinable()) {
         searchWorker_.request_stop();
         if (search_) search_->CancelPending();
-        searchWorker_.join();
+        RetireSearchWorker();
+    }
+}
+
+void SearchDialog::RetireSearchWorker() {
+    if (!searchWorker_.joinable()) return;
+    {
+        std::scoped_lock lock(searchReaperMutex_);
+        retiredSearchWorkers_.push_back(std::move(searchWorker_));
+        ++activeRetiredSearchWorkers_;
+    }
+    searchReaperCondition_.notify_one();
+}
+
+void SearchDialog::DrainSearchWorkers() {
+    std::unique_lock lock(searchReaperMutex_);
+    searchReaperCondition_.wait(lock, [this]() {
+        return activeRetiredSearchWorkers_ == 0;
+    });
+}
+
+void SearchDialog::ReapSearchWorkers() {
+    for (;;) {
+        std::jthread retired;
+        {
+            std::unique_lock lock(searchReaperMutex_);
+            searchReaperCondition_.wait(lock, [this]() {
+                return stopSearchReaper_ || !retiredSearchWorkers_.empty();
+            });
+            if (retiredSearchWorkers_.empty()) {
+                if (stopSearchReaper_) return;
+                continue;
+            }
+            retired = std::move(retiredSearchWorkers_.back());
+            retiredSearchWorkers_.pop_back();
+        }
+        if (retired.joinable()) retired.join();
+        {
+            std::scoped_lock lock(searchReaperMutex_);
+            if (activeRetiredSearchWorkers_ > 0) --activeRetiredSearchWorkers_;
+        }
+        searchReaperCondition_.notify_all();
     }
 }
 

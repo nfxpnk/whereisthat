@@ -486,7 +486,7 @@ void BrowserController::SelectAll() {
 
 std::wstring BrowserController::FocusedItemStatus() {
     const int index = filesHandle_ ? ListView_GetNextItem(filesHandle_, -1, LVNI_FOCUSED) : -1;
-    if (const auto* item = index >= 0 ? files_.BrowserItemAt(index) : nullptr) {
+    if (const auto* item = index >= 0 ? files_.CachedBrowserItemAt(index) : nullptr) {
         if (item->type == wit::core::BrowserItemType::DiskGroup) {
             return std::format(L"{} | Disks: {} | {}", item->group.name, item->group.totalDisks,
                 wit::ui::CompactFileSize(item->group.totalCapacity));
@@ -496,30 +496,38 @@ std::wstring BrowserController::FocusedItemStatus() {
         if (!updatedAt.empty()) text += L" | " + updatedAt;
         return text;
     }
-    if (const auto* entry = index >= 0 ? files_.EntryAt(index) : nullptr) {
+    if (const auto* entry = index >= 0 ? files_.CachedEntryAt(index) : nullptr) {
         return wit::ui::FileEntryStatusText(*entry);
     }
     return {};
 }
 
 std::wstring BrowserController::SelectionSummaryStatus() {
+    constexpr int MaxSelectedRowsForStatus = 256;
     std::uint64_t totalSize{};
     int selected{};
+    int sampled{};
+    bool totalSizeComplete = true;
     if (filesHandle_) {
+        selected = ListView_GetSelectedCount(filesHandle_);
         for (int index = ListView_GetNextItem(filesHandle_, -1, LVNI_SELECTED); index >= 0;
             index = ListView_GetNextItem(filesHandle_, index, LVNI_SELECTED)) {
-            if (const auto* item = files_.BrowserItemAt(index)) {
-                ++selected;
+            if (++sampled > MaxSelectedRowsForStatus) {
+                totalSizeComplete = false;
+                break;
+            }
+            if (const auto* item = files_.CachedBrowserItemAt(index)) {
                 totalSize += item->type == wit::core::BrowserItemType::Disk
                     ? item->disk.totalCapacity : item->group.totalCapacity;
-            } else if (const auto* entry = files_.EntryAt(index)) {
-                ++selected;
+            } else if (const auto* entry = files_.CachedEntryAt(index)) {
                 totalSize += entry->size;
+            } else {
+                totalSizeComplete = false;
             }
         }
     }
-    return std::format(L"Selected item(s): {} (total: {})", selected, wit::ui::CompactFileSize(totalSize));
+    return totalSizeComplete ? std::format(L"Selected item(s): {} (total: {})", selected,
+        wit::ui::CompactFileSize(totalSize)) : std::format(L"Selected item(s): {}", selected);
 }
 
 }
-

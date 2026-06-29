@@ -297,14 +297,25 @@ TEST(FileListViewPerformance, CacheHintDoesNotSynchronouslyReadPages) {
     location.sourceId = 1;
     location.path = L"X:\\FakeSearchStressDisk";
     fileListView.SetLocation(location, &repository);
-
-    fileListView.PreloadRange(250000, 250080);
-    EXPECT_EQ(repository.pageCalls, 0);
-
-    const auto* entry = fileListView.EntryAt(250000);
-    ASSERT_NE(entry, nullptr);
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (ListView_GetItemCount(fileList) != 500000 && std::chrono::steady_clock::now() < deadline) {
+        PumpMessages();
+        Sleep(1);
+    }
+    ASSERT_EQ(ListView_GetItemCount(fileList), 500000);
     EXPECT_EQ(repository.pageCalls, 1);
 
+    fileListView.PreloadRange(250000, 250080);
+    EXPECT_EQ(repository.pageCalls, 1);
+
+    const auto pageDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (!fileListView.CachedEntryAt(250000) && std::chrono::steady_clock::now() < pageDeadline) {
+        PumpMessages();
+        Sleep(1);
+    }
+    const auto* entry = fileListView.CachedEntryAt(250000);
+    ASSERT_NE(entry, nullptr);
+    EXPECT_EQ(repository.pageCalls, 2);
     DestroyWindow(fileList);
 }
 TEST(SearchPaneColumns, LoadsAndPersistsIndependentWidths) {
@@ -565,6 +576,108 @@ TEST(BrowserFileListPerformance, PagesFakeCatalogByNameWithoutBlocking) {
     EXPECT_LT(elapsedMs, 150.0) << "default browser scrolling must stay on the indexed name path";
 }
 
+
+TEST(BrowserFileListPerformance, MainListScrollAndSortFakeCatalogDoesNotGoBlank) {
+    const auto catalogPath = std::filesystem::current_path() / L"tools" / L"catalog-test" /
+        L"fake-search-catalog.sqlite";
+    if (!std::filesystem::exists(catalogPath)) {
+        GTEST_SKIP() << "tools\\catalog-test\\fake-search-catalog.sqlite is not available";
+    }
+
+    INITCOMMONCONTROLSEX controls{sizeof(controls), ICC_LISTVIEW_CLASSES};
+    ASSERT_TRUE(InitCommonControlsEx(&controls));
+
+    wit::storage::Database database;
+    ASSERT_TRUE(database.OpenExisting(catalogPath.wstring()));
+    const auto disks = database.GetDisksPage(0, 1);
+    ASSERT_FALSE(disks.empty());
+
+    wit::core::BrowserLocation location;
+    location.isRoot = false;
+    location.sourceId = disks.front().id;
+    location.sourceName = disks.front().diskName;
+    location.sourceRoot = disks.front().sourcePath;
+    location.path = disks.front().sourcePath;
+
+    if (database.GetBrowserItemCount(location) != 500000) {
+        const auto rootItems = database.GetBrowserItemsPage(location, 0, 10, {});
+        const auto stressFolder = std::ranges::find_if(rootItems, [](const auto& item) {
+            return item.isDirectory;
+        });
+        ASSERT_NE(stressFolder, rootItems.end());
+        location.path += L"\\" + stressFolder->name;
+    }
+    ASSERT_EQ(database.GetBrowserItemCount(location), 500000);
+
+    const HWND fileList = CreateWindowExW(0, WC_LISTVIEWW, L"", WS_POPUP | LVS_REPORT | LVS_OWNERDATA,
+        0, 0, 900, 600, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+    ASSERT_NE(fileList, nullptr);
+
+    wit::ui::FileListView fileListView;
+    fileListView.Attach(fileList);
+
+    const auto openStarted = std::chrono::steady_clock::now();
+    const double openDispatchMs = MeasureMilliseconds([&] {
+        fileListView.SetLocation(location, &database.BrowserRepository());
+    });
+    EXPECT_LT(openDispatchMs, 250.0) << "main list open must not count/page on the UI thread";
+
+    auto waitForRow = [&](int row) {
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+        while (!fileListView.CachedEntryAt(row) && std::chrono::steady_clock::now() < deadline) {
+            fileListView.PreloadRange(row, row);
+            PumpMessages();
+            Sleep(1);
+        }
+        return fileListView.CachedEntryAt(row) != nullptr;
+    };
+
+    const auto loadDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+    while (ListView_GetItemCount(fileList) != 500000 && std::chrono::steady_clock::now() < loadDeadline) {
+        PumpMessages();
+        Sleep(1);
+    }
+    ASSERT_EQ(ListView_GetItemCount(fileList), 500000);
+    ASSERT_TRUE(waitForRow(0));
+    const double loadCompletionMs = std::chrono::duration<double, std::milli>(
+        std::chrono::steady_clock::now() - openStarted).count();
+
+    const auto scrollStarted = std::chrono::steady_clock::now();
+    ASSERT_TRUE(ListView_EnsureVisible(fileList, 250000, FALSE));
+    fileListView.PreloadRange(250000, 250000);
+    ASSERT_TRUE(ListView_EnsureVisible(fileList, 400000, FALSE));
+    fileListView.PreloadRange(400000, 400000);
+    ASSERT_TRUE(waitForRow(400000)) << "latest scrolled viewport page should load after an older page finishes";
+    const double scrollFillMs = std::chrono::duration<double, std::milli>(
+        std::chrono::steady_clock::now() - scrollStarted).count();
+
+    wchar_t text[260]{};
+    fileListView.TextFor(400000, 0, text, std::size(text));
+    EXPECT_NE(std::wstring(text), L"");
+
+    const auto sortStarted = std::chrono::steady_clock::now();
+    const double sortDispatchMs = MeasureMilliseconds([&] {
+        fileListView.SetSort({wit::core::FileSortColumn::Size, true});
+    });
+    EXPECT_LT(sortDispatchMs, 250.0) << "main list sort must not block the UI thread";
+    ASSERT_TRUE(waitForRow(ListView_GetTopIndex(fileList)));
+    const double sortFillMs = std::chrono::duration<double, std::milli>(
+        std::chrono::steady_clock::now() - sortStarted).count();
+    text[0] = L'\0';
+    fileListView.TextFor(ListView_GetTopIndex(fileList), 0, text, std::size(text));
+    EXPECT_NE(std::wstring(text), L"");
+
+    std::cout << "MAIN_LIST_PERF fake_catalog_items=500000"
+        << " open_dispatch_ms=" << openDispatchMs
+        << " load_completion_ms=" << loadCompletionMs
+        << " scroll_fill_ms=" << scrollFillMs
+        << " sort_dispatch_ms=" << sortDispatchMs
+        << " sort_fill_ms=" << sortFillMs
+        << std::endl;
+
+    DestroyWindow(fileList);
+    database.Close();
+}
 TEST(DISABLED_SearchPaneUiPerformance, SearchAndScrollFakeCatalog) {
     const auto catalogPath = std::filesystem::current_path() / L"tools" / L"catalog-test" /
         L"fake-search-catalog.sqlite";

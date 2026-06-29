@@ -10,6 +10,7 @@
 #include <functional>
 #include <string>
 #include <cstdint>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <thread>
@@ -89,6 +90,11 @@ private:
         double elapsedSeconds{};
     };
 
+    struct AsyncSearchMailbox {
+        std::mutex mutex;
+        std::optional<AsyncSearchResult> pendingResult;
+    };
+
     static constexpr int PageSize = 512;
     static constexpr std::size_t MaxCachedPages = 16;
 
@@ -108,8 +114,7 @@ private:
     unsigned long long cacheClock_{};
     std::vector<CachedPage> cachedPages_;
     std::jthread searchWorker_;
-    std::mutex searchResultMutex_;
-    std::optional<AsyncSearchResult> pendingSearchResult_;
+    std::shared_ptr<AsyncSearchMailbox> searchMailbox_;
     std::uint64_t searchRequestId_{};
     double elapsedSeconds_{};
     std::vector<std::wstring> quickSearchHistory_;
@@ -147,7 +152,8 @@ private:
     void AdvancedSearch();
     void BeginSearchLoad();
     void CancelSearchLoad();
-    void PublishSearchResult(HWND window, AsyncSearchResult result);
+    static void PublishSearchResult(const std::weak_ptr<AsyncSearchMailbox>& mailbox, HWND window,
+        AsyncSearchResult result);
     void ShowTabPage(int index);
     std::wstring DialogText(int controlId) const;
     void ClearCache();

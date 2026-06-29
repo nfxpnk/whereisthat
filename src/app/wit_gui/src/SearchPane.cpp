@@ -286,15 +286,17 @@ LRESULT SearchDialog::OnDestroy(UINT, WPARAM, LPARAM, BOOL&) {
 
 LRESULT SearchDialog::OnSearchComplete(UINT, WPARAM, LPARAM, BOOL&) {
     std::optional<AsyncSearchResult> result;
-    {
-        std::scoped_lock lock(searchResultMutex_);
-        if (pendingSearchResult_ && pendingSearchResult_->requestId == searchRequestId_) {
-            result = std::move(pendingSearchResult_);
+    const auto mailbox = searchMailbox_;
+    if (mailbox) {
+        std::scoped_lock lock(mailbox->mutex);
+        if (mailbox->pendingResult && mailbox->pendingResult->requestId == searchRequestId_) {
+            result = std::move(mailbox->pendingResult);
         }
-        pendingSearchResult_.reset();
+        mailbox->pendingResult.reset();
     }
     if (!result || !results_) return 0;
     if (searchWorker_.joinable()) searchWorker_.join();
+    if (mailbox == searchMailbox_) searchMailbox_.reset();
     elapsedSeconds_ = result->elapsedSeconds;
 
     ClearCache();
@@ -573,6 +575,10 @@ void SearchDialog::BeginSearchLoad() {
     const auto sort = sort_;
     auto* repository = search_;
     const HWND window = m_hWnd;
+    const int pageSize = PageSize;
+    auto mailbox = std::make_shared<AsyncSearchMailbox>();
+    searchMailbox_ = mailbox;
+    const std::weak_ptr<AsyncSearchMailbox> mailboxReference = mailbox;
 
     total_ = 0;
     elapsedSeconds_ = 0.0;
@@ -581,14 +587,14 @@ void SearchDialog::BeginSearchLoad() {
     UpdateStatusText();
     SetDlgItemTextW(IDC_SEARCH_SUMMARY, L"Searching...");
 
-    searchWorker_ = std::jthread([this, window, requestId, mode, nameTerm, caseSensitive, expression, sort, repository](
-        std::stop_token stopToken) {
+    searchWorker_ = std::jthread([window, requestId, mode, nameTerm, caseSensitive, expression, sort, repository,
+        pageSize, mailboxReference](std::stop_token stopToken) {
         AsyncSearchResult result;
         result.requestId = requestId;
         const auto startedAt = std::chrono::steady_clock::now();
         auto prepared = mode == ResultMode::Quick
-            ? repository->PrepareByName(nameTerm, PageSize, sort, caseSensitive)
-            : repository->PrepareAdvanced(expression, PageSize, sort);
+            ? repository->PrepareByName(nameTerm, pageSize, sort, caseSensitive)
+            : repository->PrepareAdvanced(expression, pageSize, sort);
         if (stopToken.stop_requested()) return;
         result.total = prepared.total;
         result.firstPage = std::move(prepared.entries);
@@ -599,25 +605,27 @@ void SearchDialog::BeginSearchLoad() {
         if (result.error.empty() && result.total > 0 && result.firstPage.empty()) {
             result.error = L"Search results could not be loaded.";
         }
-        PublishSearchResult(window, std::move(result));
+        PublishSearchResult(mailboxReference, window, std::move(result));
     });
 }
 
 void SearchDialog::CancelSearchLoad() {
     ++searchRequestId_;
+    searchMailbox_.reset();
     if (searchWorker_.joinable()) {
         searchWorker_.request_stop();
         if (search_) search_->CancelPending();
         searchWorker_.join();
     }
-    std::scoped_lock lock(searchResultMutex_);
-    pendingSearchResult_.reset();
 }
 
-void SearchDialog::PublishSearchResult(HWND window, AsyncSearchResult result) {
+void SearchDialog::PublishSearchResult(const std::weak_ptr<AsyncSearchMailbox>& mailbox, HWND window,
+    AsyncSearchResult result) {
+    const auto sharedMailbox = mailbox.lock();
+    if (!sharedMailbox) return;
     {
-        std::scoped_lock lock(searchResultMutex_);
-        pendingSearchResult_ = std::move(result);
+        std::scoped_lock lock(sharedMailbox->mutex);
+        sharedMailbox->pendingResult = std::move(result);
     }
     if (window) ::PostMessageW(window, SearchCompleteMessage, 0, 0);
 }

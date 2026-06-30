@@ -92,34 +92,12 @@ void CopyText(std::wstring_view text, wchar_t* buffer, std::size_t bufferSize) {
     StringCchCopyNW(buffer, bufferSize, text.data(), text.size());
 }
 
-std::optional<wit::core::FileSortColumn> SortColumnFromContentColumn(int column) {
-    switch (column) {
-    case 0: return wit::core::FileSortColumn::Name;
-    case 1: return wit::core::FileSortColumn::Type;
-    case 2: return wit::core::FileSortColumn::Size;
-    case 3: return wit::core::FileSortColumn::Path;
-    case 4: return wit::core::FileSortColumn::Modified;
-    default: return std::nullopt;
-    }
-}
-
 bool IsBrowserRootColumn(int column) {
     return column >= 0 && column < static_cast<int>(kBrowserRootColumns.size());
 }
 
 wit::core::FileSortColumn SortColumnFromSettings(int column) {
-    return SortColumnFromContentColumn(column).value_or(wit::core::FileSortColumn::Name);
-}
-
-int ContentColumnFromSortColumn(wit::core::FileSortColumn column) {
-    switch (column) {
-    case wit::core::FileSortColumn::Type: return 1;
-    case wit::core::FileSortColumn::Size: return 2;
-    case wit::core::FileSortColumn::Path: return 3;
-    case wit::core::FileSortColumn::Modified: return 4;
-    case wit::core::FileSortColumn::Name:
-    default: return 0;
-    }
+    return wit::core::FileSortColumnFromListColumn(column).value_or(wit::core::FileSortColumn::Name);
 }
 
 void UpdateListViewSortIndicators(HWND list, int sortColumn, bool ascending) {
@@ -290,7 +268,7 @@ bool FileListView::ApplyContentSort(
         UpdateSortIndicators();
         return ApplyBrowserRootSort();
     }
-    const auto sortColumn = SortColumnFromContentColumn(column);
+    const auto sortColumn = wit::core::FileSortColumnFromListColumn(column);
     if (!sortColumn) return false;
     auto nextSort = sort_;
     if (nextSort.column == *sortColumn) {
@@ -333,7 +311,7 @@ void FileListView::UpdateSortIndicators() {
         UpdateListViewSortIndicators(hwnd, rootSort_.column, rootSort_.ascending);
         return;
     }
-    UpdateListViewSortIndicators(hwnd, ContentColumnFromSortColumn(sort_.column), sort_.ascending);
+    UpdateListViewSortIndicators(hwnd, wit::core::ListColumnFromFileSortColumn(sort_.column), sort_.ascending);
 }
 
 void FileListView::BeginLocationLoad() {

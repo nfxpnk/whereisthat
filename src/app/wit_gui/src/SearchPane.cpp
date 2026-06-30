@@ -54,28 +54,6 @@ void CopyText(std::wstring_view text, wchar_t* buffer, std::size_t bufferSize) {
     StringCchCopyNW(buffer, bufferSize, text.data(), text.size());
 }
 
-std::optional<wit::core::FileSortColumn> SortColumnFromResultColumn(int column) {
-    switch (column) {
-    case 0: return wit::core::FileSortColumn::Name;
-    case 1: return wit::core::FileSortColumn::Type;
-    case 2: return wit::core::FileSortColumn::Size;
-    case 3: return wit::core::FileSortColumn::Path;
-    case 4: return wit::core::FileSortColumn::Modified;
-    default: return std::nullopt;
-    }
-}
-
-int ResultColumnFromSortColumn(wit::core::FileSortColumn column) {
-    switch (column) {
-    case wit::core::FileSortColumn::Type: return 1;
-    case wit::core::FileSortColumn::Size: return 2;
-    case wit::core::FileSortColumn::Path: return 3;
-    case wit::core::FileSortColumn::Modified: return 4;
-    case wit::core::FileSortColumn::Name:
-    default: return 0;
-    }
-}
-
 void UpdateListViewSortIndicators(HWND list, int sortColumn, bool ascending) {
     const HWND header = ListView_GetHeader(list);
     if (!header) return;
@@ -934,7 +912,7 @@ void SearchDialog::RestoreSelection(
 }
 
 void SearchDialog::ToggleSortForColumn(int column) {
-    const auto sortColumn = SortColumnFromResultColumn(column);
+    const auto sortColumn = wit::core::FileSortColumnFromListColumn(column);
     if (!sortColumn || !results_) return;
 
     if (sort_.column == *sortColumn) {
@@ -949,7 +927,7 @@ void SearchDialog::ToggleSortForColumn(int column) {
 
 void SearchDialog::UpdateSortIndicators() {
     if (!results_) return;
-    UpdateListViewSortIndicators(results_, ResultColumnFromSortColumn(sort_.column), sort_.ascending);
+    UpdateListViewSortIndicators(results_, wit::core::ListColumnFromFileSortColumn(sort_.column), sort_.ascending);
 }
 
 void SearchDialog::UpdateStatusParts() {

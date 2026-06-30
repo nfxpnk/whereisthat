@@ -13,17 +13,6 @@
 namespace wit::app {
 namespace {
 
-int SettingsColumnFor(wit::core::FileSortColumn column) {
-    switch (column) {
-    case wit::core::FileSortColumn::Type: return 1;
-    case wit::core::FileSortColumn::Size: return 2;
-    case wit::core::FileSortColumn::Path: return 3;
-    case wit::core::FileSortColumn::Modified: return 4;
-    case wit::core::FileSortColumn::Name:
-    default: return 0;
-    }
-}
-
 std::optional<int> RootColumnForToolbarSort(wit::core::FileSortColumn column) {
     switch (column) {
     case wit::core::FileSortColumn::Name: return 0;
@@ -360,7 +349,7 @@ bool BrowserController::SetToolbarSort(wit::core::FileSort sort, bool persist) {
 
 void BrowserController::SaveContentSortPreference(wit::core::FileSort sort) const {
     auto settings = wit::platform::LoadAppSettings();
-    settings.contentSortColumn = SettingsColumnFor(sort.column);
+    settings.contentSortColumn = wit::core::ListColumnFromFileSortColumn(sort.column);
     settings.contentSortReverse = !sort.ascending;
     (void)wit::platform::SaveAppSettings(settings);
 }

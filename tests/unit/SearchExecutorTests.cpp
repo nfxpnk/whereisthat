@@ -4,6 +4,7 @@
 #include <chrono>
 #include <filesystem>
 #include <string>
+#include <vector>
 
 namespace {
 class MemoryDatabase {
@@ -328,4 +329,35 @@ TEST(SearchExecutor, AdvancedSearchRejectsMalformedExpressionShape) {
     EXPECT_EQ(prepared.total, 0);
     EXPECT_TRUE(prepared.entries.empty());
     EXPECT_EQ(executor.LastErrorMessage(), L"Advanced search expression is malformed.");
+}
+
+namespace {
+std::vector<std::wstring> EntryNames(const std::vector<wit::core::FileEntry>& entries) {
+    std::vector<std::wstring> names;
+    for (const auto& entry : entries) names.push_back(entry.name);
+    return names;
+}
+}
+
+TEST(SearchExecutor, PageByNameSortsEverySharedFileColumn) {
+    MemoryDatabase database;
+    database.Execute(
+        "INSERT INTO folders(id,disk_id,parent_folder_id,path,name,content_size,modified_at,attributes,entry_type) "
+        "VALUES(10,1,1,'C:\\\\sort-folder','sort-folder',60,20,0,'directory'),"
+        "(11,1,2,'C:\\\\alpha-folder\\\\sort-child','sort-child',10,50,0,'directory');"
+        "INSERT INTO files(id,disk_id,folder_id,name,extension,size,modified_at,attributes) "
+        "VALUES(10,1,1,'sort-beta.txt','txt',30,40,0),"
+        "(11,1,1,'sort-alpha.bin','bin',20,30,0);");
+    wit::search::SqliteSearchExecutor executor(database.Raw());
+
+    EXPECT_EQ(EntryNames(executor.PageByName(L"sort-", 0, 10, {wit::core::FileSortColumn::Name, true})),
+        (std::vector<std::wstring>{L"sort-alpha.bin", L"sort-beta.txt", L"sort-child", L"sort-folder"}));
+    EXPECT_EQ(EntryNames(executor.PageByName(L"sort-", 0, 10, {wit::core::FileSortColumn::Type, true})),
+        (std::vector<std::wstring>{L"sort-alpha.bin", L"sort-child", L"sort-folder", L"sort-beta.txt"}));
+    EXPECT_EQ(EntryNames(executor.PageByName(L"sort-", 0, 10, {wit::core::FileSortColumn::Size, true})),
+        (std::vector<std::wstring>{L"sort-child", L"sort-alpha.bin", L"sort-beta.txt", L"sort-folder"}));
+    EXPECT_EQ(EntryNames(executor.PageByName(L"sort-", 0, 10, {wit::core::FileSortColumn::Path, true})),
+        (std::vector<std::wstring>{L"sort-alpha.bin", L"sort-beta.txt", L"sort-folder", L"sort-child"}));
+    EXPECT_EQ(EntryNames(executor.PageByName(L"sort-", 0, 10, {wit::core::FileSortColumn::Modified, true})),
+        (std::vector<std::wstring>{L"sort-folder", L"sort-alpha.bin", L"sort-beta.txt", L"sort-child"}));
 }

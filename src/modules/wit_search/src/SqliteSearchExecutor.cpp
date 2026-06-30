@@ -1,10 +1,10 @@
 #include "wit_search/SqliteSearchExecutor.h"
 
+#include "wit_database/SqliteFileListHelpers.h"
 #include "wit_database/SQLiteStatement.h"
 #include <wit_infra/Win32Helpers.h>
 #include "third_party/sqlite/sqlite3.h"
 
-#include <Windows.h>
 #include <algorithm>
 #include <cstdint>
 #include <iterator>
@@ -177,48 +177,6 @@ TableCountResult CountAdvancedInTable(
         : TableCountResult{0, stepResult};
 }
 
-int NaturalNoCaseCollation(void*, int leftBytes, const void* leftValue, int rightBytes, const void* rightValue) {
-    const auto* left = static_cast<const wchar_t*>(leftValue);
-    const auto* right = static_cast<const wchar_t*>(rightValue);
-    const int result = CompareStringEx(LOCALE_NAME_USER_DEFAULT,
-        LINGUISTIC_IGNORECASE | SORT_DIGITSASNUMBERS,
-        left, leftBytes / static_cast<int>(sizeof(wchar_t)),
-        right, rightBytes / static_cast<int>(sizeof(wchar_t)),
-        nullptr, nullptr, 0);
-    if (result == CSTR_LESS_THAN) return -1;
-    if (result == CSTR_GREATER_THAN) return 1;
-    return 0;
-}
-
-void EnsureNaturalNoCaseCollation(sqlite3* db) {
-    if (!db) return;
-    sqlite3_create_collation_v2(db, "WIN_NATURAL_NOCASE", SQLITE_UTF16LE, nullptr,
-        NaturalNoCaseCollation, nullptr);
-}
-
-const char* CombinedOrderExpressionFor(wit::core::FileSortColumn column) {
-    switch (column) {
-    case wit::core::FileSortColumn::Type:
-        return "sort_type COLLATE WIN_NATURAL_NOCASE";
-    case wit::core::FileSortColumn::Size:
-        return "size";
-    case wit::core::FileSortColumn::Path:
-        return "parent_path COLLATE WIN_NATURAL_NOCASE";
-    case wit::core::FileSortColumn::Modified:
-        return "modified_at";
-    case wit::core::FileSortColumn::Name:
-    default:
-        return "name COLLATE WIN_NATURAL_NOCASE";
-    }
-}
-
-std::string CombinedOrderByFor(wit::core::FileSort sort) {
-    std::string order{"ORDER BY "};
-    order += CombinedOrderExpressionFor(sort.column);
-    order += sort.ascending ? " ASC," : " DESC,";
-    order += " name COLLATE WIN_NATURAL_NOCASE ASC,is_directory DESC,id ASC ";
-    return order;
-}
 bool ExecSql(sqlite3* db, const char* sql) {
     return db && sqlite3_exec(db, sql, nullptr, nullptr, nullptr) == SQLITE_OK;
 }
@@ -284,7 +242,7 @@ std::string CombinedCacheInsertSql(
         "COALESCE(f.extension,'') AS extension,f.size,f.modified_at,f.attributes,"
         "0 AS is_directory,'file' AS entry_type,COALESCE(f.extension,'') AS sort_type "
         "FROM files f JOIN folders p ON f.folder_id=p.id WHERE " +
-        fileWhereClause + ") AS combined " + CombinedOrderByFor(sort) + ";";
+        fileWhereClause + ") AS combined " + wit::storage::FileEntryOrderBy(sort) + ";";
 }
 
 bool BuildNamePageCache(
@@ -540,7 +498,7 @@ std::vector<wit::core::FileEntry> SqliteSearchExecutor::PageByNameLocked(
     const std::wstring& nameTerm, int offset, int limit, wit::core::FileSort sort, bool caseSensitive) {
     sqlite3* db = ActiveDatabase();
     if (!db || limit <= 0) return {};
-    EnsureNaturalNoCaseCollation(db);
+    wit::storage::EnsureNaturalNoCaseCollation(db);
 
     {
         std::scoped_lock errorLock(errorMutex_);
@@ -620,7 +578,7 @@ std::vector<wit::core::FileEntry> SqliteSearchExecutor::PageAdvancedLocked(
     const AdvancedSearchExpression& expression, int offset, int limit, wit::core::FileSort sort) {
     sqlite3* db = ActiveDatabase();
     if (!db || expression.criteria.empty() || limit <= 0) return {};
-    EnsureNaturalNoCaseCollation(db);
+    wit::storage::EnsureNaturalNoCaseCollation(db);
 
     {
         std::scoped_lock errorLock(errorMutex_);

@@ -630,7 +630,7 @@ Acceptance criteria:
 - Blank-page regression cases remain covered.
 - Tests pass before refactoring sort helpers.
 
-### Phase 3: Centralize Formatting
+### Phase 3: Centralize Formatting - Complete
 
 Goal:
 
@@ -648,6 +648,10 @@ Steps:
 5. Move shared `FileEntryStatusText` if needed.
 6. Update `FileListPane` and `SearchPane` to call the helper.
 7. Keep SQL and ListView code unchanged.
+
+Status:
+
+- Complete. Browser and search result type labels now share `FileEntryTypeText`; existing shared size and status helpers remain unchanged.
 
 Acceptance criteria:
 

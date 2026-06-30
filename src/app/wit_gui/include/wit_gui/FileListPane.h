@@ -6,6 +6,7 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
 #include "wit_types/BrowserLocation.h"
@@ -16,6 +17,7 @@
 
 namespace wit::ui {
 std::wstring CompactFileSize(std::uint64_t bytes);
+std::wstring_view FileEntryTypeText(const wit::core::FileEntry& entry);
 std::wstring FileEntryStatusText(const wit::core::FileEntry& entry);
 class FileListView {
 public:

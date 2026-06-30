@@ -114,6 +114,11 @@ void UpdateListViewSortIndicators(HWND list, int sortColumn, bool ascending) {
 }
 }
 
+std::wstring_view FileEntryTypeText(const wit::core::FileEntry& entry) {
+    if (entry.isArchive) return L"Archive";
+    if (entry.isDirectory) return L"Folder";
+    return entry.extension;
+}
 std::wstring CompactFileSize(std::uint64_t bytes) {
     auto result = wit::core::FormatSize(bytes);
     const auto decimal = result.find(L'.');
@@ -790,8 +795,7 @@ void FileListView::TextFor(int row, int column, wchar_t* buffer, std::size_t buf
         CopyText(file.name, buffer, bufferSize);
         return;
     case 1:
-        CopyText(file.isArchive ? std::wstring_view(L"Archive") :
-            (file.isDirectory ? std::wstring_view(L"Folder") : std::wstring_view(file.extension)), buffer, bufferSize);
+        CopyText(FileEntryTypeText(file), buffer, bufferSize);
         return;
     case 2:
         wit::core::FormatSizeRawBytesToBuffer(file.size, buffer, bufferSize);

@@ -717,7 +717,7 @@ Acceptance criteria:
 - UI no longer silently treats all failures as empty lists.
 - Existing callers still compile during transition.
 
-### Phase 6: Make Browser Async Lifetime Explicit
+### Phase 6: Make Browser Async Lifetime Explicit - Complete
 
 Goal:
 
@@ -741,6 +741,10 @@ Steps:
 6. Consider a dedicated read-only SQLite connection for browser paging if the
    lifetime token still leaves threading unclear.
 7. Add tests around rebinding/closing during a blocked read.
+
+Status:
+
+- Complete. Browser async reads now use `BrowserReadContext` with an explicit `BrowserReadToken` minted by `Database`, invalidated on close/rebind, and checked by file-list workers before repository reads and before publishing results. Tests cover an invalidated blocked read being discarded.
 
 Acceptance criteria:
 

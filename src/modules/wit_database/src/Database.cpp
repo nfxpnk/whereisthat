@@ -265,7 +265,13 @@ Database& Database::operator=(Database&& other) noexcept {
     return *this;
 }
 
+
+BrowserReadContext Database::CreateBrowserReadContext() {
+    if (!IsOpen() || !browserReadToken_ || !browserReadToken_->IsActive()) return {};
+    return {browserReadToken_, &browserRepository_};
+}
 void Database::Close() {
+    if (browserReadToken_) browserReadToken_->Invalidate();
     FinalizeScanStatements();
     browserRepository_.SetDatabase(nullptr);
     searchRepository_.SetDatabase(nullptr);
@@ -274,6 +280,8 @@ void Database::Close() {
 }
 
 void Database::RebindRepositories() {
+    if (browserReadToken_) browserReadToken_->Invalidate();
+    browserReadToken_ = std::make_shared<BrowserReadToken>();
     browserRepository_.SetDatabase(connection_.Raw());
     searchRepository_.SetDatabase(connection_.Raw());
 }

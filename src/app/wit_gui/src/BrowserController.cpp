@@ -63,7 +63,7 @@ void BrowserController::Clear() {
     hasTarget_ = false;
     history_.clear();
     historyIndex_ = -1;
-    files_.SetLocation({}, nullptr);
+    files_.SetLocation({}, {});
     SetWindowTextW(addressHandle_, L"");
     UpdateNavigationControls();
 }
@@ -101,7 +101,7 @@ void BrowserController::NavigateTo(const wit::core::BrowserTarget& target, bool 
     }
     currentTarget_ = target;
     hasTarget_ = true;
-    files_.SetLocation(target.location, &database->BrowserRepository());
+    files_.SetLocation(target.location, database->CreateBrowserReadContext());
     const auto address = AddressFor(target);
     SetWindowTextW(addressHandle_, address.c_str());
     if (syncTreeSelection) {
@@ -127,7 +127,7 @@ void BrowserController::RefreshCatalog(wit::core::CatalogId id, const std::wstri
         : std::nullopt;
     if (!database || !database->IsOpen()) return;
     if (hasTarget_ && currentTarget_.catalogId == id) {
-        files_.SetLocation({}, nullptr);
+        files_.SetLocation({}, {});
     }
     tree_.RefreshCatalog(id, label, database, select);
     if (select || (hasTarget_ && currentTarget_.catalogId == id)) NavigateTo({id, {}}, true);
@@ -139,7 +139,7 @@ void BrowserController::MoveDiskToGroup(wit::core::CatalogId id, std::int64_t di
     const bool clearCurrentList = hasTarget_ && currentTarget_.catalogId == id &&
         (currentTarget_.location.isRoot || currentTarget_.location.isDiskGroup);
     if (clearCurrentList) {
-        files_.SetLocation({}, nullptr);
+        files_.SetLocation({}, {});
     }
     std::wstring diskGroupName;
     if (diskGroupId != 0) {
@@ -155,13 +155,13 @@ void BrowserController::MoveDiskToGroup(wit::core::CatalogId id, std::int64_t di
         WIT_LOG_DEBUG(std::format(L"move disk tree update skipped catalogId={} diskId={} targetGroupId={}",
             id, diskId, diskGroupId));
         if (hasTarget_ && currentTarget_.catalogId == id) {
-            files_.SetLocation(currentTarget_.location, &database->BrowserRepository());
+            files_.SetLocation(currentTarget_.location, database->CreateBrowserReadContext());
         }
         return;
     }
     UpdateMovedDiskTargets(id, diskId, diskGroupId, diskGroupName);
     if (databaseReflectsChange && hasTarget_ && currentTarget_.catalogId == id) {
-        files_.SetLocation(currentTarget_.location, &database->BrowserRepository());
+        files_.SetLocation(currentTarget_.location, database->CreateBrowserReadContext());
         const auto address = AddressFor(currentTarget_);
         SetWindowTextW(addressHandle_, address.c_str());
     } else if (hasTarget_ && currentTarget_.catalogId == id) {
@@ -175,7 +175,7 @@ void BrowserController::MoveDiskGroupToGroup(wit::core::CatalogId id, std::int64
     const bool clearCurrentList = hasTarget_ && currentTarget_.catalogId == id &&
         (currentTarget_.location.isRoot || currentTarget_.location.isDiskGroup);
     if (clearCurrentList) {
-        files_.SetLocation({}, nullptr);
+        files_.SetLocation({}, {});
     }
     if (!tree_.MoveDiskGroupToGroup(id, diskGroupId, parentGroupId)) {
         WIT_LOG_DEBUG(std::format(L"move disk group tree update skipped catalogId={} groupId={} targetParentGroupId={}",
@@ -183,7 +183,7 @@ void BrowserController::MoveDiskGroupToGroup(wit::core::CatalogId id, std::int64
     }
     if (databaseReflectsChange && hasTarget_ && currentTarget_.catalogId == id) {
         auto* database = databaseResolver_ ? databaseResolver_(id) : nullptr;
-        if (database && database->IsOpen()) files_.SetLocation(currentTarget_.location, &database->BrowserRepository());
+        if (database && database->IsOpen()) files_.SetLocation(currentTarget_.location, database->CreateBrowserReadContext());
         const auto address = AddressFor(currentTarget_);
         SetWindowTextW(addressHandle_, address.c_str());
     } else if (hasTarget_ && currentTarget_.catalogId == id) {
@@ -199,7 +199,7 @@ void BrowserController::RemoveCatalog(wit::core::CatalogId id) {
     if (hasTarget_ && currentTarget_.catalogId == id) {
         currentTarget_ = {};
         hasTarget_ = false;
-        files_.SetLocation({}, nullptr);
+        files_.SetLocation({}, {});
         SetWindowTextW(addressHandle_, L"");
     }
     UpdateNavigationControls();

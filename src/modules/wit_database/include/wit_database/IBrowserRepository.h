@@ -1,6 +1,8 @@
 #pragma once
 
+#include <atomic>
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -11,6 +13,28 @@
 
 namespace wit::storage {
 
+class IBrowserRepository;
+struct BrowserReadToken {
+    void Invalidate() { active.store(false, std::memory_order_release); }
+    [[nodiscard]] bool IsActive() const { return active.load(std::memory_order_acquire); }
+
+private:
+    std::atomic_bool active{true};
+};
+
+struct BrowserReadContext {
+    std::shared_ptr<BrowserReadToken> lifetimeToken;
+    IBrowserRepository* repository{};
+
+    [[nodiscard]] bool IsActive() const {
+        return repository && lifetimeToken && lifetimeToken->IsActive();
+    }
+};
+
+[[nodiscard]] inline BrowserReadContext MakeBrowserReadContext(IBrowserRepository* repository) {
+    if (!repository) return {};
+    return {std::make_shared<BrowserReadToken>(), repository};
+}
 class IBrowserRepository {
 public:
     virtual ~IBrowserRepository() = default;

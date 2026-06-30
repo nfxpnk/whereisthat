@@ -336,7 +336,7 @@ TEST(FileListViewPerformance, StaleLoadMessageDoesNotCancelCurrentFolderLoad) {
     location.isRoot = false;
     location.sourceId = 1;
     location.path = L"X:\\Folder";
-    fileListView.SetLocation(location, &repository);
+    fileListView.SetLocation(location, wit::storage::MakeBrowserReadContext(&repository));
 
     const auto startedDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
     while (!repository.countStarted.load() && std::chrono::steady_clock::now() < startedDeadline) {
@@ -358,6 +358,63 @@ TEST(FileListViewPerformance, StaleLoadMessageDoesNotCancelCurrentFolderLoad) {
     DestroyWindow(fileList);
 }
 
+
+
+TEST(FileListViewPerformance, DatabaseCloseInvalidatesBrowserReadContext) {
+    const auto testRoot = std::filesystem::temp_directory_path() /
+        (L"whereisthat-browser-read-context-" + std::to_wstring(GetCurrentProcessId()));
+    const auto catalogPath = testRoot / L"context.db";
+    std::filesystem::remove_all(testRoot);
+    std::filesystem::create_directories(testRoot);
+
+    wit::storage::Database database;
+    ASSERT_TRUE(database.CreateNew(catalogPath.wstring(), true));
+    auto context = database.CreateBrowserReadContext();
+    ASSERT_TRUE(context.IsActive());
+
+    database.Close();
+    EXPECT_FALSE(context.IsActive());
+
+    std::filesystem::remove_all(testRoot);
+}
+TEST(FileListViewPerformance, InvalidatedBrowserReadContextSuppressesBlockedLoadResult) {
+    INITCOMMONCONTROLSEX controls{sizeof(controls), ICC_LISTVIEW_CLASSES};
+    ASSERT_TRUE(InitCommonControlsEx(&controls));
+
+    const HWND fileList = CreateWindowExW(0, WC_LISTVIEWW, L"", WS_POPUP | LVS_REPORT | LVS_OWNERDATA,
+        0, 0, 640, 480, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+    ASSERT_NE(fileList, nullptr);
+
+    BlockingBrowserRepository repository;
+    wit::ui::FileListView fileListView;
+    fileListView.Attach(fileList);
+
+    wit::core::BrowserLocation location;
+    location.isRoot = false;
+    location.sourceId = 1;
+    location.path = L"X:\\Folder";
+    auto context = wit::storage::MakeBrowserReadContext(&repository);
+    fileListView.SetLocation(location, context);
+
+    const auto startedDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (!repository.countStarted.load() && std::chrono::steady_clock::now() < startedDeadline) {
+        PumpMessages();
+        Sleep(1);
+    }
+    ASSERT_TRUE(repository.countStarted.load());
+
+    context.lifetimeToken->Invalidate();
+    repository.releaseCount = true;
+
+    const auto quietDeadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(250);
+    while (std::chrono::steady_clock::now() < quietDeadline) {
+        PumpMessages();
+        Sleep(1);
+    }
+    EXPECT_EQ(ListView_GetItemCount(fileList), 0);
+    EXPECT_EQ(fileListView.CachedEntryAt(0), nullptr);
+    DestroyWindow(fileList);
+}
 TEST(FileListViewPerformance, CacheHintDoesNotSynchronouslyReadPages) {
     INITCOMMONCONTROLSEX controls{sizeof(controls), ICC_LISTVIEW_CLASSES};
     ASSERT_TRUE(InitCommonControlsEx(&controls));
@@ -374,7 +431,7 @@ TEST(FileListViewPerformance, CacheHintDoesNotSynchronouslyReadPages) {
     location.isRoot = false;
     location.sourceId = 1;
     location.path = L"X:\\FakeSearchStressDisk";
-    fileListView.SetLocation(location, &repository);
+    fileListView.SetLocation(location, wit::storage::MakeBrowserReadContext(&repository));
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
     while (ListView_GetItemCount(fileList) != 500000 && std::chrono::steady_clock::now() < deadline) {
         PumpMessages();
@@ -411,7 +468,7 @@ TEST(SearchPaneColumns, LoadsAndPersistsIndependentWidths) {
     ASSERT_NE(fileList, nullptr);
     wit::ui::FileListView fileListView;
     fileListView.Attach(fileList);
-    fileListView.SetLocation({}, nullptr);
+    fileListView.SetLocation({}, {});
     EXPECT_EQ(ListView_GetColumnWidth(fileList, 0), 222);
     DestroyWindow(fileList);
 
@@ -696,7 +753,7 @@ TEST(BrowserFileListPerformance, MainListScrollAndSortFakeCatalogDoesNotGoBlank)
 
     const auto openStarted = std::chrono::steady_clock::now();
     const double openDispatchMs = MeasureMilliseconds([&] {
-        fileListView.SetLocation(location, &database.BrowserRepository());
+        fileListView.SetLocation(location, database.CreateBrowserReadContext());
     });
     EXPECT_LT(openDispatchMs, 250.0) << "main list open must not count/page on the UI thread";
 
@@ -865,7 +922,7 @@ TEST(BrowserFileListPerformance, MainListUsesStoredFolderPathWhenNameIsNotALeaf)
     location.sourceName = disk.diskName;
     location.sourceRoot = disk.sourcePath;
     location.path = parent.path;
-    fileListView.SetLocation(location, &database.BrowserRepository());
+    fileListView.SetLocation(location, database.CreateBrowserReadContext());
     ASSERT_TRUE(waitForCount(1));
     ASSERT_TRUE(waitForRow(0));
     const auto* folder = fileListView.CachedEntryAt(0);
@@ -875,7 +932,7 @@ TEST(BrowserFileListPerformance, MainListUsesStoredFolderPathWhenNameIsNotALeaf)
     ASSERT_NE(wit::platform::Join(location.path, folder->name), imported.path);
 
     fileListView.SetLocation({false, false, 0, L"", disk.id, disk.diskName, disk.sourcePath, folder->fullPath},
-        &database.BrowserRepository());
+        database.CreateBrowserReadContext());
     ASSERT_TRUE(waitForCount(1)) << "navigation must use folders.path, not parentPath + name";
     ASSERT_TRUE(waitForRow(0));
 
@@ -975,7 +1032,7 @@ TEST(BrowserFileListPerformance, MainListFolderNavigationLoadsChildRows) {
     location.sourceName = disk.diskName;
     location.sourceRoot = disk.sourcePath;
     location.path = disk.sourcePath;
-    fileListView.SetLocation(location, &database.BrowserRepository());
+    fileListView.SetLocation(location, database.CreateBrowserReadContext());
     ASSERT_TRUE(waitForCount(1));
     ASSERT_TRUE(waitForRow(0));
     const auto* folder = fileListView.CachedEntryAt(0);
@@ -984,7 +1041,7 @@ TEST(BrowserFileListPerformance, MainListFolderNavigationLoadsChildRows) {
     ASSERT_EQ(folder->name, L"child");
 
     location.path = wit::platform::Join(location.path, folder->name);
-    fileListView.SetLocation(location, &database.BrowserRepository());
+    fileListView.SetLocation(location, database.CreateBrowserReadContext());
     ASSERT_TRUE(waitForCount(1)) << "opening a folder from the main list must repopulate child rows";
     ASSERT_TRUE(waitForRow(0));
 

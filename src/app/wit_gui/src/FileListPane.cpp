@@ -197,7 +197,7 @@ bool FileListView::PersistColumnWidths() const {
 }
 
 void FileListView::SetLocation(
-    const wit::core::BrowserLocation& newLocation, wit::storage::IBrowserRepository* repository) {
+    const wit::core::BrowserLocation& newLocation, wit::storage::BrowserReadContext context) {
     const HWND header = hwnd ? ListView_GetHeader(hwnd) : nullptr;
     if (header && Header_GetItemCount(header) > 0) {
         (void)PersistColumnWidths();
@@ -205,7 +205,7 @@ void FileListView::SetLocation(
     CancelLocationLoad();
     CancelPageLoad();
     location = newLocation;
-    browser = repository;
+    browserContext = std::move(context);
     total = 0;
     browserPageStart = -1;
     browserPage.clear();
@@ -328,7 +328,7 @@ void FileListView::UpdateSortIndicators() {
 }
 
 void FileListView::BeginLocationLoad() {
-    if (!browser || !hwnd) {
+    if (!browserContext.IsActive() || !hwnd) {
         total = 0;
         if (hwnd) ListView_SetItemCountEx(hwnd, 0, LVSICF_NOINVALIDATEALL);
         return;
@@ -340,23 +340,27 @@ void FileListView::BeginLocationLoad() {
     const auto rootSort = rootSort_;
     const int pageStart = (std::max)(0, loadPageStart_);
     const bool browserItems = ShowsBrowserItems();
-    auto* repository = browser;
+    auto readContext = browserContext;
     auto repositoryMutex = repositoryMutex_;
     const HWND window = hwnd;
     auto mailbox = std::make_shared<AsyncLoadMailbox>();
+    mailbox->requestId = requestId;
     loadMailbox_ = mailbox;
     const std::weak_ptr<AsyncLoadMailbox> mailboxReference = mailbox;
 
-    loadWorker_ = std::jthread([requestId, loadLocation, fileSort, rootSort, pageStart, browserItems, repository,
+    loadWorker_ = std::jthread([requestId, loadLocation, fileSort, rootSort, pageStart, browserItems, readContext,
         repositoryMutex, window, mailboxReference](std::stop_token stopToken) {
         AsyncLoadResult result;
         result.requestId = requestId;
         result.pageStart = pageStart;
         result.browserItems = browserItems;
+        if (!readContext.IsActive()) return;
+        auto* repository = readContext.repository;
         std::scoped_lock repositoryLock(*repositoryMutex);
+        if (!readContext.IsActive()) return;
         result.total = browserItems ? repository->GetBrowserRootItemCount(loadLocation)
             : repository->GetBrowserItemCount(loadLocation);
-        if (stopToken.stop_requested()) return;
+        if (stopToken.stop_requested() || !readContext.IsActive()) return;
         result.errorMessage = repository->LastErrorMessage();
         if (result.total > 0 && result.errorMessage.empty()) {
             if (browserItems) {
@@ -366,7 +370,7 @@ void FileListView::BeginLocationLoad() {
             }
             result.errorMessage = repository->LastErrorMessage();
         }
-        if (stopToken.stop_requested()) return;
+        if (stopToken.stop_requested() || !readContext.IsActive()) return;
         PublishLoadResult(mailboxReference, window, std::move(result));
     });
 }
@@ -431,6 +435,7 @@ void FileListView::PublishLoadResult(const std::weak_ptr<AsyncLoadMailbox>& mail
     if (!sharedMailbox) return;
     {
         std::scoped_lock lock(sharedMailbox->mutex);
+        if (sharedMailbox->requestId != result.requestId) return;
         sharedMailbox->pendingResult = std::move(result);
     }
     if (window) ::PostMessageW(window, LoadCompleteMessage, 0, 0);
@@ -442,6 +447,7 @@ void FileListView::PublishPageResult(const std::weak_ptr<AsyncPageMailbox>& mail
     if (!sharedMailbox) return;
     {
         std::scoped_lock lock(sharedMailbox->mutex);
+        if (sharedMailbox->requestId != result.requestId) return;
         sharedMailbox->pendingResult = std::move(result);
     }
     if (window) ::PostMessageW(window, PageReadyMessage, 0, 0);
@@ -598,7 +604,7 @@ void FileListView::ScheduleVisiblePageLoad() {
 }
 
 void FileListView::SchedulePageLoad(int pageStartValue) {
-    if (!browser || pageStartValue < 0 || pageStartValue >= total) return;
+    if (!browserContext.IsActive() || pageStartValue < 0 || pageStartValue >= total) return;
     const int normalizedStart = (pageStartValue / PageSize) * PageSize;
     if (ShowsBrowserItems()) {
         if (browserPageStart == normalizedStart) return;
@@ -617,19 +623,23 @@ void FileListView::SchedulePageLoad(int pageStartValue) {
     const auto fileSort = sort_;
     const auto rootSort = rootSort_;
     const bool browserItems = ShowsBrowserItems();
-    auto* repository = browser;
+    auto readContext = browserContext;
     auto repositoryMutex = repositoryMutex_;
     const HWND window = hwnd;
     auto mailbox = std::make_shared<AsyncPageMailbox>();
+    mailbox->requestId = requestId;
     pageMailbox_ = mailbox;
     const std::weak_ptr<AsyncPageMailbox> mailboxReference = mailbox;
 
     pageWorker_ = std::jthread([requestId, normalizedStart, pageLocation, fileSort, rootSort, browserItems,
-        repository, repositoryMutex, window, mailboxReference](std::stop_token stopToken) {
+        readContext, repositoryMutex, window, mailboxReference](std::stop_token stopToken) {
         AsyncPageResult result;
         result.requestId = requestId;
         result.browserItems = browserItems;
+        if (!readContext.IsActive()) return;
+        auto* repository = readContext.repository;
         std::scoped_lock repositoryLock(*repositoryMutex);
+        if (!readContext.IsActive()) return;
         if (browserItems) {
             result.browserPageStart = normalizedStart;
             result.browserPage = repository->GetBrowserRootItemsPage(pageLocation, normalizedStart, PageSize, rootSort);
@@ -638,7 +648,7 @@ void FileListView::SchedulePageLoad(int pageStartValue) {
             result.filePage.items = repository->GetBrowserItemsPage(pageLocation, normalizedStart, PageSize, fileSort);
         }
         result.errorMessage = repository->LastErrorMessage();
-        if (stopToken.stop_requested()) return;
+        if (stopToken.stop_requested() || !readContext.IsActive()) return;
         PublishPageResult(mailboxReference, window, std::move(result));
     });
 }
@@ -673,7 +683,7 @@ void FileListView::ClearCache() {
 }
 
 void FileListView::CacheFilePage(int pageStartValue) {
-    if (!browser || ShowsBrowserItems() || pageStartValue < 0 || pageStartValue >= total) return;
+    if (!browserContext.IsActive() || ShowsBrowserItems() || pageStartValue < 0 || pageStartValue >= total) return;
 
     const int normalizedStart = (pageStartValue / PageSize) * PageSize;
     const auto found = std::ranges::find_if(cachedFilePages_,
@@ -687,7 +697,7 @@ void FileListView::CacheFilePage(int pageStartValue) {
     cachedPage.start = normalizedStart;
     {
         std::scoped_lock repositoryLock(*repositoryMutex_);
-        cachedPage.items = browser->GetBrowserItemsPage(location, normalizedStart, PageSize, sort_);
+        cachedPage.items = browserContext.repository->GetBrowserItemsPage(location, normalizedStart, PageSize, sort_);
     }
     cachedPage.lastUsed = ++cacheClock_;
     cachedFilePages_.push_back(std::move(cachedPage));
@@ -701,7 +711,7 @@ void FileListView::CacheFilePage(int pageStartValue) {
 }
 
 const wit::core::FileEntry* FileListView::CachedEntryAt(int row) {
-    if (!browser || ShowsBrowserItems() || row < 0 || row >= total) return nullptr;
+    if (!browserContext.repository || ShowsBrowserItems() || row < 0 || row >= total) return nullptr;
     const int pageStart = (row / PageSize) * PageSize;
     const auto found = std::ranges::find_if(cachedFilePages_,
         [pageStart](const CachedFilePage& cachedPage) { return cachedPage.start == pageStart; });
@@ -712,7 +722,7 @@ const wit::core::FileEntry* FileListView::CachedEntryAt(int row) {
 }
 
 const wit::core::FileEntry* FileListView::EntryAt(int row) {
-    if (!browser || ShowsBrowserItems() || row < 0 || row >= total) return nullptr;
+    if (!browserContext.repository || ShowsBrowserItems() || row < 0 || row >= total) return nullptr;
     const int pageStart = (row / PageSize) * PageSize;
     CacheFilePage(pageStart);
     return CachedEntryAt(row);
@@ -723,7 +733,7 @@ const wit::core::Disk* FileListView::DiskAt(int row) {
 }
 
 const wit::core::BrowserItem* FileListView::CachedBrowserItemAt(int row) {
-    if (!browser || !ShowsBrowserItems() || row < 0 || row >= total) return nullptr;
+    if (!browserContext.repository || !ShowsBrowserItems() || row < 0 || row >= total) return nullptr;
     const int pageStart = (row / PageSize) * PageSize;
     if (browserPageStart != pageStart) return nullptr;
     const int index = row - pageStart;
@@ -731,12 +741,12 @@ const wit::core::BrowserItem* FileListView::CachedBrowserItemAt(int row) {
 }
 
 const wit::core::BrowserItem* FileListView::BrowserItemAt(int row) {
-    if (!browser || !ShowsBrowserItems() || row < 0 || row >= total) return nullptr;
+    if (!browserContext.repository || !ShowsBrowserItems() || row < 0 || row >= total) return nullptr;
     const int pageStart = (row / PageSize) * PageSize;
     if (browserPageStart != pageStart) {
         {
             std::scoped_lock repositoryLock(*repositoryMutex_);
-            browserPage = browser->GetBrowserRootItemsPage(location, pageStart, PageSize, rootSort_);
+            browserPage = browserContext.repository->GetBrowserRootItemsPage(location, pageStart, PageSize, rootSort_);
         }
         browserPageStart = pageStart;
     }

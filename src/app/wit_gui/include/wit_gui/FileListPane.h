@@ -26,17 +26,17 @@ public:
 
     HWND hwnd{};
     wit::core::BrowserLocation location;
-    wit::storage::IBrowserRepository* browser{};
+    wit::storage::BrowserReadContext browserContext;
     int total{};
     int browserPageStart{-1};
     std::vector<wit::core::BrowserItem> browserPage;
 
     void Attach(HWND handle);
-    void SetLocation(const wit::core::BrowserLocation& newLocation, wit::storage::IBrowserRepository* repository);
+    void SetLocation(const wit::core::BrowserLocation& newLocation, wit::storage::BrowserReadContext context);
     void ResetCachedItems();
     void PreloadRange(int firstRow, int lastRow);
     [[nodiscard]] bool PersistColumnWidths() const;
-    bool ShowsBrowserItems() const { return browser && (location.isRoot || location.isDiskGroup); }
+    bool ShowsBrowserItems() const { return browserContext.repository && (location.isRoot || location.isDiskGroup); }
     bool ShowsDisks() const { return ShowsBrowserItems(); }
     const wit::core::FileEntry* CachedEntryAt(int row);
     const wit::core::FileEntry* EntryAt(int row);
@@ -80,11 +80,13 @@ private:
     };
 
     struct AsyncLoadMailbox {
+        std::uint64_t requestId{};
         std::mutex mutex;
         std::optional<AsyncLoadResult> pendingResult;
     };
 
     struct AsyncPageMailbox {
+        std::uint64_t requestId{};
         std::mutex mutex;
         std::optional<AsyncPageResult> pendingResult;
     };

@@ -453,6 +453,68 @@ TEST(FileListViewPerformance, CacheHintDoesNotSynchronouslyReadPages) {
     EXPECT_EQ(repository.pageCalls, 2);
     DestroyWindow(fileList);
 }
+
+TEST(FileListViewPerformance, EntryAtSchedulesMissingPageWithoutSynchronouslyReading) {
+    INITCOMMONCONTROLSEX controls{sizeof(controls), ICC_LISTVIEW_CLASSES};
+    ASSERT_TRUE(InitCommonControlsEx(&controls));
+
+    const HWND fileList = CreateWindowExW(0, WC_LISTVIEWW, L"", WS_POPUP | LVS_REPORT | LVS_OWNERDATA,
+        0, 0, 640, 480, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+    ASSERT_NE(fileList, nullptr);
+
+    CountingBrowserRepository repository;
+    wit::ui::FileListView fileListView;
+    fileListView.Attach(fileList);
+
+    wit::core::BrowserLocation location;
+    location.isRoot = false;
+    location.sourceId = 1;
+    location.path = L"X:\\FakeSearchStressDisk";
+    fileListView.SetLocation(location, wit::storage::MakeBrowserReadContext(&repository));
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (ListView_GetItemCount(fileList) != 500000 && std::chrono::steady_clock::now() < deadline) {
+        PumpMessages();
+        Sleep(1);
+    }
+    ASSERT_EQ(ListView_GetItemCount(fileList), 500000);
+    EXPECT_EQ(repository.pageCalls, 1);
+
+    EXPECT_EQ(fileListView.EntryAt(250000), nullptr);
+
+    DestroyWindow(fileList);
+}
+
+TEST(FileListViewPerformance, SelectEntryDoesNotSynchronouslyScanLargeFolder) {
+    INITCOMMONCONTROLSEX controls{sizeof(controls), ICC_LISTVIEW_CLASSES};
+    ASSERT_TRUE(InitCommonControlsEx(&controls));
+
+    const HWND fileList = CreateWindowExW(0, WC_LISTVIEWW, L"", WS_POPUP | LVS_REPORT | LVS_OWNERDATA,
+        0, 0, 640, 480, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+    ASSERT_NE(fileList, nullptr);
+
+    CountingBrowserRepository repository;
+    wit::ui::FileListView fileListView;
+    fileListView.Attach(fileList);
+
+    wit::core::BrowserLocation location;
+    location.isRoot = false;
+    location.sourceId = 1;
+    location.path = L"X:\\FakeSearchStressDisk";
+    fileListView.SetLocation(location, wit::storage::MakeBrowserReadContext(&repository));
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (ListView_GetItemCount(fileList) != 500000 && std::chrono::steady_clock::now() < deadline) {
+        PumpMessages();
+        Sleep(1);
+    }
+    ASSERT_EQ(ListView_GetItemCount(fileList), 500000);
+    ASSERT_EQ(repository.pageCalls, 1);
+
+    EXPECT_FALSE(fileListView.SelectEntry(400001, false));
+    EXPECT_EQ(repository.pageCalls, 1) << "SelectEntry must not page through uncached rows synchronously";
+
+    DestroyWindow(fileList);
+}
+
 TEST(SearchPaneColumns, LoadsAndPersistsIndependentWidths) {
     AppSettingsGuard settingsGuard;
     auto settings = wit::platform::LoadAppSettings();

@@ -753,11 +753,15 @@ Acceptance criteria:
 - Rebinding or closing during a read cancels or safely discards results.
 - Existing async performance tests still pass.
 
-### Phase 7: Remove Synchronous UI-Thread Page Reads
+### Phase 7: Remove Synchronous UI-Thread Page Reads - Complete
 
 Goal:
 
 - Make owner-data lists non-blocking in normal UI access paths.
+
+Status:
+
+- Complete. `EntryAt` and `BrowserItemAt` now return cached rows only and schedule async page loads on misses, removing the remaining synchronous UI-thread page reads. `SelectEntry` searches cached pages only instead of scanning every row, and large-list tests cover bounded page access.
 
 Steps:
 

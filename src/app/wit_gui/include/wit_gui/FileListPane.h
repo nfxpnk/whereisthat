@@ -124,7 +124,6 @@ private:
 
     void ConfigureColumns();
     void ClearCache();
-    void CacheFilePage(int pageStart);
     void SchedulePageLoad(int pageStart);
     void BeginLocationLoad();
     void ScheduleVisiblePageLoad();

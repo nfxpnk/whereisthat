@@ -682,34 +682,6 @@ void FileListView::ClearCache() {
     cachedFilePages_.clear();
 }
 
-void FileListView::CacheFilePage(int pageStartValue) {
-    if (!browserContext.IsActive() || ShowsBrowserItems() || pageStartValue < 0 || pageStartValue >= total) return;
-
-    const int normalizedStart = (pageStartValue / PageSize) * PageSize;
-    const auto found = std::ranges::find_if(cachedFilePages_,
-        [normalizedStart](const CachedFilePage& cachedPage) { return cachedPage.start == normalizedStart; });
-    if (found != cachedFilePages_.end()) {
-        found->lastUsed = ++cacheClock_;
-        return;
-    }
-
-    CachedFilePage cachedPage;
-    cachedPage.start = normalizedStart;
-    {
-        std::scoped_lock repositoryLock(*repositoryMutex_);
-        cachedPage.items = browserContext.repository->GetBrowserItemsPage(location, normalizedStart, PageSize, sort_);
-    }
-    cachedPage.lastUsed = ++cacheClock_;
-    cachedFilePages_.push_back(std::move(cachedPage));
-
-    while (cachedFilePages_.size() > MaxCachedPages) {
-        const auto oldest = std::ranges::min_element(cachedFilePages_,
-            [](const CachedFilePage& left, const CachedFilePage& right) { return left.lastUsed < right.lastUsed; });
-        if (oldest == cachedFilePages_.end()) break;
-        cachedFilePages_.erase(oldest);
-    }
-}
-
 const wit::core::FileEntry* FileListView::CachedEntryAt(int row) {
     if (!browserContext.repository || ShowsBrowserItems() || row < 0 || row >= total) return nullptr;
     const int pageStart = (row / PageSize) * PageSize;
@@ -723,9 +695,9 @@ const wit::core::FileEntry* FileListView::CachedEntryAt(int row) {
 
 const wit::core::FileEntry* FileListView::EntryAt(int row) {
     if (!browserContext.repository || ShowsBrowserItems() || row < 0 || row >= total) return nullptr;
-    const int pageStart = (row / PageSize) * PageSize;
-    CacheFilePage(pageStart);
-    return CachedEntryAt(row);
+    if (const auto* entry = CachedEntryAt(row)) return entry;
+    SchedulePageLoad(row);
+    return nullptr;
 }
 const wit::core::Disk* FileListView::DiskAt(int row) {
     const auto* item = BrowserItemAt(row);
@@ -742,25 +714,22 @@ const wit::core::BrowserItem* FileListView::CachedBrowserItemAt(int row) {
 
 const wit::core::BrowserItem* FileListView::BrowserItemAt(int row) {
     if (!browserContext.repository || !ShowsBrowserItems() || row < 0 || row >= total) return nullptr;
-    const int pageStart = (row / PageSize) * PageSize;
-    if (browserPageStart != pageStart) {
-        {
-            std::scoped_lock repositoryLock(*repositoryMutex_);
-            browserPage = browserContext.repository->GetBrowserRootItemsPage(location, pageStart, PageSize, rootSort_);
-        }
-        browserPageStart = pageStart;
-    }
-    return CachedBrowserItemAt(row);
+    if (const auto* item = CachedBrowserItemAt(row)) return item;
+    SchedulePageLoad(row);
+    return nullptr;
 }
 bool FileListView::SelectEntry(std::int64_t id, bool isDirectory) {
     if (!hwnd || ShowsBrowserItems()) return false;
-    for (int row = 0; row < total; ++row) {
-        const auto* entry = EntryAt(row);
-        if (!entry || entry->id != id || entry->isDirectory != isDirectory) continue;
-        ListView_SetItemState(hwnd, -1, 0, LVIS_SELECTED | LVIS_FOCUSED);
-        ListView_SetItemState(hwnd, row, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
-        ListView_EnsureVisible(hwnd, row, FALSE);
-        return true;
+    for (const auto& page : cachedFilePages_) {
+        for (int index = 0; index < static_cast<int>(page.items.size()); ++index) {
+            const auto& entry = page.items[index];
+            if (entry.id != id || entry.isDirectory != isDirectory) continue;
+            const int row = page.start + index;
+            ListView_SetItemState(hwnd, -1, 0, LVIS_SELECTED | LVIS_FOCUSED);
+            ListView_SetItemState(hwnd, row, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
+            ListView_EnsureVisible(hwnd, row, FALSE);
+            return true;
+        }
     }
     return false;
 }

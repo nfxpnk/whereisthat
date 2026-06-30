@@ -91,12 +91,12 @@ wit::core::BrowserLocation GroupLocation(std::int64_t id, const wchar_t* name) {
 
 TEST(BrowserRepository, SortsContentByNameWithSharedNaturalOrder) {
     EXPECT_EQ(BrowserNames({wit::core::FileSortColumn::Name, true}),
-        (std::vector<std::wstring>{L"alpha", L"archive.zip", L"beta.txt", L"gamma.bin", L"item10.txt", L"item2.txt"}));
+        (std::vector<std::wstring>{L"alpha", L"archive.zip", L"beta.txt", L"gamma.bin", L"item2.txt", L"item10.txt"}));
 }
 
 TEST(BrowserRepository, SortsContentByTypeAcrossFoldersAndFiles) {
     EXPECT_EQ(BrowserNames({wit::core::FileSortColumn::Type, true}),
-        (std::vector<std::wstring>{L"archive.zip", L"alpha", L"gamma.bin", L"beta.txt", L"item10.txt", L"item2.txt"}));
+        (std::vector<std::wstring>{L"archive.zip", L"alpha", L"gamma.bin", L"beta.txt", L"item2.txt", L"item10.txt"}));
 }
 
 TEST(BrowserRepository, SortsContentBySizeAcrossFoldersAndFiles) {
@@ -111,7 +111,7 @@ TEST(BrowserRepository, SortsContentByModifiedAcrossFoldersAndFiles) {
 
 TEST(BrowserRepository, SortingContentByPathDoesNotReturnBlankPage) {
     EXPECT_EQ(BrowserNames({wit::core::FileSortColumn::Path, true}),
-        (std::vector<std::wstring>{L"alpha", L"archive.zip", L"beta.txt", L"gamma.bin", L"item10.txt", L"item2.txt"}));
+        (std::vector<std::wstring>{L"alpha", L"archive.zip", L"beta.txt", L"gamma.bin", L"item2.txt", L"item10.txt"}));
 }
 
 TEST(BrowserRepository, EmptyFoldersAndMissingPathsReturnEmptyCountsAndPages) {

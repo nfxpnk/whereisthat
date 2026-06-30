@@ -50,6 +50,37 @@ const char* FileEntryOrderExpression(wit::core::FileSortColumn column) {
     }
 }
 
+
+const char* BrowserContentOrderExpression(wit::core::FileSortColumn column, bool folders) {
+    switch (column) {
+    case wit::core::FileSortColumn::Type:
+        return folders ? "c.entry_type COLLATE WIN_NATURAL_NOCASE" : "f.extension COLLATE WIN_NATURAL_NOCASE";
+    case wit::core::FileSortColumn::Size:
+        return folders ? "c.content_size" : "f.size";
+    case wit::core::FileSortColumn::Path:
+        return "(SELECT path FROM parent) COLLATE WIN_NATURAL_NOCASE";
+    case wit::core::FileSortColumn::Modified:
+        return folders ? "c.modified_at" : "f.modified_at";
+    case wit::core::FileSortColumn::Name:
+    default:
+        return folders ? "c.name COLLATE WIN_NATURAL_NOCASE" : "f.name COLLATE WIN_NATURAL_NOCASE";
+    }
+}
+
+std::string BrowserContentOrderBy(wit::core::FileSort sort, bool folders) {
+    if (sort.column == wit::core::FileSortColumn::Name) {
+        const char* prefix = folders ? "c" : "f";
+        return std::string{"ORDER BY "} + prefix + ".name COLLATE WIN_NATURAL_NOCASE" +
+            (sort.ascending ? " ASC," : " DESC,") + prefix + ".id ASC ";
+    }
+
+    std::string order{"ORDER BY "};
+    order += BrowserContentOrderExpression(sort.column, folders);
+    order += sort.ascending ? " ASC," : " DESC,";
+    order += folders ? " c.name COLLATE WIN_NATURAL_NOCASE ASC,c.id ASC "
+        : " f.name COLLATE WIN_NATURAL_NOCASE ASC,f.id ASC ";
+    return order;
+}
 std::string FileEntryOrderBy(wit::core::FileSort sort) {
     std::string order{"ORDER BY "};
     order += FileEntryOrderExpression(sort.column);

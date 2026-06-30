@@ -659,7 +659,7 @@ Acceptance criteria:
 - Tests that inspect status or displayed text still pass.
 - No new dependency crosses from database/search modules into GUI.
 
-### Phase 4: Centralize Sorting Policy
+### Phase 4: Centralize Sorting Policy - Complete
 
 Goal:
 
@@ -680,6 +680,9 @@ Steps:
 5. Ensure browser content text sorts use the intended collation.
 6. Run all repository and search tests.
 
+Status:
+
+- Complete. Browser content SQL ordering now lives in `SqliteFileListHelpers` as `BrowserContentOrderExpression` / `BrowserContentOrderBy`, while search keeps `FileEntryOrderBy`. Browser content remains folders-first and files-second, with natural no-case collation applied to browser text sort keys and name tie-breakers.
 Acceptance criteria:
 
 - Sort SQL is no longer ad hoc inside the main repository query method.

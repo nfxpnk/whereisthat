@@ -67,6 +67,7 @@ private:
         bool browserItems{};
         std::vector<wit::core::FileEntry> firstFilePage;
         std::vector<wit::core::BrowserItem> firstBrowserPage;
+        std::wstring errorMessage;
     };
 
     struct AsyncPageResult {
@@ -75,6 +76,7 @@ private:
         CachedFilePage filePage;
         int browserPageStart{-1};
         std::vector<wit::core::BrowserItem> browserPage;
+        std::wstring errorMessage;
     };
 
     struct AsyncLoadMailbox {
@@ -116,6 +118,7 @@ private:
     bool restoreSelectionAfterLoad_{};
     int loadPageStart_{};
     int pendingPageStart_{-1};
+    std::wstring browserErrorMessage_;
 
     void ConfigureColumns();
     void ClearCache();

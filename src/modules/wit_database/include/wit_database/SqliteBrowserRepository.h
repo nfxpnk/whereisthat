@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -43,8 +44,15 @@ public:
         std::int64_t sourceId,
         const std::wstring& parentPath) override;
 
+    std::wstring LastErrorMessage() const override;
+
 private:
+    void ClearLastError();
+    void SetLastError(const wchar_t* fallback);
+
     sqlite3* db_{};
+    mutable std::mutex errorMutex_;
+    std::wstring lastError_;
 };
 
 }

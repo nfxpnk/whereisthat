@@ -683,13 +683,14 @@ Steps:
 Status:
 
 - Complete. Browser content SQL ordering now lives in `SqliteFileListHelpers` as `BrowserContentOrderExpression` / `BrowserContentOrderBy`, while search keeps `FileEntryOrderBy`. Browser content remains folders-first and files-second, with natural no-case collation applied to browser text sort keys and name tie-breakers.
+
 Acceptance criteria:
 
 - Sort SQL is no longer ad hoc inside the main repository query method.
 - Tests clearly verify both browser and search sort policies.
 - Browser sort by path/type/name cannot return a blank page.
 
-### Phase 5: Add Browser Error Reporting
+### Phase 5: Add Browser Error Reporting - Complete
 
 Goal:
 
@@ -705,6 +706,10 @@ Steps:
 4. Add tests that force browser query failure and verify an error is recorded.
 5. Update `FileListView` to display or log a lightweight error state.
 6. Keep empty folder behavior as successful empty result.
+
+Status:
+
+- Complete. Browser repository reads now expose `LastErrorMessage()`, capture SQLite prepare/step failures, keep empty folders and missing paths as successful empty results, and log async file-list read errors through the UI layer without changing existing paging APIs.
 
 Acceptance criteria:
 

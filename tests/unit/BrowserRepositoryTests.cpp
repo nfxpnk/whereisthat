@@ -125,11 +125,34 @@ TEST(BrowserRepository, EmptyFoldersAndMissingPathsReturnEmptyCountsAndPages) {
     EXPECT_EQ(repository.GetBrowserItemCount(empty), 0);
     EXPECT_TRUE(repository.GetBrowserItemsPage(empty, 0, 20, {}).empty());
     EXPECT_FALSE(repository.HasChildFolders(1, empty.path));
+    EXPECT_TRUE(repository.LastErrorMessage().empty());
 
     const auto missing = LocationForPath(L"C:\\missing");
     EXPECT_EQ(repository.GetBrowserItemCount(missing), 0);
     EXPECT_TRUE(repository.GetBrowserItemsPage(missing, 0, 20, {}).empty());
     EXPECT_FALSE(repository.HasChildFolders(1, missing.path));
+    EXPECT_TRUE(repository.LastErrorMessage().empty());
+}
+
+
+TEST(BrowserRepository, ReportsSqlFailuresAndClearsErrorAfterSuccessfulRead) {
+    BrowserMemoryDatabase database;
+    wit::storage::SqliteBrowserRepository repository(database.Raw());
+
+    database.Execute("DROP TABLE files;");
+
+    EXPECT_EQ(repository.GetBrowserItemCount(RootLocation()), 0);
+    const auto countError = repository.LastErrorMessage();
+    EXPECT_NE(countError.find(L"Could not count browser items."), std::wstring::npos);
+    EXPECT_NE(countError.find(L"no such table: files"), std::wstring::npos);
+
+    EXPECT_TRUE(repository.GetBrowserItemsPage(RootLocation(), 0, 20, {}).empty());
+    const auto pageError = repository.LastErrorMessage();
+    EXPECT_NE(pageError.find(L"Could not read browser files."), std::wstring::npos);
+    EXPECT_NE(pageError.find(L"no such table: files"), std::wstring::npos);
+
+    EXPECT_EQ(repository.GetBrowserRootItemCount({}), 0);
+    EXPECT_TRUE(repository.LastErrorMessage().empty());
 }
 
 TEST(BrowserRepository, SortsDuplicateNamesDeterministicallyWithinFoldersAndFiles) {

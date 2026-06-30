@@ -100,6 +100,12 @@ wit::core::FileSortColumn SortColumnFromSettings(int column) {
     return wit::core::FileSortColumnFromListColumn(column).value_or(wit::core::FileSortColumn::Name);
 }
 
+
+void LogBrowserError(const std::wstring& text) {
+    if (text.empty()) return;
+    OutputDebugStringW((L"Browser read failed: " + text + L"\n").c_str());
+}
+
 void UpdateListViewSortIndicators(HWND list, int sortColumn, bool ascending) {
     const HWND header = ListView_GetHeader(list);
     if (!header) return;
@@ -209,6 +215,7 @@ void FileListView::SetLocation(
     restoreSelectionAfterLoad_ = false;
     loadPageStart_ = 0;
     pendingPageStart_ = -1;
+    browserErrorMessage_.clear();
     ClearCache();
     if (hwnd) ListView_SetItemCountEx(hwnd, 0, LVSICF_NOINVALIDATEALL);
     ConfigureColumns();
@@ -220,6 +227,7 @@ void FileListView::SetLocation(
     browserPage.clear();
     ClearCache();
     pendingPageStart_ = -1;
+    browserErrorMessage_.clear();
     if (!hwnd) return;
     loadPageStart_ = ((std::max)(0, ListView_GetTopIndex(hwnd)) / PageSize) * PageSize;
     ListView_SetItemCountEx(hwnd, 0, LVSICF_NOINVALIDATEALL);
@@ -349,12 +357,14 @@ void FileListView::BeginLocationLoad() {
         result.total = browserItems ? repository->GetBrowserRootItemCount(loadLocation)
             : repository->GetBrowserItemCount(loadLocation);
         if (stopToken.stop_requested()) return;
-        if (result.total > 0) {
+        result.errorMessage = repository->LastErrorMessage();
+        if (result.total > 0 && result.errorMessage.empty()) {
             if (browserItems) {
                 result.firstBrowserPage = repository->GetBrowserRootItemsPage(loadLocation, pageStart, PageSize, rootSort);
             } else {
                 result.firstFilePage = repository->GetBrowserItemsPage(loadLocation, pageStart, PageSize, fileSort);
             }
+            result.errorMessage = repository->LastErrorMessage();
         }
         if (stopToken.stop_requested()) return;
         PublishLoadResult(mailboxReference, window, std::move(result));
@@ -455,6 +465,8 @@ LRESULT FileListView::OnLoadComplete() {
     browserPageStart = -1;
     browserPage.clear();
     total = result->total;
+    browserErrorMessage_ = std::move(result->errorMessage);
+    LogBrowserError(browserErrorMessage_);
     if (result->browserItems) {
         browserPageStart = result->firstBrowserPage.empty() ? -1 : result->pageStart;
         browserPage = std::move(result->firstBrowserPage);
@@ -484,6 +496,11 @@ LRESULT FileListView::OnPageReady() {
     if (!result || !hwnd) return 0;
     RetireWorker(pageWorker_);
     if (mailbox == pageMailbox_) pageMailbox_.reset();
+
+    if (!result->errorMessage.empty()) {
+        browserErrorMessage_ = std::move(result->errorMessage);
+        LogBrowserError(browserErrorMessage_);
+    }
 
     int first{};
     int last{-1};
@@ -620,6 +637,7 @@ void FileListView::SchedulePageLoad(int pageStartValue) {
             result.filePage.start = normalizedStart;
             result.filePage.items = repository->GetBrowserItemsPage(pageLocation, normalizedStart, PageSize, fileSort);
         }
+        result.errorMessage = repository->LastErrorMessage();
         if (stopToken.stop_requested()) return;
         PublishPageResult(mailboxReference, window, std::move(result));
     });

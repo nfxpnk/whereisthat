@@ -31,6 +31,7 @@ public:
     virtual std::vector<wit::core::FileEntry> GetChildFolders(
         std::int64_t sourceId,
         const std::wstring& parentPath) = 0;
+    virtual std::wstring LastErrorMessage() const = 0;
 };
 
 }

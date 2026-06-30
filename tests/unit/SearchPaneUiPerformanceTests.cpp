@@ -169,6 +169,8 @@ public:
         return {};
     }
 
+    std::wstring LastErrorMessage() const override { return {}; }
+
     std::atomic_bool countStarted{};
     std::atomic_bool releaseCount{};
 };
@@ -204,6 +206,8 @@ public:
         std::int64_t, const std::wstring&) override {
         return {};
     }
+
+    std::wstring LastErrorMessage() const override { return {}; }
 
     int pageCalls{};
 };

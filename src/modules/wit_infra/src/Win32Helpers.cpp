@@ -184,16 +184,22 @@ static std::wstring CurrentPattern() {
 
 std::string ToUtf8(const std::wstring& value) {
     if (value.empty()) return {};
-    int size = WideCharToMultiByte(CP_UTF8, 0, value.c_str(), -1, nullptr, 0, nullptr, nullptr);
-    std::string out(size - 1, '\0');
-    WideCharToMultiByte(CP_UTF8, 0, value.c_str(), -1, out.data(), size, nullptr, nullptr);
+    const int size = WideCharToMultiByte(CP_UTF8, 0, value.c_str(), -1, nullptr, 0, nullptr, nullptr);
+    if (size <= 0) return {};
+    std::string out(static_cast<std::size_t>(size), '\0');
+    const int written = WideCharToMultiByte(CP_UTF8, 0, value.c_str(), -1, out.data(), size, nullptr, nullptr);
+    if (written <= 0) return {};
+    out.resize(static_cast<std::size_t>(written - 1));
     return out;
 }
 std::wstring ToUtf16(const std::string& value) {
     if (value.empty()) return {};
-    int size = MultiByteToWideChar(CP_UTF8, 0, value.c_str(), -1, nullptr, 0);
-    std::wstring out(size - 1, L'\0');
-    MultiByteToWideChar(CP_UTF8, 0, value.c_str(), -1, out.data(), size);
+    const int size = MultiByteToWideChar(CP_UTF8, 0, value.c_str(), -1, nullptr, 0);
+    if (size <= 0) return {};
+    std::wstring out(static_cast<std::size_t>(size), L'\0');
+    const int written = MultiByteToWideChar(CP_UTF8, 0, value.c_str(), -1, out.data(), size);
+    if (written <= 0) return {};
+    out.resize(static_cast<std::size_t>(written - 1));
     return out;
 }
 std::int64_t FileTimeToUnixSeconds(const FILETIME& fileTime) {

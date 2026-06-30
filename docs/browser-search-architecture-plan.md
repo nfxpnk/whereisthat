@@ -595,7 +595,7 @@ Acceptance criteria:
 - Existing schema validation behavior is unchanged.
 - `msbuild UnitTests.vcxproj /p:Configuration=Debug /p:Platform=x64` succeeds.
 
-### Phase 2: Add Repository Behavior Tests
+### Phase 2: Add Repository Behavior Tests - Complete
 
 Goal:
 
@@ -618,6 +618,10 @@ Steps:
 8. Cover root/disk group sorting separately from content sorting.
 9. Add tests for folder-first browser content policy.
 10. Add tests showing search global sort policy separately.
+
+Status:
+
+- Complete. `BrowserRepositoryTests` now covers empty and missing folders, duplicate names, duplicate path schema assumptions, natural names, all browser content sort columns, root/group paging, and the browser folder-first policy. Existing `SearchExecutor` coverage documents the separate global search sort policy.
 
 Acceptance criteria:
 

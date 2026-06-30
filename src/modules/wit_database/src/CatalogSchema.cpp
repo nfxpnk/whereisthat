@@ -1,5 +1,6 @@
 #include "wit_database/CatalogSchema.h"
 #include "wit_database/SqliteConnection.h"
+#include "wit_database/SQLiteStatement.h"
 #include "resource.h"
 #include "third_party/sqlite/sqlite3.h"
 #include <array>
@@ -18,18 +19,18 @@ constexpr std::array<int, 6> kSchemaTableResources = {
 };
 
 bool TableHasColumn(sqlite3* db, const char* table, const char* expectedColumn) {
-    sqlite3_stmt* stmt{};
     const std::string query = "PRAGMA table_info(" + std::string(table) + ");";
-    if (sqlite3_prepare_v2(db, query.c_str(), -1, &stmt, nullptr) != SQLITE_OK) return false;
+    SQLiteStatement statement(db, query.c_str());
+    if (!statement.IsValid()) return false;
+
     bool found = false;
-    while (sqlite3_step(stmt) == SQLITE_ROW) {
-        const auto* name = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
+    while (sqlite3_step(statement.Raw()) == SQLITE_ROW) {
+        const auto* name = reinterpret_cast<const char*>(sqlite3_column_text(statement.Raw(), 1));
         if (name && std::string(name) == expectedColumn) {
             found = true;
             break;
         }
     }
-    sqlite3_finalize(stmt);
     return found;
 }
 

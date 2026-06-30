@@ -110,30 +110,26 @@ bool IntegrityCheckOk(SqliteConnection& connection) {
         ? std::make_optional<wit::infra::ScopedSaveTimer>(
             wit::infra::CurrentSaveProfile()->timingsNs.integrityCheck)
         : std::nullopt;
-    sqlite3_stmt* statement{};
-    if (sqlite3_prepare_v2(connection.Raw(), "PRAGMA integrity_check;", -1, &statement, nullptr) != SQLITE_OK) {
-        return false;
-    }
+    SQLiteStatement statement(connection.Raw(), "PRAGMA integrity_check;");
+    if (!statement.IsValid()) return false;
+
     bool ok = false;
-    if (sqlite3_step(statement) == SQLITE_ROW) {
-        const auto* result = reinterpret_cast<const char*>(sqlite3_column_text(statement, 0));
-        ok = result && std::string(result) == "ok" && sqlite3_step(statement) == SQLITE_DONE;
+    if (sqlite3_step(statement.Raw()) == SQLITE_ROW) {
+        const auto* result = reinterpret_cast<const char*>(sqlite3_column_text(statement.Raw(), 0));
+        ok = result && std::string(result) == "ok" && sqlite3_step(statement.Raw()) == SQLITE_DONE;
     }
-    sqlite3_finalize(statement);
     return ok;
 }
 
 bool PragmaReturns(SqliteConnection& connection, const char* sql, const char* expectedText) {
-    sqlite3_stmt* statement{};
-    if (sqlite3_prepare_v2(connection.Raw(), sql, -1, &statement, nullptr) != SQLITE_OK) {
-        return false;
-    }
+    SQLiteStatement statement(connection.Raw(), sql);
+    if (!statement.IsValid()) return false;
+
     bool ok = false;
-    if (sqlite3_step(statement) == SQLITE_ROW) {
-        const auto* result = reinterpret_cast<const char*>(sqlite3_column_text(statement, 0));
+    if (sqlite3_step(statement.Raw()) == SQLITE_ROW) {
+        const auto* result = reinterpret_cast<const char*>(sqlite3_column_text(statement.Raw(), 0));
         ok = result && std::string(result) == expectedText;
     }
-    sqlite3_finalize(statement);
     return ok;
 }
 

@@ -568,7 +568,7 @@ Acceptance criteria:
 - Plan is committed or available in `docs`.
 - No code behavior changes in this phase.
 
-### Phase 1: Patch WIT-017 Statement RAII
+### Phase 1: Patch WIT-017 Statement RAII - Complete
 
 Goal:
 
@@ -584,6 +584,10 @@ Steps:
 6. Add or update focused tests only if practical without overfitting to
    implementation details.
 7. Build `UnitTests`.
+
+Status:
+
+- Complete. `IntegrityCheckOk`, `PragmaReturns`, and `TableHasColumn` now use `SQLiteStatement` RAII.
 
 Acceptance criteria:
 

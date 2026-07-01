@@ -1,4 +1,5 @@
 #include "wit_scanner/Crc32.h"
+#include "wit_win32/HandleGuard.h"
 
 #include <Windows.h>
 #include <array>
@@ -87,9 +88,10 @@ std::optional<std::uint32_t> CalculateFileCrc32(
     std::uint64_t* bytesRead) {
     if (cancelled) *cancelled = false;
     if (bytesRead) *bytesRead = 0;
-    const HANDLE file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
+    const HANDLE rawFile = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
         kFileFlags, nullptr);
-    if (file == INVALID_HANDLE_VALUE) return std::nullopt;
+    if (rawFile == INVALID_HANDLE_VALUE) return std::nullopt;
+    const wit::win32::HandleGuard<HANDLE, CloseHandle> file(rawFile);
 
     thread_local std::vector<std::byte> buffer(kBufferSize);
     Crc32 crc;
@@ -101,7 +103,7 @@ std::optional<std::uint32_t> CalculateFileCrc32(
             success = false;
             break;
         }
-        if (!ReadFile(file, buffer.data(), static_cast<DWORD>(buffer.size()), &count, nullptr)) {
+        if (!ReadFile(file.Get(), buffer.data(), static_cast<DWORD>(buffer.size()), &count, nullptr)) {
             success = false;
             break;
         }
@@ -109,7 +111,6 @@ std::optional<std::uint32_t> CalculateFileCrc32(
         if (bytesRead) *bytesRead += count;
         crc.Update(std::span<const std::byte>{buffer.data(), static_cast<std::size_t>(count)});
     }
-    CloseHandle(file);
     if (!success) return std::nullopt;
     return crc.Finalize();
 }

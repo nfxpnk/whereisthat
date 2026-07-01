@@ -785,11 +785,15 @@ Acceptance criteria:
 - Locate/select does not scan every row in a large folder.
 - Large-list tests prove page count stays bounded.
 
-### Phase 8: Lazy Load Disk Groups in the Tree
+### Phase 8: Lazy Load Disk Groups in the Tree - Complete
 
 Goal:
 
 - Make root/group tree behavior scale like folder behavior.
+
+Status:
+
+- Complete. Catalog roots now keep only a child indicator until expanded, root and disk-group expansion loads immediate children on demand, refresh invalidates displayed children instead of recursively rebuilding descendants, and tree smoke tests cover lazy root/group expansion plus nested group selection.
 
 Steps:
 

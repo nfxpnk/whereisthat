@@ -57,6 +57,8 @@ private:
     HTREEITEM FindDiskGroup(wit::core::CatalogId catalogId, std::int64_t diskGroupId) const;
     HTREEITEM FindSource(wit::core::CatalogId catalogId, std::int64_t sourceId) const;
     HTREEITEM FindSortedInsertAfter(HTREEITEM parent, const std::wstring& text, HTREEITEM excluding) const;
+    Node* NodeFor(HTREEITEM item) const;
+    void PopulateBrowserChildren(HTREEITEM parent, Node& node, wit::storage::Database* database);
     HTREEITEM CloneDisplayedSubtree(HTREEITEM source, HTREEITEM parent, HTREEITEM insertAfter,
         std::int64_t diskGroupId, const std::wstring& diskGroupName);
     HTREEITEM CloneDisplayedSubtree(HTREEITEM source, HTREEITEM parent, HTREEITEM insertAfter);

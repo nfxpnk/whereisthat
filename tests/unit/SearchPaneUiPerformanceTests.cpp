@@ -6,6 +6,7 @@
 #include <wit_gui/BrowserItemIcons.h>
 #include <wit_gui/FileListPane.h>
 #include <wit_gui/SearchPane.h>
+#include <wit_gui/TreeViewPane.h>
 #include <CommCtrl.h>
 #include <Windows.h>
 #include <algorithm>
@@ -242,6 +243,33 @@ double MeasureMilliseconds(Func&& func) {
     const auto elapsed = std::chrono::steady_clock::now() - started;
     return std::chrono::duration<double, std::milli>(elapsed).count();
 }
+
+int TreeChildCount(HWND tree, HTREEITEM parent) {
+    int count{};
+    for (auto child = TreeView_GetChild(tree, parent); child; child = TreeView_GetNextSibling(tree, child)) ++count;
+    return count;
+}
+
+HTREEITEM FindDisplayedDiskGroup(wit::ui::CatalogTreeView& catalogTree, HWND tree, HTREEITEM parent,
+    std::int64_t diskGroupId) {
+    for (auto child = TreeView_GetChild(tree, parent); child; child = TreeView_GetNextSibling(tree, child)) {
+        const auto* target = catalogTree.TargetFor(child);
+        if (target && target->location.isDiskGroup && target->location.diskGroupId == diskGroupId) return child;
+    }
+    return nullptr;
+}
+
+wit::core::Disk TestDisk(const std::wstring& name, const std::wstring& sourcePath, std::int64_t diskGroupId = 0) {
+    wit::core::Disk disk;
+    disk.diskGroupId = diskGroupId;
+    disk.diskName = name;
+    disk.diskNumber = 1;
+    disk.sourcePath = sourcePath;
+    disk.totalCapacity = 1000;
+    disk.freeSpace = 100;
+    disk.diskType = wit::core::DiskType::VirtualDisk;
+    return disk;
+}
 }
 
 TEST(SearchPaneIcons, OwnsAnIndependentImageList) {
@@ -320,6 +348,98 @@ TEST(SearchPaneLifetime, RebindingCancelsTheOldRepositoryBeforeReplacement) {
     PumpMessages();
 }
 
+TEST(CatalogTreeViewLazyLoading, AddCatalogLoadsOnlyRootUntilExpanded) {
+    INITCOMMONCONTROLSEX controls{sizeof(controls), ICC_TREEVIEW_CLASSES};
+    ASSERT_TRUE(InitCommonControlsEx(&controls));
+
+    const auto testRoot = std::filesystem::temp_directory_path() /
+        (L"whereisthat-tree-lazy-" + std::to_wstring(GetCurrentProcessId()));
+    const auto catalogPath = testRoot / L"tree.db";
+    std::filesystem::remove_all(testRoot);
+    std::filesystem::create_directories(testRoot);
+
+    wit::storage::Database database;
+    ASSERT_TRUE(database.CreateNew(catalogPath.wstring(), true));
+    const auto rootGroupId = database.CreateDiskGroup(L"RootGroup");
+    const auto nestedGroupId = database.CreateDiskGroup(L"NestedGroup");
+    ASSERT_NE(rootGroupId, 0);
+    ASSERT_NE(nestedGroupId, 0);
+    ASSERT_TRUE(database.MoveDiskGroupToGroup(nestedGroupId, rootGroupId));
+    ASSERT_NE(database.AddDisk(TestDisk(L"RootDisk", L"R:\\")), 0);
+    ASSERT_NE(database.AddDisk(TestDisk(L"GroupedDisk", L"G:\\", rootGroupId)), 0);
+
+    const HWND tree = CreateWindowExW(0, WC_TREEVIEWW, L"", WS_POPUP | TVS_HASBUTTONS | TVS_HASLINES,
+        0, 0, 320, 480, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+    ASSERT_NE(tree, nullptr);
+
+    wit::ui::CatalogTreeView catalogTree;
+    catalogTree.Attach(tree, [&](wit::core::CatalogId) { return &database; });
+    catalogTree.AddCatalog(1, L"Catalog", &database, true);
+
+    const auto root = TreeView_GetRoot(tree);
+    ASSERT_NE(root, nullptr);
+    EXPECT_EQ(TreeChildCount(tree, root), 0);
+
+    catalogTree.Expand(root);
+    EXPECT_EQ(TreeChildCount(tree, root), 2);
+    const auto rootGroup = FindDisplayedDiskGroup(catalogTree, tree, root, rootGroupId);
+    ASSERT_NE(rootGroup, nullptr);
+    EXPECT_EQ(TreeChildCount(tree, rootGroup), 0);
+
+    catalogTree.Expand(rootGroup);
+    EXPECT_EQ(TreeChildCount(tree, rootGroup), 2);
+    EXPECT_NE(FindDisplayedDiskGroup(catalogTree, tree, rootGroup, nestedGroupId), nullptr);
+
+    DestroyWindow(tree);
+    database.Close();
+    std::filesystem::remove_all(testRoot);
+}
+
+TEST(CatalogTreeViewLazyLoading, SelectLocationExpandsNestedDiskGroups) {
+    INITCOMMONCONTROLSEX controls{sizeof(controls), ICC_TREEVIEW_CLASSES};
+    ASSERT_TRUE(InitCommonControlsEx(&controls));
+
+    const auto testRoot = std::filesystem::temp_directory_path() /
+        (L"whereisthat-tree-select-" + std::to_wstring(GetCurrentProcessId()));
+    const auto catalogPath = testRoot / L"tree.db";
+    std::filesystem::remove_all(testRoot);
+    std::filesystem::create_directories(testRoot);
+
+    wit::storage::Database database;
+    ASSERT_TRUE(database.CreateNew(catalogPath.wstring(), true));
+    const auto rootGroupId = database.CreateDiskGroup(L"RootGroup");
+    const auto nestedGroupId = database.CreateDiskGroup(L"NestedGroup");
+    ASSERT_NE(rootGroupId, 0);
+    ASSERT_NE(nestedGroupId, 0);
+    ASSERT_TRUE(database.MoveDiskGroupToGroup(nestedGroupId, rootGroupId));
+
+    const HWND tree = CreateWindowExW(0, WC_TREEVIEWW, L"", WS_POPUP | TVS_HASBUTTONS | TVS_HASLINES,
+        0, 0, 320, 480, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+    ASSERT_NE(tree, nullptr);
+
+    wit::ui::CatalogTreeView catalogTree;
+    catalogTree.Attach(tree, [&](wit::core::CatalogId) { return &database; });
+    catalogTree.AddCatalog(1, L"Catalog", &database, true);
+
+    wit::core::BrowserTarget target;
+    target.catalogId = 1;
+    target.location.isRoot = false;
+    target.location.isDiskGroup = true;
+    target.location.diskGroupId = nestedGroupId;
+    target.location.diskGroupName = L"NestedGroup";
+
+    EXPECT_TRUE(catalogTree.SelectLocation(target));
+    const auto selected = TreeView_GetSelection(tree);
+    ASSERT_NE(selected, nullptr);
+    const auto* selectedTarget = catalogTree.TargetFor(selected);
+    ASSERT_NE(selectedTarget, nullptr);
+    EXPECT_TRUE(selectedTarget->location.isDiskGroup);
+    EXPECT_EQ(selectedTarget->location.diskGroupId, nestedGroupId);
+
+    DestroyWindow(tree);
+    database.Close();
+    std::filesystem::remove_all(testRoot);
+}
 TEST(FileListViewPerformance, StaleLoadMessageDoesNotCancelCurrentFolderLoad) {
     INITCOMMONCONTROLSEX controls{sizeof(controls), ICC_LISTVIEW_CLASSES};
     ASSERT_TRUE(InitCommonControlsEx(&controls));

@@ -14,6 +14,7 @@
 #include <wit_types/FileEntry.h>
 #include <wit_types/FileSort.h>
 #include "wit_database/IBrowserRepository.h"
+#include "wit_gui/OwnerDataPageCache.h"
 
 namespace wit::ui {
 std::wstring CompactFileSize(std::uint64_t bytes);
@@ -54,11 +55,7 @@ public:
     void TextFor(int row, int column, wchar_t* buffer, std::size_t bufferSize);
 
 private:
-    struct CachedFilePage {
-        int start{};
-        std::vector<wit::core::FileEntry> items;
-        unsigned long long lastUsed{};
-    };
+    using CachedFilePage = OwnerDataPageCache<wit::core::FileEntry>::Page;
 
     struct AsyncLoadResult {
         std::uint64_t requestId{};
@@ -97,8 +94,7 @@ private:
     static constexpr UINT PageReadyMessage = WM_APP + 48;
     static constexpr UINT_PTR SubclassId = 7;
 
-    unsigned long long cacheClock_{};
-    std::vector<CachedFilePage> cachedFilePages_;
+    OwnerDataPageCache<wit::core::FileEntry> filePageCache_{PageSize, MaxCachedPages};
     wit::core::FileSort sort_{};
     wit::core::BrowserRootSort rootSort_{};
     std::jthread loadWorker_;
@@ -106,7 +102,6 @@ private:
     std::jthread pageWorker_;
     std::shared_ptr<AsyncPageMailbox> pageMailbox_;
     std::uint64_t loadRequestId_{};
-    std::uint64_t pageRequestId_{};
     std::mutex reaperMutex_;
     std::condition_variable reaperCondition_;
     std::vector<std::jthread> retiredWorkers_;
@@ -119,7 +114,6 @@ private:
     bool pendingFocusedIsDirectory_{};
     bool restoreSelectionAfterLoad_{};
     int loadPageStart_{};
-    int pendingPageStart_{-1};
     std::wstring browserErrorMessage_;
 
     void ConfigureColumns();

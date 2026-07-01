@@ -817,11 +817,15 @@ Acceptance criteria:
 - Expanding a node loads only that node's immediate children.
 - Existing move/refresh behavior remains correct.
 
-### Phase 9: Extract Shared Owner-Data Page Cache
+### Phase 9: Extract Shared Owner-Data Page Cache - Complete
 
 Goal:
 
 - Reduce duplicated async paging/cache code between browser and search panes.
+
+Status:
+
+- Complete. Added `OwnerDataPageCache<T>` for page normalization, cache hits, LRU page storage, pending page replacement, and request-id freshness. `FileListView` and `SearchDialog` now use the shared helper while keeping their repository-specific async workers and message handlers separate.
 
 Steps:
 

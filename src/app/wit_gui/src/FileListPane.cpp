@@ -214,7 +214,7 @@ void FileListView::SetLocation(
     pendingFocusedIsDirectory_ = false;
     restoreSelectionAfterLoad_ = false;
     loadPageStart_ = 0;
-    pendingPageStart_ = -1;
+    filePageCache_.SetPendingStart(-1);
     browserErrorMessage_.clear();
     ClearCache();
     if (hwnd) ListView_SetItemCountEx(hwnd, 0, LVSICF_NOINVALIDATEALL);
@@ -226,7 +226,7 @@ void FileListView::SetLocation(
     browserPageStart = -1;
     browserPage.clear();
     ClearCache();
-    pendingPageStart_ = -1;
+    filePageCache_.SetPendingStart(-1);
     browserErrorMessage_.clear();
     if (!hwnd) return;
     loadPageStart_ = ((std::max)(0, ListView_GetTopIndex(hwnd)) / PageSize) * PageSize;
@@ -240,7 +240,7 @@ void FileListView::SetLocation(
     CancelPageLoad();
     SendMessageW(hwnd, WM_SETREDRAW, FALSE, 0);
     loadPageStart_ = ((std::max)(0, ListView_GetTopIndex(hwnd)) / PageSize) * PageSize;
-    pendingPageStart_ = -1;
+    filePageCache_.SetPendingStart(-1);
     SendMessageW(hwnd, WM_SETREDRAW, TRUE, 0);
     BeginLocationLoad();
     return true;
@@ -265,7 +265,7 @@ bool FileListView::ApplyContentSort(
     pendingFocusedIsDirectory_ = focusedIsDirectory;
     restoreSelectionAfterLoad_ = !pendingSelectedEntries_.empty() || pendingFocusedId_ != 0;
     loadPageStart_ = ((std::max)(0, ListView_GetTopIndex(hwnd)) / PageSize) * PageSize;
-    pendingPageStart_ = -1;
+    filePageCache_.SetPendingStart(-1);
     BeginLocationLoad();
     return true;
 }bool FileListView::ToggleSortForColumn(int column) {
@@ -384,7 +384,7 @@ void FileListView::CancelLocationLoad() {
 }
 
 void FileListView::CancelPageLoad() {
-    ++pageRequestId_;
+    filePageCache_.InvalidateRequests();
     pageMailbox_.reset();
     if (pageWorker_.joinable()) {
         pageWorker_.request_stop();
@@ -480,8 +480,7 @@ LRESULT FileListView::OnLoadComplete() {
         CachedFilePage page;
         page.start = result->pageStart;
         page.items = std::move(result->firstFilePage);
-        page.lastUsed = ++cacheClock_;
-        cachedFilePages_.push_back(std::move(page));
+        filePageCache_.StorePage(std::move(page));
     }
     ResetItemCache();
     RestorePendingSelection();
@@ -494,7 +493,7 @@ LRESULT FileListView::OnPageReady() {
     const auto mailbox = pageMailbox_;
     if (mailbox) {
         std::scoped_lock lock(mailbox->mutex);
-        if (mailbox->pendingResult && mailbox->pendingResult->requestId == pageRequestId_) {
+        if (mailbox->pendingResult && filePageCache_.IsCurrentRequest(mailbox->pendingResult->requestId)) {
             result = std::move(mailbox->pendingResult);
         }
         mailbox->pendingResult.reset();
@@ -516,26 +515,13 @@ LRESULT FileListView::OnPageReady() {
         first = browserPageStart;
         last = first + static_cast<int>(browserPage.size()) - 1;
     } else {
-        auto existing = std::ranges::find_if(cachedFilePages_,
-            [start = result->filePage.start](const CachedFilePage& page) { return page.start == start; });
-        result->filePage.lastUsed = ++cacheClock_;
-        first = result->filePage.start;
-        last = first + static_cast<int>(result->filePage.items.size()) - 1;
-        if (existing != cachedFilePages_.end()) {
-            *existing = std::move(result->filePage);
-        } else {
-            cachedFilePages_.push_back(std::move(result->filePage));
-        }
-        while (cachedFilePages_.size() > MaxCachedPages) {
-            const auto oldest = std::ranges::min_element(cachedFilePages_,
-                [](const CachedFilePage& left, const CachedFilePage& right) { return left.lastUsed < right.lastUsed; });
-            if (oldest == cachedFilePages_.end()) break;
-            cachedFilePages_.erase(oldest);
-        }
+        const auto range = filePageCache_.StorePage(std::move(result->filePage));
+        first = range.first;
+        last = range.second;
     }
     if (last >= first) ListView_RedrawItems(hwnd, first, last);
-    if (pendingPageStart_ >= 0) {
-        const int pending = std::exchange(pendingPageStart_, -1);
+    if (filePageCache_.HasPendingStart()) {
+        const int pending = filePageCache_.TakePendingStart();
         SchedulePageLoad(pending);
     } else {
         ScheduleVisiblePageLoad();
@@ -609,16 +595,14 @@ void FileListView::SchedulePageLoad(int pageStartValue) {
     if (ShowsBrowserItems()) {
         if (browserPageStart == normalizedStart) return;
     } else {
-        const auto cached = std::ranges::find_if(cachedFilePages_,
-            [normalizedStart](const CachedFilePage& page) { return page.start == normalizedStart; });
-        if (cached != cachedFilePages_.end()) return;
+        if (filePageCache_.ContainsStart(normalizedStart)) return;
     }
     if (pageWorker_.joinable()) {
-        pendingPageStart_ = normalizedStart;
+        filePageCache_.SetPendingStart(normalizedStart);
         return;
     }
 
-    const auto requestId = ++pageRequestId_;
+    const auto requestId = filePageCache_.BeginRequest();
     const auto pageLocation = location;
     const auto fileSort = sort_;
     const auto rootSort = rootSort_;
@@ -667,30 +651,19 @@ void FileListView::PreloadRange(int firstRow, int lastRow) {
                 SchedulePageLoad(start);
                 return;
             }
-        } else {
-            const auto cached = std::ranges::find_if(cachedFilePages_,
-                [start](const CachedFilePage& cachedPage) { return cachedPage.start == start; });
-            if (cached == cachedFilePages_.end()) {
-                SchedulePageLoad(start);
-                return;
-            }
+        } else if (!filePageCache_.ContainsStart(start)) {
+            SchedulePageLoad(start);
+            return;
         }
     }
 }
 void FileListView::ClearCache() {
-    cacheClock_ = 0;
-    cachedFilePages_.clear();
+    filePageCache_.Clear();
 }
 
 const wit::core::FileEntry* FileListView::CachedEntryAt(int row) {
-    if (!browserContext.repository || ShowsBrowserItems() || row < 0 || row >= total) return nullptr;
-    const int pageStart = (row / PageSize) * PageSize;
-    const auto found = std::ranges::find_if(cachedFilePages_,
-        [pageStart](const CachedFilePage& cachedPage) { return cachedPage.start == pageStart; });
-    if (found == cachedFilePages_.end()) return nullptr;
-    found->lastUsed = ++cacheClock_;
-    const int index = row - found->start;
-    return index >= 0 && index < static_cast<int>(found->items.size()) ? &found->items[index] : nullptr;
+    if (!browserContext.repository || ShowsBrowserItems()) return nullptr;
+    return filePageCache_.EntryAt(row, total);
 }
 
 const wit::core::FileEntry* FileListView::EntryAt(int row) {
@@ -720,7 +693,7 @@ const wit::core::BrowserItem* FileListView::BrowserItemAt(int row) {
 }
 bool FileListView::SelectEntry(std::int64_t id, bool isDirectory) {
     if (!hwnd || ShowsBrowserItems()) return false;
-    for (const auto& page : cachedFilePages_) {
+    for (const auto& page : filePageCache_.Pages()) {
         for (int index = 0; index < static_cast<int>(page.items.size()); ++index) {
             const auto& entry = page.items[index];
             if (entry.id != id || entry.isDirectory != isDirectory) continue;

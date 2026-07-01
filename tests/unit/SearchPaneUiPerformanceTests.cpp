@@ -7,6 +7,7 @@
 #include <wit_gui/FileListPane.h>
 #include <wit_gui/SearchPane.h>
 #include <wit_gui/TreeViewPane.h>
+#include "wit_gui/OwnerDataPageCache.h"
 #include <CommCtrl.h>
 #include <Windows.h>
 #include <algorithm>
@@ -272,6 +273,60 @@ wit::core::Disk TestDisk(const std::wstring& name, const std::wstring& sourcePat
 }
 }
 
+TEST(OwnerDataPageCache, NormalizesRowsToPageStarts) {
+    wit::ui::OwnerDataPageCache<int> cache(10, 2);
+
+    EXPECT_EQ(cache.NormalizeStart(0), 0);
+    EXPECT_EQ(cache.NormalizeStart(9), 0);
+    EXPECT_EQ(cache.NormalizeStart(10), 10);
+    EXPECT_EQ(cache.NormalizeStart(27), 20);
+}
+
+TEST(OwnerDataPageCache, ReturnsCachedEntriesAndRefreshesUsage) {
+    wit::ui::OwnerDataPageCache<int> cache(10, 2);
+    cache.StorePage({0, {1, 2, 3}});
+
+    ASSERT_NE(cache.EntryAt(1, 100), nullptr);
+    EXPECT_EQ(*cache.EntryAt(1, 100), 2);
+    EXPECT_EQ(cache.EntryAt(8, 100), nullptr);
+    EXPECT_EQ(cache.EntryAt(100, 100), nullptr);
+}
+
+TEST(OwnerDataPageCache, EvictsLeastRecentlyUsedPage) {
+    wit::ui::OwnerDataPageCache<int> cache(10, 2);
+    cache.StorePage({0, {1}});
+    cache.StorePage({10, {2}});
+    ASSERT_NE(cache.EntryAt(0, 100), nullptr);
+
+    cache.StorePage({20, {3}});
+
+    EXPECT_TRUE(cache.ContainsStart(0));
+    EXPECT_FALSE(cache.ContainsStart(10));
+    EXPECT_TRUE(cache.ContainsStart(20));
+}
+
+TEST(OwnerDataPageCache, PendingPageStartCanBeReplacedAndConsumed) {
+    wit::ui::OwnerDataPageCache<int> cache(10, 2);
+
+    cache.SetPendingStart(10);
+    cache.SetPendingStart(20);
+
+    EXPECT_TRUE(cache.HasPendingStart());
+    EXPECT_EQ(cache.TakePendingStart(), 20);
+    EXPECT_FALSE(cache.HasPendingStart());
+}
+
+TEST(OwnerDataPageCache, RequestIdsRejectStaleResults) {
+    wit::ui::OwnerDataPageCache<int> cache(10, 2);
+
+    const auto stale = cache.BeginRequest();
+    const auto current = cache.BeginRequest();
+
+    EXPECT_FALSE(cache.IsCurrentRequest(stale));
+    EXPECT_TRUE(cache.IsCurrentRequest(current));
+    cache.InvalidateRequests();
+    EXPECT_FALSE(cache.IsCurrentRequest(current));
+}
 TEST(SearchPaneIcons, OwnsAnIndependentImageList) {
     INITCOMMONCONTROLSEX controls{sizeof(controls), ICC_LISTVIEW_CLASSES | ICC_BAR_CLASSES};
     ASSERT_TRUE(InitCommonControlsEx(&controls));

@@ -314,8 +314,7 @@ LRESULT SearchDialog::OnSearchComplete(UINT, WPARAM, LPARAM, BOOL&) {
         CachedPage page;
         page.start = 0;
         page.items = std::move(result->firstPage);
-        page.lastUsed = ++cacheClock_;
-        cachedPages_.push_back(std::move(page));
+        pageCache_.StorePage(std::move(page));
     }
     ResetResultItemCache();
     const auto summary = total_ == 0 ? std::wstring(L"No matching items found.") :
@@ -335,7 +334,7 @@ LRESULT SearchDialog::OnPageReady(UINT, WPARAM, LPARAM, BOOL&) {
     const auto mailbox = pageMailbox_;
     if (mailbox) {
         std::scoped_lock lock(mailbox->mutex);
-        if (mailbox->pendingResult && mailbox->pendingResult->requestId == pageRequestId_) {
+        if (mailbox->pendingResult && pageCache_.IsCurrentRequest(mailbox->pendingResult->requestId)) {
             result = std::move(mailbox->pendingResult);
         }
         mailbox->pendingResult.reset();
@@ -347,22 +346,9 @@ LRESULT SearchDialog::OnPageReady(UINT, WPARAM, LPARAM, BOOL&) {
         SetDlgItemTextW(IDC_SEARCH_SUMMARY, result->error.c_str());
         return 0;
     }
-    auto existing = std::ranges::find_if(cachedPages_,
-        [start = result->page.start](const CachedPage& page) { return page.start == start; });
-    result->page.lastUsed = ++cacheClock_;
-    const int first = result->page.start;
-    const int last = first + static_cast<int>(result->page.items.size()) - 1;
-    if (existing != cachedPages_.end()) {
-        *existing = std::move(result->page);
-    } else {
-        cachedPages_.push_back(std::move(result->page));
-    }
-    while (cachedPages_.size() > MaxCachedPages) {
-        const auto oldest = std::ranges::min_element(cachedPages_,
-            [](const CachedPage& left, const CachedPage& right) { return left.lastUsed < right.lastUsed; });
-        if (oldest == cachedPages_.end()) break;
-        cachedPages_.erase(oldest);
-    }
+    const auto range = pageCache_.StorePage(std::move(result->page));
+    const int first = range.first;
+    const int last = range.second;
     if (last >= first) ListView_RedrawItems(results_, first, last);
     UpdateStatusText();
     return 0;
@@ -653,7 +639,7 @@ void SearchDialog::BeginSearchLoad() {
 }
 
 void SearchDialog::CancelPageLoad() {
-    ++pageRequestId_;
+    pageCache_.InvalidateRequests();
     pageMailbox_.reset();
     if (pageWorker_.joinable()) {
         pageWorker_.request_stop();
@@ -736,8 +722,7 @@ void SearchDialog::PublishPageResult(const std::weak_ptr<AsyncPageMailbox>& mail
 }
 
 void SearchDialog::ClearCache() {
-    cacheClock_ = 0;
-    cachedPages_.clear();
+    pageCache_.Clear();
 }
 
 void SearchDialog::ResetResultItemCache() {
@@ -751,13 +736,8 @@ void SearchDialog::CachePage(int pageStart) {
     if (resultMode_ == ResultMode::Quick && nameTerm_.empty()) return;
     if (resultMode_ == ResultMode::Advanced && advancedExpression_.criteria.empty()) return;
 
-    const int normalizedStart = (pageStart / PageSize) * PageSize;
-    const auto found = std::ranges::find_if(cachedPages_,
-        [normalizedStart](const CachedPage& page) { return page.start == normalizedStart; });
-    if (found != cachedPages_.end()) {
-        found->lastUsed = ++cacheClock_;
-        return;
-    }
+    const int normalizedStart = pageCache_.NormalizeStart(pageStart);
+    if (pageCache_.ContainsStart(normalizedStart)) return;
 
     CachedPage page;
     page.start = normalizedStart;
@@ -768,15 +748,7 @@ void SearchDialog::CachePage(int pageStart) {
         const auto error = search_->LastErrorMessage();
         if (!error.empty()) SetDlgItemTextW(IDC_SEARCH_SUMMARY, error.c_str());
     }
-    page.lastUsed = ++cacheClock_;
-    cachedPages_.push_back(std::move(page));
-
-    while (cachedPages_.size() > MaxCachedPages) {
-        const auto oldest = std::ranges::min_element(cachedPages_,
-            [](const CachedPage& left, const CachedPage& right) { return left.lastUsed < right.lastUsed; });
-        if (oldest == cachedPages_.end()) break;
-        cachedPages_.erase(oldest);
-    }
+    pageCache_.StorePage(std::move(page));
 }
 
 void SearchDialog::SchedulePageLoad(int pageStart) {
@@ -784,13 +756,11 @@ void SearchDialog::SchedulePageLoad(int pageStart) {
     if (resultMode_ == ResultMode::Quick && nameTerm_.empty()) return;
     if (resultMode_ == ResultMode::Advanced && advancedExpression_.criteria.empty()) return;
 
-    const int normalizedStart = (pageStart / PageSize) * PageSize;
-    const auto cached = std::ranges::find_if(cachedPages_,
-        [normalizedStart](const CachedPage& page) { return page.start == normalizedStart; });
-    if (cached != cachedPages_.end()) return;
+    const int normalizedStart = pageCache_.NormalizeStart(pageStart);
+    if (pageCache_.ContainsStart(normalizedStart)) return;
     if (pageWorker_.joinable()) return;
 
-    const auto requestId = ++pageRequestId_;
+    const auto requestId = pageCache_.BeginRequest();
     const auto mode = resultMode_;
     const auto nameTerm = nameTerm_;
     const auto caseSensitive = caseSensitive_;
@@ -821,43 +791,19 @@ void SearchDialog::PreloadRange(int firstRow, int lastRow) {
     firstRow = std::clamp(firstRow, 0, total_ - 1);
     lastRow = std::clamp(lastRow, firstRow, total_ - 1);
 
-    const int firstPage = firstRow / PageSize;
-    const int lastPage = lastRow / PageSize;
-    for (int page = firstPage; page <= lastPage; ++page) {
-        const int start = page * PageSize;
-        const auto cached = std::ranges::find_if(cachedPages_,
-            [start](const CachedPage& cachedPage) { return cachedPage.start == start; });
-        if (cached == cachedPages_.end()) {
-            SchedulePageLoad(start);
-            return;
-        }
+    if (const auto missing = pageCache_.FirstMissingStartInRange(firstRow, lastRow, total_)) {
+        SchedulePageLoad(*missing);
     }
 }
 
 const wit::core::FileEntry* SearchDialog::CachedEntryAt(int row) {
-    if (row < 0 || row >= total_) return nullptr;
-    const int pageStart = (row / PageSize) * PageSize;
-    const auto found = std::ranges::find_if(cachedPages_,
-        [pageStart](const CachedPage& page) { return page.start == pageStart; });
-    if (found == cachedPages_.end()) return nullptr;
-
-    found->lastUsed = ++cacheClock_;
-    const int index = row - found->start;
-    return index >= 0 && index < static_cast<int>(found->items.size()) ? &found->items[index] : nullptr;
+    return pageCache_.EntryAt(row, total_);
 }
 
 const wit::core::FileEntry* SearchDialog::EntryAt(int row) {
     if (row < 0 || row >= total_) return nullptr;
-
     CachePage(row);
-    const int pageStart = (row / PageSize) * PageSize;
-    const auto found = std::ranges::find_if(cachedPages_,
-        [pageStart](const CachedPage& page) { return page.start == pageStart; });
-    if (found == cachedPages_.end()) return nullptr;
-
-    found->lastUsed = ++cacheClock_;
-    const int index = row - found->start;
-    return index >= 0 && index < static_cast<int>(found->items.size()) ? &found->items[index] : nullptr;
+    return pageCache_.EntryAt(row, total_);
 }
 
 const wit::core::FileEntry* SearchDialog::FocusedEntry() {

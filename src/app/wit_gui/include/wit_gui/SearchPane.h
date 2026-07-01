@@ -5,6 +5,7 @@
 #include "wit_search/AdvancedSearchParser.h"
 #include <wit_types/FileSort.h>
 #include "wit_search/ISearchRepository.h"
+#include "wit_gui/OwnerDataPageCache.h"
 #include <CommCtrl.h>
 #include <chrono>
 #include <condition_variable>
@@ -76,11 +77,7 @@ public:
     END_DLGRESIZE_MAP()
 
 private:
-    struct CachedPage {
-        int start{};
-        std::vector<wit::core::FileEntry> items;
-        unsigned long long lastUsed{};
-    };
+    using CachedPage = OwnerDataPageCache<wit::core::FileEntry>::Page;
 
     enum class ResultMode {
         Quick,
@@ -127,13 +124,11 @@ private:
     ResultMode resultMode_{ResultMode::Quick};
     int total_{};
     wit::core::FileSort sort_{};
-    unsigned long long cacheClock_{};
-    std::vector<CachedPage> cachedPages_;
+    OwnerDataPageCache<wit::core::FileEntry> pageCache_{PageSize, MaxCachedPages};
     std::jthread searchWorker_;
     std::shared_ptr<AsyncSearchMailbox> searchMailbox_;
     std::jthread pageWorker_;
     std::shared_ptr<AsyncPageMailbox> pageMailbox_;
-    std::uint64_t pageRequestId_{};
     std::mutex searchReaperMutex_;
     std::condition_variable searchReaperCondition_;
     std::vector<std::jthread> retiredSearchWorkers_;

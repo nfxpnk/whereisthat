@@ -1082,6 +1082,10 @@ TEST(StorageSmoke, SessionSavesPreserveSettingsChangedAfterStartup) {
     AppSettingsGuard settingsGuard;
 
     auto initial = wit::platform::LoadAppSettings();
+    initial.lastCatalogPath.clear();
+    initial.openCatalogPaths.clear();
+    initial.lastActiveCatalog = 0;
+    initial.hasMultiCatalogSettings = false;
     initial.quickSearchHistory = {L"old query"};
     initial.fileListColumnWidths[L"BrowserContent.Name"] = 210;
     initial.searchListColumnWidths[L"SearchResults.Name"] = 310;

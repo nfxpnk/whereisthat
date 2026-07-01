@@ -1,5 +1,6 @@
 #include "wit_database/CatalogSchema.h"
 #include "wit_database/SqliteConnection.h"
+#include "wit_database/SqliteFileListHelpers.h"
 #include "wit_database/SQLiteStatement.h"
 #include "resource.h"
 #include "third_party/sqlite/sqlite3.h"
@@ -63,6 +64,7 @@ bool CatalogSchema::Initialize(SqliteConnection& connection) {
 }
 
 bool CatalogSchema::EnsureIndexes(SqliteConnection& connection) {
+    EnsureNaturalNoCaseCollation(connection.Raw());
     return ExecSqlResource(connection, IDR_SQL_INDEXES);
 }
 

@@ -1,5 +1,6 @@
 #include "wit_database/CatalogSchema.h"
 #include "wit_database/Database.h"
+#include "wit_database/SqliteFileListHelpers.h"
 #include "wit_database/SQLiteStatement.h"
 #include <wit_infra/Logging.h>
 #include <wit_infra/SaveProfiler.h>
@@ -282,6 +283,7 @@ void Database::Close() {
 void Database::RebindRepositories() {
     if (browserReadToken_) browserReadToken_->Invalidate();
     browserReadToken_ = std::make_shared<BrowserReadToken>();
+    EnsureNaturalNoCaseCollation(connection_.Raw());
     browserRepository_.SetDatabase(connection_.Raw());
     searchRepository_.SetDatabase(connection_.Raw());
 }
@@ -391,6 +393,7 @@ bool Database::SaveCatalogDataFrom(const Database& source) {
             continue;
         }
         tempCreated = true;
+        EnsureNaturalNoCaseCollation(tempConnection.Raw());
         WIT_LOG_DEBUG(std::format(L"database save temp created path='{}'", tempPath));
         if (!BackupDatabase(tempConnection.Raw(), source.connection_.Raw(), L"save_pending_to_temp") ||
             !VerifyCatalog(tempConnection)) {

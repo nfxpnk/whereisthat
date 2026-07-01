@@ -682,7 +682,7 @@ Steps:
 
 Status:
 
-- Complete. Browser content SQL ordering now lives in `SqliteFileListHelpers` as `BrowserContentOrderExpression` / `BrowserContentOrderBy`, while search keeps `FileEntryOrderBy`. Browser content remains folders-first and files-second, with natural no-case collation applied to browser text sort keys and name tie-breakers.
+- Complete. Browser content SQL ordering now lives in `SqliteFileListHelpers` as `BrowserContentOrderExpression` / `BrowserContentOrderBy`, while search keeps `FileEntryOrderBy`. Browser content remains folders-first and files-second, with natural no-case collation applied to browser text sort keys and name tie-breakers. Matching natural-collation indexes now support large-catalog browser name/type paging without falling back to full temp sorts.
 
 Acceptance criteria:
 

@@ -6,6 +6,7 @@
 #include "third_party/sqlite/sqlite3.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cstdint>
 #include <iterator>
 #include <limits>
@@ -369,6 +370,10 @@ void SqliteSearchExecutor::SetDatabase(sqlite3* db) {
     pageCacheValid_ = false;
     pageCachePinned_ = false;
     {
+        std::scoped_lock metricsLock(metricsMutex_);
+        metrics_ = {};
+    }
+    {
         std::scoped_lock errorLock(errorMutex_);
         lastError_.clear();
     }
@@ -416,7 +421,38 @@ void SqliteSearchExecutor::SetLastError(sqlite3* db, const wchar_t* fallback) {
     lastError_ = std::move(message);
 }
 
+void SqliteSearchExecutor::RecordCacheBuildStarted() {
+    std::scoped_lock lock(metricsMutex_);
+    ++metrics_.cacheBuildsStarted;
+}
+
+void SqliteSearchExecutor::RecordCacheBuildFinished(
+    std::chrono::steady_clock::time_point startedAt, bool success, bool cancelled) {
+    std::scoped_lock lock(metricsMutex_);
+    metrics_.cacheBuildDurationNs = static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - startedAt).count());
+    if (success) ++metrics_.cacheBuildsCompleted;
+    if (cancelled) ++metrics_.cacheBuildsCancelled;
+}
+
+void SqliteSearchExecutor::RecordRowsMaterialized(std::uint64_t rows) {
+    std::scoped_lock lock(metricsMutex_);
+    metrics_.rowsMaterialized = rows;
+}
+
+void SqliteSearchExecutor::RecordFirstPageReady(
+    std::chrono::steady_clock::time_point startedAt, std::uint64_t rows) {
+    std::scoped_lock lock(metricsMutex_);
+    metrics_.firstPageReadyNs = static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - startedAt).count());
+    metrics_.firstPageRows = rows;
+}
+
 void SqliteSearchExecutor::CancelPending() {
+    {
+        std::scoped_lock lock(metricsMutex_);
+        ++metrics_.cancellations;
+    }
     sqlite3* db = searchDb_ ? searchDb_ : sourceDb_;
     if (db) sqlite3_interrupt(db);
 }
@@ -424,6 +460,11 @@ void SqliteSearchExecutor::CancelPending() {
 std::wstring SqliteSearchExecutor::LastErrorMessage() const {
     std::scoped_lock lock(errorMutex_);
     return lastError_;
+}
+
+SearchMetrics SqliteSearchExecutor::LastMetrics() const {
+    std::scoped_lock lock(metricsMutex_);
+    return metrics_;
 }
 
 int SqliteSearchExecutor::PageCacheCountLocked(sqlite3* db) {
@@ -496,6 +537,7 @@ std::vector<wit::core::FileEntry> SqliteSearchExecutor::PageByName(
 
 std::vector<wit::core::FileEntry> SqliteSearchExecutor::PageByNameLocked(
     const std::wstring& nameTerm, int offset, int limit, wit::core::FileSort sort, bool caseSensitive) {
+    const auto pageStartedAt = std::chrono::steady_clock::now();
     sqlite3* db = ActiveDatabase();
     if (!db || limit <= 0) return {};
     wit::storage::EnsureNaturalNoCaseCollation(db);
@@ -512,13 +554,17 @@ std::vector<wit::core::FileEntry> SqliteSearchExecutor::PageByNameLocked(
         pageCachePinned_ = false;
         pageCacheKey_.clear();
         pageCacheQueryKey_.clear();
+        const auto buildStartedAt = std::chrono::steady_clock::now();
+        RecordCacheBuildStarted();
         const auto build = BuildPageCacheWithStableGeneration(ownsSearchDb_,
             [&] { return BuildNamePageCache(db, nameTerm, sort, caseSensitive); },
             [&] { return DatabaseGenerationKey(); });
         pageCacheValid_ = build.success;
+        RecordCacheBuildFinished(buildStartedAt, build.success, sqlite3_errcode(db) == SQLITE_INTERRUPT);
         if (build.success) {
             pageCacheKey_ = build.generation + ":" + queryKey;
             pageCacheQueryKey_ = queryKey;
+            RecordRowsMaterialized(static_cast<std::uint64_t>(PageCacheCountLocked(db)));
         }
         if (!pageCacheValid_) {
             SetLastError(db, sqlite3_errcode(db) == SQLITE_INTERRUPT
@@ -529,6 +575,9 @@ std::vector<wit::core::FileEntry> SqliteSearchExecutor::PageByNameLocked(
         }
     }
     auto page = ReadPageCache(db, offset, limit);
+    if (page.sqliteResult == SQLITE_OK && offset == 0) {
+        RecordFirstPageReady(pageStartedAt, static_cast<std::uint64_t>(page.entries.size()));
+    }
     if (page.sqliteResult != SQLITE_OK) {
         pageCacheValid_ = false;
         pageCachePinned_ = false;
@@ -576,6 +625,7 @@ std::vector<wit::core::FileEntry> SqliteSearchExecutor::PageAdvanced(
 
 std::vector<wit::core::FileEntry> SqliteSearchExecutor::PageAdvancedLocked(
     const AdvancedSearchExpression& expression, int offset, int limit, wit::core::FileSort sort) {
+    const auto pageStartedAt = std::chrono::steady_clock::now();
     sqlite3* db = ActiveDatabase();
     if (!db || expression.criteria.empty() || limit <= 0) return {};
     wit::storage::EnsureNaturalNoCaseCollation(db);
@@ -596,13 +646,17 @@ std::vector<wit::core::FileEntry> SqliteSearchExecutor::PageAdvancedLocked(
         pageCachePinned_ = false;
         pageCacheKey_.clear();
         pageCacheQueryKey_.clear();
+        const auto buildStartedAt = std::chrono::steady_clock::now();
+        RecordCacheBuildStarted();
         const auto build = BuildPageCacheWithStableGeneration(ownsSearchDb_,
             [&] { return BuildAdvancedPageCache(db, expression, sort); },
             [&] { return DatabaseGenerationKey(); });
         pageCacheValid_ = build.success;
+        RecordCacheBuildFinished(buildStartedAt, build.success, sqlite3_errcode(db) == SQLITE_INTERRUPT);
         if (build.success) {
             pageCacheKey_ = build.generation + ":" + queryKey;
             pageCacheQueryKey_ = queryKey;
+            RecordRowsMaterialized(static_cast<std::uint64_t>(PageCacheCountLocked(db)));
         }
         if (!pageCacheValid_) {
             SetLastError(db, sqlite3_errcode(db) == SQLITE_INTERRUPT
@@ -613,6 +667,9 @@ std::vector<wit::core::FileEntry> SqliteSearchExecutor::PageAdvancedLocked(
         }
     }
     auto page = ReadPageCache(db, offset, limit);
+    if (page.sqliteResult == SQLITE_OK && offset == 0) {
+        RecordFirstPageReady(pageStartedAt, static_cast<std::uint64_t>(page.entries.size()));
+    }
     if (page.sqliteResult != SQLITE_OK) {
         pageCacheValid_ = false;
         pageCachePinned_ = false;

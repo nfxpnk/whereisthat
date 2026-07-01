@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -12,6 +13,17 @@ namespace wit::search {
 struct PreparedSearchResult {
     int total{};
     std::vector<wit::core::FileEntry> entries;
+};
+
+struct SearchMetrics {
+    std::uint64_t cacheBuildsStarted{};
+    std::uint64_t cacheBuildsCompleted{};
+    std::uint64_t cacheBuildsCancelled{};
+    std::uint64_t cacheBuildDurationNs{};
+    std::uint64_t rowsMaterialized{};
+    std::uint64_t firstPageReadyNs{};
+    std::uint64_t firstPageRows{};
+    std::uint64_t cancellations{};
 };
 
 class ISearchRepository {
@@ -33,6 +45,7 @@ public:
         bool caseSensitive = false) = 0;
     virtual void CancelPending() = 0;
     virtual std::wstring LastErrorMessage() const = 0;
+    virtual SearchMetrics LastMetrics() const { return {}; }
     virtual int CountAdvanced(const AdvancedSearchExpression& expression) = 0;
     virtual std::vector<wit::core::FileEntry> PageAdvanced(
         const AdvancedSearchExpression& expression,

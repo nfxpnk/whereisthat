@@ -93,6 +93,64 @@ int DenyFileTableReads(void*, int action, const char* table, const char*, const 
     return action == SQLITE_READ && table && std::string_view(table) == "files"
         ? SQLITE_DENY : SQLITE_OK;
 }
+
+struct CancelSearchContext {
+    wit::search::SqliteSearchExecutor* executor{};
+    bool cancelled{};
+};
+
+int CancelSearchProgress(void* context) {
+    auto* cancel = static_cast<CancelSearchContext*>(context);
+    if (!cancel || !cancel->executor) return 0;
+    if (!cancel->cancelled) {
+        cancel->cancelled = true;
+        cancel->executor->CancelPending();
+    }
+    return 1;
+}
+}
+
+TEST(SearchExecutor, BroadSearchReportsMaterializationMetrics) {
+    MemoryDatabase database;
+    wit::search::SqliteSearchExecutor executor(database.Raw());
+
+    const auto page = executor.PageByName(L"*", 0, 2);
+
+    ASSERT_EQ(page.size(), 2u);
+    const auto metrics = executor.LastMetrics();
+    EXPECT_EQ(metrics.cacheBuildsStarted, 1u);
+    EXPECT_EQ(metrics.cacheBuildsCompleted, 1u);
+    EXPECT_EQ(metrics.cacheBuildsCancelled, 0u);
+    EXPECT_EQ(metrics.rowsMaterialized, 7u);
+    EXPECT_EQ(metrics.firstPageRows, 2u);
+    EXPECT_GT(metrics.cacheBuildDurationNs, 0u);
+    EXPECT_GT(metrics.firstPageReadyNs, 0u);
+
+    EXPECT_EQ(executor.PageByName(L"*", 2, 2).size(), 2u);
+    EXPECT_EQ(executor.LastMetrics().cacheBuildsStarted, 1u);
+}
+
+TEST(SearchExecutor, BroadSearchCancellationIsObservable) {
+    MemoryDatabase database;
+    database.Execute("WITH RECURSIVE seq(value) AS ("
+        "SELECT 100 UNION ALL SELECT value + 1 FROM seq WHERE value < 20000) "
+        "INSERT INTO files(id,disk_id,folder_id,name,extension,size,modified_at,attributes) "
+        "SELECT value,1,1,'bulk-' || value || '.txt','txt',value,value,0 FROM seq;");
+    wit::search::SqliteSearchExecutor executor(database.Raw());
+    CancelSearchContext cancel{&executor};
+    sqlite3_progress_handler(database.Raw(), 1, CancelSearchProgress, &cancel);
+
+    const auto page = executor.PageByName(L"*", 0, 10);
+    sqlite3_progress_handler(database.Raw(), 0, nullptr, nullptr);
+
+    EXPECT_TRUE(page.empty());
+    EXPECT_TRUE(cancel.cancelled);
+    EXPECT_NE(executor.LastErrorMessage().find(L"cancelled"), std::wstring::npos);
+    const auto metrics = executor.LastMetrics();
+    EXPECT_EQ(metrics.cacheBuildsStarted, 1u);
+    EXPECT_EQ(metrics.cacheBuildsCompleted, 0u);
+    EXPECT_EQ(metrics.cacheBuildsCancelled, 1u);
+    EXPECT_GE(metrics.cancellations, 1u);
 }
 
 TEST(SearchExecutor, PageByNameMaterializesEachSearchAndReusesItForPaging) {

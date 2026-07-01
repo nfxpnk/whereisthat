@@ -1,4 +1,5 @@
 #pragma once
+#include <chrono>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -33,11 +34,16 @@ public:
 
     void CancelPending() override;
     std::wstring LastErrorMessage() const override;
+    SearchMetrics LastMetrics() const override;
 private:
     void CloseSearchDatabase();
     sqlite3* ActiveDatabase() const;
     std::string DatabaseGenerationKey() const;
     void SetLastError(sqlite3* db, const wchar_t* fallback);
+    void RecordCacheBuildStarted();
+    void RecordCacheBuildFinished(std::chrono::steady_clock::time_point startedAt, bool success, bool cancelled);
+    void RecordRowsMaterialized(std::uint64_t rows);
+    void RecordFirstPageReady(std::chrono::steady_clock::time_point startedAt, std::uint64_t rows);
     int PageCacheCountLocked(sqlite3* db);
     std::vector<wit::core::FileEntry> PageByNameLocked(
         const std::wstring& nameTerm, int offset, int limit, wit::core::FileSort sort,
@@ -50,7 +56,9 @@ private:
     bool ownsSearchDb_{};
     mutable std::mutex operationMutex_;
     mutable std::mutex errorMutex_;
+    mutable std::mutex metricsMutex_;
     std::wstring lastError_;
+    SearchMetrics metrics_;
     std::string pageCacheKey_;
     std::string pageCacheQueryKey_;
     bool pageCacheValid_{};

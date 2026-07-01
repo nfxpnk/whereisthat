@@ -847,12 +847,16 @@ Acceptance criteria:
 - Behavior remains unchanged.
 - Existing UI performance tests pass.
 
-### Phase 10: Improve Search Performance Observability
+### Phase 10: Improve Search Performance Observability - Complete
 
 Goal:
 
 - Keep the stable snapshot design, but make broad searches measurable and
   controllable.
+
+Status:
+
+- Complete. Search repositories now expose SearchMetrics, and SqliteSearchExecutor records cache build starts/completions/cancellations, build duration, rows materialized, first-page readiness, first-page rows, and cancellation requests. Tests cover broad-search metrics and interrupt-driven cancellation without changing the snapshot search design.
 
 Steps:
 

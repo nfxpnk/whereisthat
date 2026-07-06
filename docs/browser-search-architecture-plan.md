@@ -7,6 +7,13 @@ The goal is not to replace WTL/ATL, SQLite, or the current module layout. The
 goal is to make the existing native app architecture safer, more consistent,
 more testable, and better suited to large offline catalogs.
 
+## Implementation Status
+
+Phases 1-10 are complete. The issue list below is retained as the original
+pre-refactor review record; it describes the problems that drove the roadmap,
+not the current behavior after the completed phases. The phase status blocks
+later in this document describe the implemented fixes and verification focus.
+
 ## Current Architecture Summary
 
 The app already follows the intended broad shape:
@@ -45,7 +52,7 @@ SearchDialog
 The file list and search result list already use `LVS_OWNERDATA` and database
 pages. This is the right direction for a large catalog application.
 
-## Verified Issues
+## Original Verified Issues
 
 ### 1. Tree Root and Disk Group Loading Is Too Eager
 
@@ -53,7 +60,7 @@ Area:
 
 - `src/app/wit_gui/src/TreeViewPane.cpp`
 
-Current behavior:
+Original behavior:
 
 - Folder nodes are loaded lazily when expanded.
 - Catalog roots and disk groups are populated eagerly by `PopulateRoot`.
@@ -89,7 +96,7 @@ Fix size:
 
 - Medium
 
-Timing:
+Original timing:
 
 - Do soon, after tests for tree expansion behavior.
 
@@ -99,7 +106,7 @@ Area:
 
 - `src/app/wit_gui/src/FileListPane.cpp`
 
-Current behavior:
+Original behavior:
 
 - `SetLocation`, `ResetCachedItems`, sorting, and cache hints use async workers.
 - `EntryAt` calls `CacheFilePage`, which can synchronously query
@@ -138,7 +145,7 @@ Fix size:
 
 - Medium to large
 
-Timing:
+Original timing:
 
 - Do soon, after adding tests that prove locate/select does not page through
   very large result sets.
@@ -150,7 +157,7 @@ Area:
 - `src/app/wit_gui/src/FileListPane.cpp`
 - `src/modules/wit_database/include/wit_database/IBrowserRepository.h`
 
-Current behavior:
+Original behavior:
 
 - Browser worker lambdas capture `IBrowserRepository*`.
 - `FileListView` owns a mutex that serializes its own repository calls.
@@ -188,7 +195,7 @@ Fix size:
 
 - Medium
 
-Timing:
+Original timing:
 
 - Do before deeper async refactoring.
 
@@ -200,7 +207,7 @@ Area:
 - `src/modules/wit_database/src/SqliteFileListHelpers.cpp`
 - `src/modules/wit_search/src/SqliteSearchExecutor.cpp`
 
-Current behavior:
+Original behavior:
 
 - Search combines folders and files into one temp result set and uses
   `FileEntryOrderBy`.
@@ -241,7 +248,7 @@ Fix size:
 
 - Medium
 
-Timing:
+Original timing:
 
 - Do after repository sort tests are expanded.
 
@@ -251,7 +258,7 @@ Area:
 
 - `src/modules/wit_search/src/SqliteSearchExecutor.cpp`
 
-Current behavior:
+Original behavior:
 
 - Search creates `wit_search_page_cache`.
 - Each new search/sort materializes all matching folders/files into that temp
@@ -286,7 +293,7 @@ Fix size:
 
 - Small to medium now, large if changing search indexing later
 
-Timing:
+Original timing:
 
 - Instrument and test soon.
 - Defer search engine redesign.
@@ -300,7 +307,7 @@ Area:
 - `src/app/wit_gui/src/FileListPane.cpp`
 - `src/app/wit_gui/src/SearchPane.cpp`
 
-Current behavior:
+Original behavior:
 
 - Both lists implement page cache structs, max cached page count, worker
   lifetimes, reaper threads, mailboxes, page-ready messages, sort indicators,
@@ -336,7 +343,7 @@ Fix size:
 
 - Medium
 
-Timing:
+Original timing:
 
 - Do after behavior tests exist for both panes.
 
@@ -346,7 +353,7 @@ Area:
 
 - `src/modules/wit_database/src/SqliteBrowserRepository.cpp`
 
-Current behavior:
+Original behavior:
 
 - Browser repository methods generally return `0` or an empty vector on
   failure.
@@ -380,7 +387,7 @@ Fix size:
 
 - Medium
 
-Timing:
+Original timing:
 
 - Do before larger repository rewrites.
 
@@ -392,7 +399,7 @@ Area:
 - `src/modules/wit_database/src/CatalogSchema.cpp`
 - `issues/WIT-017.txt`
 
-Current behavior:
+Original behavior:
 
 - `IntegrityCheckOk`, `PragmaReturns`, and `TableHasColumn` use raw
   `sqlite3_stmt*` and manual `sqlite3_finalize`.
@@ -422,7 +429,7 @@ Fix size:
 
 - Small
 
-Timing:
+Original timing:
 
 - First patch.
 

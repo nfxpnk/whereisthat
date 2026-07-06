@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
+#include <cwctype>
 #include <iterator>
 #include <limits>
 #include <string>
@@ -53,6 +54,16 @@ std::string ItemNameGlobPattern(const std::wstring& term) {
     }
     if (!hasWildcard) pattern.push_back('*');
     return pattern;
+}
+
+bool IsBroadWildcardNameTerm(const std::wstring& term) {
+    bool sawWildcard = false;
+    for (const wchar_t ch : term) {
+        if (std::iswspace(ch)) continue;
+        if (ch != L'*') return false;
+        sawWildcard = true;
+    }
+    return sawWildcard;
 }
 
 std::wstring Text(sqlite3_stmt* stmt, int column) {
@@ -163,6 +174,17 @@ struct TableCountResult {
     int sqliteResult{SQLITE_OK};
 };
 
+TableCountResult CountAllEntries(sqlite3* db) {
+    constexpr const char* sql =
+        "SELECT (SELECT COUNT(*) FROM files) + (SELECT COUNT(*) FROM folders);";
+    wit::storage::SQLiteStatement statement(db, sql);
+    if (!statement.IsValid()) return {0, sqlite3_errcode(db)};
+    const int stepResult = sqlite3_step(statement.Raw());
+    return stepResult == SQLITE_ROW
+        ? TableCountResult{sqlite3_column_int(statement.Raw(), 0), SQLITE_OK}
+        : TableCountResult{0, stepResult};
+}
+
 TableCountResult CountAdvancedInTable(
     sqlite3* db, const AdvancedSearchExpression& expression, bool folders) {
     auto sql = BuildAdvancedWhere(expression, folders);
@@ -244,6 +266,29 @@ std::string CombinedCacheInsertSql(
         "0 AS is_directory,'file' AS entry_type,COALESCE(f.extension,'') AS sort_type "
         "FROM files f JOIN folders p ON f.folder_id=p.id WHERE " +
         fileWhereClause + ") AS combined " + wit::storage::FileEntryOrderBy(sort) + ";";
+}
+
+std::string BroadAllEntriesOrderBy(wit::core::FileSort sort) {
+    if (sort.column == wit::core::FileSortColumn::Name) {
+        return std::string{"ORDER BY name COLLATE NOCASE"} +
+            (sort.ascending ? " ASC," : " DESC,") + "is_directory DESC,id ASC ";
+    }
+    return wit::storage::FileEntryOrderBy(sort);
+}
+
+std::string CombinedAllEntriesPageSql(wit::core::FileSort sort) {
+    return "SELECT id,disk_id,parent_path,name,extension,size,modified_at,attributes,is_directory,entry_type FROM ("
+        "SELECT c.id,c.disk_id,COALESCE(p.path,'') AS parent_path,c.name,'' AS extension,"
+        "c.content_size AS size,c.modified_at,c.attributes,1 AS is_directory,"
+        "COALESCE(c.entry_type,'directory') AS entry_type,"
+        "COALESCE(c.entry_type,'directory') AS sort_type "
+        "FROM folders c LEFT JOIN folders p ON c.parent_folder_id=p.id "
+        "UNION ALL "
+        "SELECT f.id,f.disk_id,COALESCE(p.path,'') AS parent_path,f.name,"
+        "COALESCE(f.extension,'') AS extension,f.size,f.modified_at,f.attributes,"
+        "0 AS is_directory,'file' AS entry_type,COALESCE(f.extension,'') AS sort_type "
+        "FROM files f JOIN folders p ON f.folder_id=p.id) AS combined " +
+        BroadAllEntriesOrderBy(sort) + " LIMIT ? OFFSET ?;";
 }
 
 bool BuildNamePageCache(
@@ -328,6 +373,29 @@ PageReadResult ReadPageCache(sqlite3* db, int offset, int limit) {
     const auto end = static_cast<long long>(offset) + limit;
     statement.BindInt64(1, offset);
     statement.BindInt64(2, end);
+    result.entries.reserve(static_cast<std::size_t>(limit));
+    int stepResult{};
+    while ((stepResult = sqlite3_step(statement.Raw())) == SQLITE_ROW) {
+        wit::core::FileEntry entry;
+        PopulateDisplayEntry(entry, statement.Raw());
+        result.entries.push_back(std::move(entry));
+    }
+    result.sqliteResult = stepResult == SQLITE_DONE ? SQLITE_OK : stepResult;
+    return result;
+}
+
+PageReadResult ReadAllEntriesPage(sqlite3* db, int offset, int limit, wit::core::FileSort sort) {
+    PageReadResult result;
+    if (!db || offset < 0 || limit <= 0) return result;
+
+    const auto sql = CombinedAllEntriesPageSql(sort);
+    wit::storage::SQLiteStatement statement(db, sql.c_str());
+    if (!statement.IsValid()) {
+        result.sqliteResult = sqlite3_errcode(db);
+        return result;
+    }
+    statement.BindInt64(1, limit);
+    statement.BindInt64(2, offset);
     result.entries.reserve(static_cast<std::size_t>(limit));
     int stepResult{};
     while ((stepResult = sqlite3_step(statement.Raw())) == SQLITE_ROW) {
@@ -485,6 +553,31 @@ PreparedSearchResult SqliteSearchExecutor::PrepareByName(
     std::scoped_lock lock(operationMutex_);
     pageCachePinned_ = false;
     PreparedSearchResult result;
+    if (IsBroadWildcardNameTerm(nameTerm)) {
+        sqlite3* db = ActiveDatabase();
+        if (!db) return result;
+        wit::storage::EnsureNaturalNoCaseCollation(db);
+        {
+            std::scoped_lock errorLock(errorMutex_);
+            lastError_.clear();
+        }
+        const auto pageStartedAt = std::chrono::steady_clock::now();
+        auto page = ReadAllEntriesPage(db, 0, limit, sort);
+        if (page.sqliteResult != SQLITE_OK) {
+            SetLastError(db, page.sqliteResult == SQLITE_INTERRUPT
+                ? L"Search was cancelled." : L"Could not read search results.");
+            return result;
+        }
+        const auto total = CountAllEntries(db);
+        if (total.sqliteResult != SQLITE_OK) {
+            SetLastError(db, L"Could not count search results.");
+            return result;
+        }
+        result.entries = std::move(page.entries);
+        result.total = total.count;
+        RecordFirstPageReady(pageStartedAt, static_cast<std::uint64_t>(result.entries.size()));
+        return result;
+    }
     result.entries = PageByNameLocked(nameTerm, 0, limit, sort, caseSensitive);
     if (!LastErrorMessage().empty()) return result;
     result.total = PageCacheCountLocked(ActiveDatabase());
@@ -515,6 +608,12 @@ int SqliteSearchExecutor::CountByName(const std::wstring& nameTerm, bool caseSen
         lastError_.clear();
     }
     if (!db) return 0;
+    if (IsBroadWildcardNameTerm(nameTerm)) {
+        const auto total = CountAllEntries(db);
+        if (total.sqliteResult == SQLITE_OK) return total.count;
+        SetLastError(db, L"Could not count search results.");
+        return 0;
+    }
     const char* sql = caseSensitive
         ? "SELECT (SELECT COUNT(*) FROM files WHERE name GLOB ?) + "
           "(SELECT COUNT(*) FROM folders WHERE name GLOB ?);"
@@ -545,6 +644,22 @@ std::vector<wit::core::FileEntry> SqliteSearchExecutor::PageByNameLocked(
     {
         std::scoped_lock errorLock(errorMutex_);
         lastError_.clear();
+    }
+    if (IsBroadWildcardNameTerm(nameTerm)) {
+        pageCacheValid_ = false;
+        pageCachePinned_ = false;
+        pageCacheKey_.clear();
+        pageCacheQueryKey_.clear();
+        auto page = ReadAllEntriesPage(db, offset, limit, sort);
+        if (page.sqliteResult == SQLITE_OK && offset == 0) {
+            RecordFirstPageReady(pageStartedAt, static_cast<std::uint64_t>(page.entries.size()));
+        }
+        if (page.sqliteResult != SQLITE_OK) {
+            SetLastError(db, page.sqliteResult == SQLITE_INTERRUPT
+                ? L"Search was cancelled." : L"Could not read search results.");
+            return {};
+        }
+        return std::move(page.entries);
     }
     const auto queryKey = NameCacheKey(nameTerm, sort, caseSensitive);
     const auto currentKey = DatabaseGenerationKey() + ":" + queryKey;

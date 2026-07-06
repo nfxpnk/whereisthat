@@ -110,7 +110,7 @@ int CancelSearchProgress(void* context) {
 }
 }
 
-TEST(SearchExecutor, BroadSearchReportsMaterializationMetrics) {
+TEST(SearchExecutor, BroadSearchPagesWithoutMaterializingFullCache) {
     MemoryDatabase database;
     wit::search::SqliteSearchExecutor executor(database.Raw());
 
@@ -118,16 +118,16 @@ TEST(SearchExecutor, BroadSearchReportsMaterializationMetrics) {
 
     ASSERT_EQ(page.size(), 2u);
     const auto metrics = executor.LastMetrics();
-    EXPECT_EQ(metrics.cacheBuildsStarted, 1u);
-    EXPECT_EQ(metrics.cacheBuildsCompleted, 1u);
+    EXPECT_EQ(metrics.cacheBuildsStarted, 0u);
+    EXPECT_EQ(metrics.cacheBuildsCompleted, 0u);
     EXPECT_EQ(metrics.cacheBuildsCancelled, 0u);
-    EXPECT_EQ(metrics.rowsMaterialized, 7u);
+    EXPECT_EQ(metrics.rowsMaterialized, 0u);
     EXPECT_EQ(metrics.firstPageRows, 2u);
-    EXPECT_GT(metrics.cacheBuildDurationNs, 0u);
+    EXPECT_EQ(metrics.cacheBuildDurationNs, 0u);
     EXPECT_GT(metrics.firstPageReadyNs, 0u);
 
     EXPECT_EQ(executor.PageByName(L"*", 2, 2).size(), 2u);
-    EXPECT_EQ(executor.LastMetrics().cacheBuildsStarted, 1u);
+    EXPECT_EQ(executor.LastMetrics().cacheBuildsStarted, 0u);
 }
 
 TEST(SearchExecutor, BroadSearchCancellationIsObservable) {
@@ -140,7 +140,7 @@ TEST(SearchExecutor, BroadSearchCancellationIsObservable) {
     CancelSearchContext cancel{&executor};
     sqlite3_progress_handler(database.Raw(), 1, CancelSearchProgress, &cancel);
 
-    const auto page = executor.PageByName(L"*", 0, 10);
+    const auto page = executor.PageByName(L"bulk*", 0, 10);
     sqlite3_progress_handler(database.Raw(), 0, nullptr, nullptr);
 
     EXPECT_TRUE(page.empty());

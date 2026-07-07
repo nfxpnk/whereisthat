@@ -370,6 +370,39 @@ TEST(SearchPaneIcons, OwnsAnIndependentImageList) {
     ImageList_Destroy(browserImages);
     DestroyWindow(owner);
 }
+TEST(SearchPaneFocus, FocusesActiveSearchInputWhenShownAndTabsChange) {
+    INITCOMMONCONTROLSEX controls{sizeof(controls), ICC_LISTVIEW_CLASSES | ICC_BAR_CLASSES};
+    ASSERT_TRUE(InitCommonControlsEx(&controls));
+    AtlModuleGuard module;
+    ASSERT_TRUE(module.initialized());
+
+    ImmediateSearchRepository repository;
+    wit::ui::SearchDialog dialog;
+    ASSERT_TRUE(dialog.Show(nullptr, &repository, [] {}));
+    PumpMessages();
+
+    const auto searchWindow = FindWindowW(nullptr, L"Search for Items");
+    ASSERT_NE(searchWindow, nullptr);
+    const auto tabs = GetDlgItem(searchWindow, IDC_SEARCH_TABS);
+    ASSERT_NE(tabs, nullptr);
+    const auto quickEdit = GetDlgItem(searchWindow, IDC_SEARCH_NAME);
+    ASSERT_NE(quickEdit, nullptr);
+    const auto advancedEdit = GetDlgItem(searchWindow, IDC_ADVANCED_SEARCH_QUERY);
+    ASSERT_NE(advancedEdit, nullptr);
+    EXPECT_EQ(GetFocus(), quickEdit);
+
+    NMHDR notification{tabs, IDC_SEARCH_TABS, TCN_SELCHANGE};
+    TabCtrl_SetCurSel(tabs, 1);
+    SendMessageW(searchWindow, WM_NOTIFY, IDC_SEARCH_TABS, reinterpret_cast<LPARAM>(&notification));
+    EXPECT_EQ(GetFocus(), advancedEdit);
+
+    TabCtrl_SetCurSel(tabs, 0);
+    SendMessageW(searchWindow, WM_NOTIFY, IDC_SEARCH_TABS, reinterpret_cast<LPARAM>(&notification));
+    EXPECT_EQ(GetFocus(), quickEdit);
+
+    dialog.Close();
+    PumpMessages();
+}
 TEST(SearchPaneLifetime, RebindingCancelsTheOldRepositoryBeforeReplacement) {
     INITCOMMONCONTROLSEX controls{sizeof(controls), ICC_LISTVIEW_CLASSES | ICC_BAR_CLASSES};
     ASSERT_TRUE(InitCommonControlsEx(&controls));

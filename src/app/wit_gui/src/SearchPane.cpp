@@ -155,6 +155,9 @@ bool SearchDialog::Show(HWND owner, wit::search::ISearchRepository* search, Loca
     }
     ShowWindow(IsIconic() ? SW_RESTORE : SW_SHOW);
     SetForegroundWindow(m_hWnd);
+    if (const HWND searchName = GetDlgItem(IDC_SEARCH_NAME)) {
+        ::SetFocus(searchName);
+    }
     return true;
 }
 
@@ -380,7 +383,12 @@ LRESULT SearchDialog::OnCacheHint(int, LPNMHDR header, BOOL&) {
 }
 
 LRESULT SearchDialog::OnTabChanged(int, LPNMHDR, BOOL&) {
-    ShowTabPage(TabCtrl_GetCurSel(GetDlgItem(IDC_SEARCH_TABS)));
+    const int selectedTab = TabCtrl_GetCurSel(GetDlgItem(IDC_SEARCH_TABS));
+    ShowTabPage(selectedTab);
+    const int inputId = selectedTab == 1 ? IDC_ADVANCED_SEARCH_QUERY : IDC_SEARCH_NAME;
+    if (const HWND input = GetDlgItem(inputId)) {
+        ::SetFocus(input);
+    }
     return 0;
 }
 

@@ -282,7 +282,9 @@ bool BrowserController::LocateFile(wit::core::CatalogId catalogId, const wit::co
     if (!selectedTarget) return false;
     NavigateTo(*selectedTarget, true, false);
 
-    if (!isDirectory && !files_.SelectEntry(entryId, false)) return false;
+    if (!isDirectory && !files_.SelectEntry(entryId, false)) {
+        files_.QueueEntrySelection(entryId, false);
+    }
     ::SetFocus(isDirectory ? treeHandle_ : filesHandle_);
     return true;
 }

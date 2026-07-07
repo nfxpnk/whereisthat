@@ -520,6 +520,7 @@ LRESULT FileListView::OnPageReady() {
         last = range.second;
     }
     if (last >= first) ListView_RedrawItems(hwnd, first, last);
+    RestorePendingSelection();
     if (filePageCache_.HasPendingStart()) {
         const int pending = filePageCache_.TakePendingStart();
         SchedulePageLoad(pending);
@@ -537,13 +538,9 @@ void FileListView::ResetItemCache() {
 
 void FileListView::RestorePendingSelection() {
     if (!hwnd || ShowsBrowserItems() || !restoreSelectionAfterLoad_) return;
-    auto selectedEntries = std::move(pendingSelectedEntries_);
+    auto selectedEntries = pendingSelectedEntries_;
     const auto focusedId = pendingFocusedId_;
     const bool focusedIsDirectory = pendingFocusedIsDirectory_;
-    pendingSelectedEntries_.clear();
-    pendingFocusedId_ = 0;
-    pendingFocusedIsDirectory_ = false;
-    restoreSelectionAfterLoad_ = false;
 
     const int topRow = (std::max)(0, ListView_GetTopIndex(hwnd));
     const int visibleRows = (std::max)(ListView_GetCountPerPage(hwnd), 1);
@@ -566,6 +563,13 @@ void FileListView::RestorePendingSelection() {
             focusedRestored = true;
         }
     }
+
+    pendingSelectedEntries_ = std::move(selectedEntries);
+    if (focusedRestored) {
+        pendingFocusedId_ = 0;
+        pendingFocusedIsDirectory_ = false;
+    }
+    restoreSelectionAfterLoad_ = !pendingSelectedEntries_.empty() || pendingFocusedId_ != 0;
 }
 
 LRESULT CALLBACK FileListView::ListSubclassProc(HWND window, UINT message, WPARAM wparam, LPARAM lparam,
@@ -690,6 +694,18 @@ const wit::core::BrowserItem* FileListView::BrowserItemAt(int row) {
     if (const auto* item = CachedBrowserItemAt(row)) return item;
     SchedulePageLoad(row);
     return nullptr;
+}
+void FileListView::QueueEntrySelection(std::int64_t id, bool isDirectory) {
+    if (!hwnd || ShowsBrowserItems() || id == 0) return;
+    wit::core::FileEntry entry;
+    entry.id = id;
+    entry.isDirectory = isDirectory;
+    pendingSelectedEntries_.clear();
+    pendingSelectedEntries_.push_back(entry);
+    pendingFocusedId_ = id;
+    pendingFocusedIsDirectory_ = isDirectory;
+    restoreSelectionAfterLoad_ = true;
+    RestorePendingSelection();
 }
 bool FileListView::SelectEntry(std::int64_t id, bool isDirectory) {
     if (!hwnd || ShowsBrowserItems()) return false;

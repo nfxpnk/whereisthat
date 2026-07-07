@@ -506,7 +506,21 @@ bool CatalogTreeView::SelectLocation(const wit::core::BrowserTarget& target) {
         }
         return false;
     }
-    auto item = FindSource(target.catalogId, location.sourceId);
+    std::function<HTREEITEM(HTREEITEM)> findSourceInChildren = [&](HTREEITEM parent) -> HTREEITEM {
+        Expand(parent);
+        for (auto child = TreeView_GetChild(hwnd_, parent); child; child = TreeView_GetNextSibling(hwnd_, child)) {
+            const auto* childTarget = TargetFor(child);
+            if (!childTarget) continue;
+            if (!childTarget->location.isDiskGroup && childTarget->location.sourceId == location.sourceId) {
+                return child;
+            }
+            if (childTarget->location.isDiskGroup) {
+                if (const auto found = findSourceInChildren(child)) return found;
+            }
+        }
+        return nullptr;
+    };
+    auto item = findSourceInChildren(root->item);
     if (!item) return false;
     auto current = TargetFor(item);
     while (current && !SameText(current->location.path, location.path)) {

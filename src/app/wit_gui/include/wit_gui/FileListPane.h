@@ -45,6 +45,7 @@ public:
     const wit::core::BrowserItem* BrowserItemAt(int row);
     const wit::core::Disk* DiskAt(int row);
     bool SelectEntry(std::int64_t id, bool isDirectory);
+    void QueueEntrySelection(std::int64_t id, bool isDirectory);
     bool ToggleSortForColumn(int column);
     bool SetSort(wit::core::FileSort sort);
     bool SetRootSort(wit::core::BrowserRootSort sort);

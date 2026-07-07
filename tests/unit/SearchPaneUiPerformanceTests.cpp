@@ -495,6 +495,66 @@ TEST(CatalogTreeViewLazyLoading, SelectLocationExpandsNestedDiskGroups) {
     database.Close();
     std::filesystem::remove_all(testRoot);
 }
+TEST(CatalogTreeViewLazyLoading, SelectLocationExpandsDiskGroupsToFindSource) {
+    INITCOMMONCONTROLSEX controls{sizeof(controls), ICC_TREEVIEW_CLASSES};
+    ASSERT_TRUE(InitCommonControlsEx(&controls));
+
+    const auto testRoot = std::filesystem::temp_directory_path() /
+        (L"whereisthat-tree-select-source-" + std::to_wstring(GetCurrentProcessId()));
+    const auto catalogPath = testRoot / L"tree.db";
+    std::filesystem::remove_all(testRoot);
+    std::filesystem::create_directories(testRoot);
+
+    wit::storage::Database database;
+    ASSERT_TRUE(database.CreateNew(catalogPath.wstring(), true));
+    const auto rootGroupId = database.CreateDiskGroup(L"RootGroup");
+    const auto nestedGroupId = database.CreateDiskGroup(L"NestedGroup");
+    ASSERT_NE(rootGroupId, 0);
+    ASSERT_NE(nestedGroupId, 0);
+    ASSERT_TRUE(database.MoveDiskGroupToGroup(nestedGroupId, rootGroupId));
+
+    wit::core::Disk disk{};
+    disk.diskName = L"DiskInGroup";
+    disk.diskNumber = 1;
+    disk.sourcePath = L"X:\\DiskInGroup";
+    disk.totalCapacity = 1024;
+    disk.freeSpace = 512;
+    disk.addedAt = 100;
+    disk.updatedAt = 100;
+    disk.diskType = wit::core::DiskType::VirtualDisk;
+    disk.id = database.AddDisk(disk);
+    ASSERT_NE(disk.id, 0);
+    ASSERT_TRUE(database.MoveDiskToGroup(disk.id, nestedGroupId));
+
+    const HWND tree = CreateWindowExW(0, WC_TREEVIEWW, L"", WS_POPUP | TVS_HASBUTTONS | TVS_HASLINES,
+        0, 0, 320, 480, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+    ASSERT_NE(tree, nullptr);
+
+    wit::ui::CatalogTreeView catalogTree;
+    catalogTree.Attach(tree, [&](wit::core::CatalogId) { return &database; });
+    catalogTree.AddCatalog(1, L"Catalog", &database, true);
+
+    wit::core::BrowserTarget target;
+    target.catalogId = 1;
+    target.location.isRoot = false;
+    target.location.sourceId = disk.id;
+    target.location.sourceName = disk.diskName;
+    target.location.sourceRoot = disk.sourcePath;
+    target.location.path = disk.sourcePath;
+
+    EXPECT_TRUE(catalogTree.SelectLocation(target));
+    const auto selected = TreeView_GetSelection(tree);
+    ASSERT_NE(selected, nullptr);
+    const auto* selectedTarget = catalogTree.TargetFor(selected);
+    ASSERT_NE(selectedTarget, nullptr);
+    EXPECT_FALSE(selectedTarget->location.isDiskGroup);
+    EXPECT_EQ(selectedTarget->location.sourceId, disk.id);
+    EXPECT_EQ(selectedTarget->location.path, disk.sourcePath);
+
+    DestroyWindow(tree);
+    database.Close();
+    std::filesystem::remove_all(testRoot);
+}
 TEST(FileListViewPerformance, StaleLoadMessageDoesNotCancelCurrentFolderLoad) {
     INITCOMMONCONTROLSEX controls{sizeof(controls), ICC_LISTVIEW_CLASSES};
     ASSERT_TRUE(InitCommonControlsEx(&controls));
@@ -659,6 +719,47 @@ TEST(FileListViewPerformance, EntryAtSchedulesMissingPageWithoutSynchronouslyRea
     DestroyWindow(fileList);
 }
 
+TEST(FileListViewPerformance, QueuedEntrySelectionRestoresAfterAsyncLoad) {
+    INITCOMMONCONTROLSEX controls{sizeof(controls), ICC_LISTVIEW_CLASSES};
+    ASSERT_TRUE(InitCommonControlsEx(&controls));
+
+    const HWND fileList = CreateWindowExW(0, WC_LISTVIEWW, L"", WS_POPUP | LVS_REPORT | LVS_OWNERDATA,
+        0, 0, 640, 480, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+    ASSERT_NE(fileList, nullptr);
+
+    BlockingBrowserRepository repository;
+    wit::ui::FileListView fileListView;
+    fileListView.Attach(fileList);
+
+    wit::core::BrowserLocation location;
+    location.isRoot = false;
+    location.sourceId = 1;
+    location.path = L"X:\\FakeSearchStressDisk";
+    fileListView.SetLocation(location, wit::storage::MakeBrowserReadContext(&repository));
+
+    const auto countStartedDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (!repository.countStarted.load() && std::chrono::steady_clock::now() < countStartedDeadline) {
+        PumpMessages();
+        Sleep(1);
+    }
+    ASSERT_TRUE(repository.countStarted.load());
+
+    fileListView.QueueEntrySelection(1, false);
+    repository.releaseCount = true;
+
+    const auto loadDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (ListView_GetItemCount(fileList) != 1 && std::chrono::steady_clock::now() < loadDeadline) {
+        PumpMessages();
+        Sleep(1);
+    }
+    ASSERT_EQ(ListView_GetItemCount(fileList), 1);
+    PumpMessages();
+
+    EXPECT_EQ(ListView_GetNextItem(fileList, -1, LVNI_SELECTED), 0);
+    EXPECT_EQ(ListView_GetNextItem(fileList, -1, LVNI_FOCUSED), 0);
+
+    DestroyWindow(fileList);
+}
 TEST(FileListViewPerformance, SelectEntryDoesNotSynchronouslyScanLargeFolder) {
     INITCOMMONCONTROLSEX controls{sizeof(controls), ICC_LISTVIEW_CLASSES};
     ASSERT_TRUE(InitCommonControlsEx(&controls));

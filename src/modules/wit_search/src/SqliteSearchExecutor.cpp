@@ -82,6 +82,7 @@ void PopulateDisplayEntry(wit::core::FileEntry& entry, sqlite3_stmt* stmt) {
     entry.attributes = static_cast<std::uint32_t>(sqlite3_column_int(stmt, 7));
     entry.isDirectory = sqlite3_column_int(stmt, 8) != 0;
     entry.isArchive = Text(stmt, 9) == L"archive";
+    if (sqlite3_column_count(stmt) > 10) entry.fullPath = Text(stmt, 10);
 }
 
 struct SqlParamValue {
@@ -113,10 +114,20 @@ std::string LogicalSql(AdvancedSearchLogicalOperator op) {
     }
 }
 
+const char* SearchFolderSizeSql() {
+    return "CASE WHEN COALESCE(c.entry_type,'directory')='archive' THEN c.content_size ELSE "
+        "MAX(c.content_size - COALESCE((WITH RECURSIVE descendants(id, inside_archive) AS ("
+        "SELECT c.id, 0 "
+        "UNION ALL SELECT child.id, inside_archive OR "
+        "COALESCE(child.entry_type,'directory')='archive' "
+        "FROM folders child JOIN descendants d ON child.parent_folder_id=d.id) "
+        "SELECT SUM(f.size) FROM files f JOIN descendants d ON f.folder_id=d.id "
+        "WHERE inside_archive=1),0),0) END";
+}
 std::string AdvancedColumnSql(AdvancedSearchField field, bool folders) {
     switch (field) {
     case AdvancedSearchField::Filename: return folders ? "c.name" : "f.name";
-    case AdvancedSearchField::Filesize: return folders ? "c.content_size" : "f.size";
+    case AdvancedSearchField::Filesize: return folders ? SearchFolderSizeSql() : "f.size";
     default: return folders ? "c.name" : "f.name";
     }
 }
@@ -236,7 +247,7 @@ bool ResetPageCache(sqlite3* db) {
         "position INTEGER PRIMARY KEY,id INTEGER NOT NULL,disk_id INTEGER NOT NULL,"
         "parent_path TEXT NOT NULL,name TEXT NOT NULL,extension TEXT NOT NULL,size INTEGER NOT NULL,"
         "modified_at INTEGER NOT NULL,attributes INTEGER NOT NULL,is_directory INTEGER NOT NULL,"
-        "entry_type TEXT NOT NULL);") &&
+        "entry_type TEXT NOT NULL,full_path TEXT NOT NULL);") &&
         ExecSql(db, "DELETE FROM wit_search_page_cache;");
 }
 
@@ -252,18 +263,18 @@ std::string CombinedCacheInsertSql(
     const std::string& fileWhereClause,
     wit::core::FileSort sort) {
     return "INSERT INTO wit_search_page_cache("
-        "id,disk_id,parent_path,name,extension,size,modified_at,attributes,is_directory,entry_type) "
-        "SELECT id,disk_id,parent_path,name,extension,size,modified_at,attributes,is_directory,entry_type FROM ("
+        "id,disk_id,parent_path,name,extension,size,modified_at,attributes,is_directory,entry_type,full_path) "
+        "SELECT id,disk_id,parent_path,name,extension,size,modified_at,attributes,is_directory,entry_type,full_path FROM ("
         "SELECT c.id,c.disk_id,COALESCE(p.path,'') AS parent_path,c.name,'' AS extension,"
-        "c.content_size AS size,c.modified_at,c.attributes,1 AS is_directory,"
-        "COALESCE(c.entry_type,'directory') AS entry_type,"
+        + std::string(SearchFolderSizeSql()) + " AS size,c.modified_at,c.attributes,1 AS is_directory,"
+        "COALESCE(c.entry_type,'directory') AS entry_type,c.path AS full_path,"
         "COALESCE(c.entry_type,'directory') AS sort_type "
         "FROM folders c LEFT JOIN folders p ON c.parent_folder_id=p.id WHERE " +
         folderWhereClause +
         " UNION ALL "
         "SELECT f.id,f.disk_id,COALESCE(p.path,'') AS parent_path,f.name,"
         "COALESCE(f.extension,'') AS extension,f.size,f.modified_at,f.attributes,"
-        "0 AS is_directory,'file' AS entry_type,COALESCE(f.extension,'') AS sort_type "
+        "0 AS is_directory,'file' AS entry_type,COALESCE(p.path,'') AS full_path,COALESCE(f.extension,'') AS sort_type "
         "FROM files f JOIN folders p ON f.folder_id=p.id WHERE " +
         fileWhereClause + ") AS combined " + wit::storage::FileEntryOrderBy(sort) + ";";
 }
@@ -277,16 +288,16 @@ std::string BroadAllEntriesOrderBy(wit::core::FileSort sort) {
 }
 
 std::string CombinedAllEntriesPageSql(wit::core::FileSort sort) {
-    return "SELECT id,disk_id,parent_path,name,extension,size,modified_at,attributes,is_directory,entry_type FROM ("
+    return "SELECT id,disk_id,parent_path,name,extension,size,modified_at,attributes,is_directory,entry_type,full_path FROM ("
         "SELECT c.id,c.disk_id,COALESCE(p.path,'') AS parent_path,c.name,'' AS extension,"
-        "c.content_size AS size,c.modified_at,c.attributes,1 AS is_directory,"
-        "COALESCE(c.entry_type,'directory') AS entry_type,"
+        + std::string(SearchFolderSizeSql()) + " AS size,c.modified_at,c.attributes,1 AS is_directory,"
+        "COALESCE(c.entry_type,'directory') AS entry_type,c.path AS full_path,"
         "COALESCE(c.entry_type,'directory') AS sort_type "
         "FROM folders c LEFT JOIN folders p ON c.parent_folder_id=p.id "
         "UNION ALL "
         "SELECT f.id,f.disk_id,COALESCE(p.path,'') AS parent_path,f.name,"
         "COALESCE(f.extension,'') AS extension,f.size,f.modified_at,f.attributes,"
-        "0 AS is_directory,'file' AS entry_type,COALESCE(f.extension,'') AS sort_type "
+        "0 AS is_directory,'file' AS entry_type,COALESCE(p.path,'') AS full_path,COALESCE(f.extension,'') AS sort_type "
         "FROM files f JOIN folders p ON f.folder_id=p.id) AS combined " +
         BroadAllEntriesOrderBy(sort) + " LIMIT ? OFFSET ?;";
 }
@@ -363,7 +374,7 @@ PageReadResult ReadPageCache(sqlite3* db, int offset, int limit) {
     if (!db || offset < 0 || limit <= 0) return result;
 
     constexpr const char* sql =
-        "SELECT id,disk_id,parent_path,name,extension,size,modified_at,attributes,is_directory,entry_type "
+        "SELECT id,disk_id,parent_path,name,extension,size,modified_at,attributes,is_directory,entry_type,full_path "
         "FROM wit_search_page_cache WHERE position>? AND position<=? ORDER BY position;";
     wit::storage::SQLiteStatement statement(db, sql);
     if (!statement.IsValid()) {

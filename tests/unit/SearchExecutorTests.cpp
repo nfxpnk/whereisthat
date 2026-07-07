@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include <wit_search/SqliteSearchExecutor.h>
 #include <sqlite3.h>
+#include <algorithm>
 #include <chrono>
 #include <filesystem>
 #include <string>
@@ -242,6 +243,41 @@ TEST(SearchExecutor, PageByNameSortsFoldersAndFilesTogetherBySize) {
     EXPECT_EQ(reversed[4].name, L"beta-file.txt");
     EXPECT_EQ(reversed[5].name, L"alpha-file.txt");
     EXPECT_EQ(reversed[6].name, L"child");
+}
+TEST(SearchExecutor, SearchFolderSizesExcludeArchiveDescendantContents) {
+    MemoryDatabase database;
+    database.Execute(
+        "UPDATE folders SET content_size=5220 WHERE id=1;"
+        "INSERT INTO folders(id,disk_id,parent_folder_id,path,name,content_size,modified_at,attributes,entry_type) "
+        "VALUES(3,1,1,'C:\\archive.zip','archive.zip',10,107,0,'archive'),"
+        "(4,1,3,'C:\\archive.zip\\nested','nested',4970,108,0,'directory');"
+        "INSERT INTO files(id,disk_id,folder_id,name,extension,size,modified_at,attributes) "
+        "VALUES(20,1,3,'top.bin','bin',30,109,0),(21,1,4,'inner.bin','bin',4970,110,0);");
+    wit::search::SqliteSearchExecutor executor(database.Raw());
+
+    const auto folder = executor.PageByName(L"alpha-folder", 0, 10);
+    ASSERT_EQ(folder.size(), 1u);
+    EXPECT_EQ(folder[0].size, 220u) << "ordinary search folders exclude files stored inside archive-backed descendants";
+    EXPECT_EQ(folder[0].fullPath, std::wstring(L"C:") + L"\\\\");
+
+    const auto archive = executor.PageByName(L"archive.zip", 0, 10);
+    ASSERT_EQ(archive.size(), 1u);
+    EXPECT_TRUE(archive[0].isArchive);
+    EXPECT_EQ(archive[0].size, 10u) << "archive rows still expose their own stored size";
+    EXPECT_EQ(archive[0].fullPath, L"C:\\archive.zip");
+
+    const auto displayedSize = wit::search::ParseAdvancedSearchQuery(L"filename = \"alpha-folder\" and filesize = \"220 bytes\"");
+    ASSERT_TRUE(displayedSize.success);
+    EXPECT_EQ(executor.CountAdvanced(displayedSize.expression), 1);
+
+    const auto inflatedSize = wit::search::ParseAdvancedSearchQuery(L"filename = \"alpha-folder\" and filesize = \"5220 bytes\"");
+    ASSERT_TRUE(inflatedSize.success);
+    EXPECT_EQ(executor.CountAdvanced(inflatedSize.expression), 0);
+
+    const auto bySize = executor.PageByName(L"*", 0, 10, {wit::core::FileSortColumn::Size, false});
+    const auto found = std::ranges::find_if(bySize, [](const auto& entry) { return entry.name == L"alpha-folder"; });
+    ASSERT_NE(found, bySize.end());
+    EXPECT_EQ(found->size, 220u);
 }
 TEST(SearchExecutor, PageByNameInvalidatesMaterializedResultsAfterMutation) {
     MemoryDatabase database;

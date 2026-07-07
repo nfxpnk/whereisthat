@@ -1,13 +1,14 @@
 #include "wit_database/SqliteBrowserRepository.h"
 
+#include "wit_database/SqliteFileListHelpers.h"
 #include "wit_database/SQLiteStatement.h"
 #include <wit_infra/Win32Helpers.h>
 #include "third_party/sqlite/sqlite3.h"
 
-#include <Windows.h>
 #include <algorithm>
 #include <cstdint>
 #include <string>
+#include <utility>
 
 namespace wit::storage {
 namespace {
@@ -27,6 +28,7 @@ void PopulateDisplayEntry(wit::core::FileEntry& entry, sqlite3_stmt* stmt) {
     entry.attributes = static_cast<std::uint32_t>(sqlite3_column_int(stmt, 7));
     entry.isDirectory = sqlite3_column_int(stmt, 8) != 0;
     entry.isArchive = Text(stmt, 9) == L"archive";
+    if (sqlite3_column_count(stmt) > 10) entry.fullPath = Text(stmt, 10);
 }
 
 void PopulateBrowserDisk(wit::core::Disk& disk, sqlite3_stmt* stmt, int firstColumn) {
@@ -63,53 +65,6 @@ void PopulateBrowserGroup(wit::core::DiskGroup& group, sqlite3_stmt* stmt) {
     group.totalDisks = sqlite3_column_int64(stmt, 13);
 }
 
-int NaturalNoCaseCollation(void*, int leftBytes, const void* leftValue, int rightBytes, const void* rightValue) {
-    const std::string leftUtf8(static_cast<const char*>(leftValue), static_cast<std::size_t>(leftBytes));
-    const std::string rightUtf8(static_cast<const char*>(rightValue), static_cast<std::size_t>(rightBytes));
-    const auto left = wit::platform::ToUtf16(leftUtf8);
-    const auto right = wit::platform::ToUtf16(rightUtf8);
-    const int result = CompareStringEx(LOCALE_NAME_USER_DEFAULT,
-        LINGUISTIC_IGNORECASE | SORT_DIGITSASNUMBERS,
-        left.c_str(), static_cast<int>(left.size()),
-        right.c_str(), static_cast<int>(right.size()),
-        nullptr, nullptr, 0);
-    if (result == CSTR_LESS_THAN) return -1;
-    if (result == CSTR_GREATER_THAN) return 1;
-    return 0;
-}
-
-void EnsureNaturalNoCaseCollation(sqlite3* db) {
-    if (!db) return;
-    sqlite3_create_collation_v2(db, "WIN_NATURAL_NOCASE", SQLITE_UTF8, nullptr,
-        NaturalNoCaseCollation, nullptr);
-}
-
-const char* OrderExpressionFor(wit::core::FileSortColumn column, bool folders) {
-    switch (column) {
-    case wit::core::FileSortColumn::Type:
-        return folders ? "c.entry_type COLLATE WIN_NATURAL_NOCASE"
-            : "f.extension COLLATE WIN_NATURAL_NOCASE";
-    case wit::core::FileSortColumn::Size:
-        return folders ? "c.content_size" : "f.size";
-    case wit::core::FileSortColumn::Path:
-        return "p.path COLLATE WIN_NATURAL_NOCASE";
-    case wit::core::FileSortColumn::Modified:
-        return folders ? "c.modified_at" : "f.modified_at";
-    case wit::core::FileSortColumn::Name:
-    default:
-        return folders ? "c.name COLLATE WIN_NATURAL_NOCASE" : "f.name COLLATE WIN_NATURAL_NOCASE";
-    }
-}
-
-std::string OrderByFor(wit::core::FileSort sort, bool folders) {
-    std::string order{"ORDER BY "};
-    order += OrderExpressionFor(sort.column, folders);
-    order += sort.ascending ? " ASC," : " DESC,";
-    order += folders ? " c.name COLLATE WIN_NATURAL_NOCASE ASC,c.id ASC "
-        : " f.name COLLATE WIN_NATURAL_NOCASE ASC,f.id ASC ";
-    return order;
-}
-
 const char* RootOrderExpressionFor(int column) {
     switch (column) {
     case 1: return "disk_type COLLATE WIN_NATURAL_NOCASE";
@@ -125,7 +80,6 @@ const char* RootOrderExpressionFor(int column) {
         return "name COLLATE WIN_NATURAL_NOCASE";
     }
 }
-
 std::string RootOrderByFor(wit::core::BrowserRootSort sort) {
     std::string order{"ORDER BY kind ASC,"};
     order += RootOrderExpressionFor(sort.column);
@@ -139,39 +93,97 @@ SqliteBrowserRepository::SqliteBrowserRepository(sqlite3* db) : db_(db) {}
 
 void SqliteBrowserRepository::SetDatabase(sqlite3* db) {
     db_ = db;
+    ClearLastError();
+}
+void SqliteBrowserRepository::ClearLastError() {
+    std::scoped_lock lock(errorMutex_);
+    lastError_.clear();
+}
+
+void SqliteBrowserRepository::SetLastError(const wchar_t* fallback) {
+    std::wstring message = fallback ? fallback : L"Browser read failed.";
+    if (db_) {
+        const char* detail = sqlite3_errmsg(db_);
+        if (detail && detail[0] != '\0') {
+            message += L" ";
+            message += wit::platform::ToUtf16(detail);
+        }
+    }
+    std::scoped_lock lock(errorMutex_);
+    lastError_ = std::move(message);
+}
+
+std::wstring SqliteBrowserRepository::LastErrorMessage() const {
+    std::scoped_lock lock(errorMutex_);
+    return lastError_;
 }
 
 int SqliteBrowserRepository::GetBrowserItemCount(const wit::core::BrowserLocation& location) {
+    ClearLastError();
+    if (!db_) {
+        SetLastError(L"No browser database is open.");
+        return 0;
+    }
     if (location.isRoot || location.isDiskGroup) return GetBrowserRootItemCount(location);
     SQLiteStatement statement(db_,
         "WITH parent(id) AS (SELECT id FROM folders WHERE disk_id=? AND path=? COLLATE NOCASE) "
         "SELECT (SELECT COUNT(*) FROM folders c JOIN parent p ON c.parent_folder_id=p.id WHERE c.disk_id=?) + "
         "(SELECT COUNT(*) FROM files f JOIN parent p ON f.folder_id=p.id);");
+    if (!statement.IsValid()) {
+        SetLastError(L"Could not count browser items.");
+        return 0;
+    }
     statement.BindInt64(1, location.sourceId);
     statement.BindText(2, wit::platform::ToUtf8(location.path));
     statement.BindInt64(3, location.sourceId);
-    return sqlite3_step(statement.Raw()) == SQLITE_ROW ? sqlite3_column_int(statement.Raw(), 0) : 0;
+    const int stepResult = sqlite3_step(statement.Raw());
+    if (stepResult == SQLITE_ROW) return sqlite3_column_int(statement.Raw(), 0);
+    SetLastError(stepResult == SQLITE_INTERRUPT ? L"Browser read was cancelled." : L"Could not count browser items.");
+    return 0;
 }
-
 int SqliteBrowserRepository::GetBrowserRootItemCount(const wit::core::BrowserLocation& location) {
+    ClearLastError();
+    if (!db_) {
+        SetLastError(L"No browser database is open.");
+        return 0;
+    }
     if (location.isDiskGroup) {
         SQLiteStatement statement(db_,
             "SELECT (SELECT COUNT(*) FROM disk_groups WHERE parent_group_id=?) + "
             "(SELECT COUNT(*) FROM disks WHERE disk_group_id=?);");
+        if (!statement.IsValid()) {
+            SetLastError(L"Could not count browser root items.");
+            return 0;
+        }
         statement.BindInt64(1, location.diskGroupId);
         statement.BindInt64(2, location.diskGroupId);
-        return sqlite3_step(statement.Raw()) == SQLITE_ROW ? sqlite3_column_int(statement.Raw(), 0) : 0;
+        const int stepResult = sqlite3_step(statement.Raw());
+        if (stepResult == SQLITE_ROW) return sqlite3_column_int(statement.Raw(), 0);
+        SetLastError(stepResult == SQLITE_INTERRUPT ? L"Browser read was cancelled." : L"Could not count browser root items.");
+        return 0;
     }
     SQLiteStatement statement(db_,
         "SELECT (SELECT COUNT(*) FROM disk_groups WHERE parent_group_id IS NULL) + "
         "(SELECT COUNT(*) FROM disks WHERE disk_group_id IS NULL);");
-    return sqlite3_step(statement.Raw()) == SQLITE_ROW ? sqlite3_column_int(statement.Raw(), 0) : 0;
+    if (!statement.IsValid()) {
+        SetLastError(L"Could not count browser root items.");
+        return 0;
+    }
+    const int stepResult = sqlite3_step(statement.Raw());
+    if (stepResult == SQLITE_ROW) return sqlite3_column_int(statement.Raw(), 0);
+    SetLastError(stepResult == SQLITE_INTERRUPT ? L"Browser read was cancelled." : L"Could not count browser root items.");
+    return 0;
 }
-
 std::vector<wit::core::BrowserItem> SqliteBrowserRepository::GetBrowserRootItemsPage(
     const wit::core::BrowserLocation& location, int offset, int limit, wit::core::BrowserRootSort sort) {
+    ClearLastError();
     std::vector<wit::core::BrowserItem> items;
-    EnsureNaturalNoCaseCollation(db_);
+    if (limit <= 0 || offset < 0) return items;
+    if (!db_) {
+        SetLastError(L"No browser database is open.");
+        return items;
+    }
+    wit::storage::EnsureNaturalNoCaseCollation(db_);
     if (location.isDiskGroup) {
         const auto sql = std::string(
             "WITH RECURSIVE group_tree(root_id,id) AS ("
@@ -192,11 +204,16 @@ std::vector<wit::core::BrowserItem> SqliteBrowserRepository::GetBrowserRootItems
             "FROM disks d WHERE d.disk_group_id=?) "
             ) + RootOrderByFor(sort) + "LIMIT ? OFFSET ?;";
         SQLiteStatement statement(db_, sql.c_str());
+        if (!statement.IsValid()) {
+            SetLastError(L"Could not read browser root items.");
+            return items;
+        }
         statement.BindInt64(1, location.diskGroupId);
         statement.BindInt64(2, location.diskGroupId);
         statement.BindInt64(3, limit);
         statement.BindInt64(4, offset);
-        while (sqlite3_step(statement.Raw()) == SQLITE_ROW) {
+        int stepResult{};
+        while ((stepResult = sqlite3_step(statement.Raw())) == SQLITE_ROW) {
             wit::core::BrowserItem item;
             if (sqlite3_column_int(statement.Raw(), 0) == 0) {
                 item.type = wit::core::BrowserItemType::DiskGroup;
@@ -206,6 +223,10 @@ std::vector<wit::core::BrowserItem> SqliteBrowserRepository::GetBrowserRootItems
                 PopulateBrowserDisk(item.disk, statement.Raw(), 1);
             }
             items.push_back(item);
+        }
+        if (stepResult != SQLITE_DONE) {
+            SetLastError(stepResult == SQLITE_INTERRUPT ? L"Browser read was cancelled." : L"Could not read browser root items.");
+            items.clear();
         }
         return items;
     }
@@ -228,9 +249,14 @@ std::vector<wit::core::BrowserItem> SqliteBrowserRepository::GetBrowserRootItems
         "FROM disks d WHERE d.disk_group_id IS NULL) "
         ) + RootOrderByFor(sort) + "LIMIT ? OFFSET ?;";
     SQLiteStatement statement(db_, sql.c_str());
+    if (!statement.IsValid()) {
+        SetLastError(L"Could not read browser root items.");
+        return items;
+    }
     statement.BindInt64(1, limit);
     statement.BindInt64(2, offset);
-    while (sqlite3_step(statement.Raw()) == SQLITE_ROW) {
+    int stepResult{};
+    while ((stepResult = sqlite3_step(statement.Raw())) == SQLITE_ROW) {
         wit::core::BrowserItem item;
         if (sqlite3_column_int(statement.Raw(), 0) == 0) {
             item.type = wit::core::BrowserItemType::DiskGroup;
@@ -241,40 +267,67 @@ std::vector<wit::core::BrowserItem> SqliteBrowserRepository::GetBrowserRootItems
         }
         items.push_back(item);
     }
+    if (stepResult != SQLITE_DONE) {
+        SetLastError(stepResult == SQLITE_INTERRUPT ? L"Browser read was cancelled." : L"Could not read browser root items.");
+        items.clear();
+    }
     return items;
 }
 
 std::vector<wit::core::FileEntry> SqliteBrowserRepository::GetBrowserItemsPage(
     const wit::core::BrowserLocation& location, int offset, int limit, wit::core::FileSort sort) {
+    ClearLastError();
     std::vector<wit::core::FileEntry> files;
-    if (location.isRoot || location.isDiskGroup) return files;
-    EnsureNaturalNoCaseCollation(db_);
+    if (location.isRoot || location.isDiskGroup || limit <= 0 || offset < 0) return files;
+    if (!db_) {
+        SetLastError(L"No browser database is open.");
+        return files;
+    }
+    wit::storage::EnsureNaturalNoCaseCollation(db_);
 
     SQLiteStatement folderCountStatement(db_,
         "WITH parent(id,path) AS (SELECT id,path FROM folders WHERE disk_id=? AND path=? COLLATE NOCASE) "
         "SELECT COUNT(*) FROM folders c JOIN parent p ON c.parent_folder_id=p.id WHERE c.disk_id=?;");
+    if (!folderCountStatement.IsValid()) {
+        SetLastError(L"Could not count browser folders.");
+        return files;
+    }
     folderCountStatement.BindInt64(1, location.sourceId);
     folderCountStatement.BindText(2, wit::platform::ToUtf8(location.path));
     folderCountStatement.BindInt64(3, location.sourceId);
-    const int folderCount = sqlite3_step(folderCountStatement.Raw()) == SQLITE_ROW
-        ? sqlite3_column_int(folderCountStatement.Raw(), 0) : 0;
+    const int folderCountStepResult = sqlite3_step(folderCountStatement.Raw());
+    if (folderCountStepResult != SQLITE_ROW) {
+        SetLastError(folderCountStepResult == SQLITE_INTERRUPT ? L"Browser read was cancelled." : L"Could not count browser folders.");
+        return files;
+    }
+    const int folderCount = sqlite3_column_int(folderCountStatement.Raw(), 0);
 
-    if (offset < folderCount && limit > 0) {
+    if (offset < folderCount) {
         const auto sql = std::string(
             "WITH parent(id,path) AS (SELECT id,path FROM folders WHERE disk_id=? AND path=? COLLATE NOCASE) "
-            "SELECT c.id,c.disk_id,p.path,c.name,'' AS extension,c.content_size,c.modified_at,c.attributes,1,c.entry_type "
-            "FROM folders c JOIN parent p ON c.parent_folder_id=p.id "
-            "WHERE c.disk_id=? ") + OrderByFor(sort, true) + "LIMIT ? OFFSET ?;";
+            "SELECT c.id,c.disk_id,(SELECT path FROM parent),c.name,'' AS extension,c.content_size,c.modified_at,c.attributes,1,c.entry_type,c.path "
+            "FROM folders c "
+            "WHERE c.disk_id=? AND c.parent_folder_id=(SELECT id FROM parent) ") + BrowserContentOrderBy(sort, true) + "LIMIT ? OFFSET ?;";
         SQLiteStatement folderStatement(db_, sql.c_str());
+        if (!folderStatement.IsValid()) {
+            SetLastError(L"Could not read browser folders.");
+            return files;
+        }
         folderStatement.BindInt64(1, location.sourceId);
         folderStatement.BindText(2, wit::platform::ToUtf8(location.path));
         folderStatement.BindInt64(3, location.sourceId);
         folderStatement.BindInt64(4, limit);
         folderStatement.BindInt64(5, offset);
-        while (sqlite3_step(folderStatement.Raw()) == SQLITE_ROW) {
+        int folderStepResult{};
+        while ((folderStepResult = sqlite3_step(folderStatement.Raw())) == SQLITE_ROW) {
             wit::core::FileEntry file;
             PopulateDisplayEntry(file, folderStatement.Raw());
             files.push_back(file);
+        }
+        if (folderStepResult != SQLITE_DONE) {
+            SetLastError(folderStepResult == SQLITE_INTERRUPT ? L"Browser read was cancelled." : L"Could not read browser folders.");
+            files.clear();
+            return files;
         }
     }
 
@@ -283,49 +336,85 @@ std::vector<wit::core::FileEntry> SqliteBrowserRepository::GetBrowserItemsPage(
         const int fileOffset = (std::max)(0, offset - folderCount);
         const auto sql = std::string(
             "WITH parent(id,path) AS (SELECT id,path FROM folders WHERE disk_id=? AND path=? COLLATE NOCASE) "
-            "SELECT f.id,f.disk_id,p.path,f.name,f.extension,f.size,f.modified_at,f.attributes,0,'file' "
-            "FROM files f JOIN parent p ON f.folder_id=p.id "
-            "WHERE f.disk_id=? ") + OrderByFor(sort, false) + "LIMIT ? OFFSET ?;";
+            "SELECT f.id,f.disk_id,(SELECT path FROM parent),f.name,f.extension,f.size,f.modified_at,f.attributes,0,'file',(SELECT path FROM parent) "
+            "FROM files f "
+            "WHERE f.disk_id=? AND f.folder_id=(SELECT id FROM parent) ") + BrowserContentOrderBy(sort, false) + "LIMIT ? OFFSET ?;";
         SQLiteStatement fileStatement(db_, sql.c_str());
+        if (!fileStatement.IsValid()) {
+            SetLastError(L"Could not read browser files.");
+            files.clear();
+            return files;
+        }
         fileStatement.BindInt64(1, location.sourceId);
         fileStatement.BindText(2, wit::platform::ToUtf8(location.path));
         fileStatement.BindInt64(3, location.sourceId);
         fileStatement.BindInt64(4, remaining);
         fileStatement.BindInt64(5, fileOffset);
-        while (sqlite3_step(fileStatement.Raw()) == SQLITE_ROW) {
+        int fileStepResult{};
+        while ((fileStepResult = sqlite3_step(fileStatement.Raw())) == SQLITE_ROW) {
             wit::core::FileEntry file;
             PopulateDisplayEntry(file, fileStatement.Raw());
             files.push_back(file);
+        }
+        if (fileStepResult != SQLITE_DONE) {
+            SetLastError(fileStepResult == SQLITE_INTERRUPT ? L"Browser read was cancelled." : L"Could not read browser files.");
+            files.clear();
         }
     }
     return files;
 }
 
 bool SqliteBrowserRepository::HasChildFolders(std::int64_t sourceId, const std::wstring& parentPath) {
+    ClearLastError();
+    if (!db_) {
+        SetLastError(L"No browser database is open.");
+        return false;
+    }
     SQLiteStatement statement(db_,
         "WITH parent(id) AS (SELECT id FROM folders WHERE disk_id=? AND path=? COLLATE NOCASE) "
         "SELECT EXISTS(SELECT 1 FROM folders c JOIN parent p ON c.parent_folder_id=p.id WHERE c.disk_id=?);");
+    if (!statement.IsValid()) {
+        SetLastError(L"Could not check browser child folders.");
+        return false;
+    }
     statement.BindInt64(1, sourceId);
     statement.BindText(2, wit::platform::ToUtf8(parentPath));
     statement.BindInt64(3, sourceId);
-    return sqlite3_step(statement.Raw()) == SQLITE_ROW && sqlite3_column_int(statement.Raw(), 0) != 0;
+    const int stepResult = sqlite3_step(statement.Raw());
+    if (stepResult == SQLITE_ROW) return sqlite3_column_int(statement.Raw(), 0) != 0;
+    SetLastError(stepResult == SQLITE_INTERRUPT ? L"Browser read was cancelled." : L"Could not check browser child folders.");
+    return false;
 }
 
 std::vector<wit::core::FileEntry> SqliteBrowserRepository::GetChildFolders(
     std::int64_t sourceId, const std::wstring& parentPath) {
+    ClearLastError();
     std::vector<wit::core::FileEntry> folders;
+    if (!db_) {
+        SetLastError(L"No browser database is open.");
+        return folders;
+    }
     SQLiteStatement statement(db_,
         "WITH parent(id,path) AS (SELECT id,path FROM folders WHERE disk_id=? AND path=? COLLATE NOCASE) "
-        "SELECT c.id,c.disk_id,p.path,c.name,'',c.content_size,c.modified_at,c.attributes,1,c.entry_type "
+        "SELECT c.id,c.disk_id,p.path,c.name,'',c.content_size,c.modified_at,c.attributes,1,c.entry_type,c.path "
         "FROM folders c JOIN parent p ON c.parent_folder_id=p.id "
         "WHERE c.disk_id=? ORDER BY c.name;");
+    if (!statement.IsValid()) {
+        SetLastError(L"Could not read browser child folders.");
+        return folders;
+    }
     statement.BindInt64(1, sourceId);
     statement.BindText(2, wit::platform::ToUtf8(parentPath));
     statement.BindInt64(3, sourceId);
-    while (sqlite3_step(statement.Raw()) == SQLITE_ROW) {
+    int stepResult{};
+    while ((stepResult = sqlite3_step(statement.Raw())) == SQLITE_ROW) {
         wit::core::FileEntry folder;
         PopulateDisplayEntry(folder, statement.Raw());
         folders.push_back(folder);
+    }
+    if (stepResult != SQLITE_DONE) {
+        SetLastError(stepResult == SQLITE_INTERRUPT ? L"Browser read was cancelled." : L"Could not read browser child folders.");
+        folders.clear();
     }
     return folders;
 }

@@ -1,0 +1,22 @@
+ID: WIT-002
+File and line number: src/app/wit_gui/src/SearchPane.cpp:574, src/app/wit_gui/src/SearchPane.cpp:584-602, src/app/wit_gui/include/wit_gui/SearchPane.h:99
+Severity: High
+Category: crash, threading
+
+Problem:
+The async search worker captures raw ISearchRepository* and this. Lifetime is controlled manually by dialog close/cancel.
+
+Why it matters:
+Any future catalog close or rebind path that misses searchDialog_.Close() can produce use-after-free.
+
+Suggested fix:
+Make repository lifetime explicit during search, or use a cancellable owner token/weak lifetime guard and avoid capturing this where possible.
+
+Risk of fixing:
+Medium
+
+Estimated effort:
+Medium
+
+Confidence level:
+Medium

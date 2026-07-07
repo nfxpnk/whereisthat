@@ -1,0 +1,22 @@
+ID: WIT-010
+File and line number: src/app/wit_gui/src/MainWindow.cpp:495-514, src/app/wit_gui/src/CatalogWorkflowController.cpp:55-67
+Severity: Medium
+Category: UI responsiveness
+
+Problem:
+Session catalog restore/open runs synchronously during WM_CREATE.
+
+Why it matters:
+Slow/missing/network catalogs can make launch look frozen.
+
+Suggested fix:
+Show the window first, then restore catalogs via posted message/background open with UI feedback.
+
+Risk of fixing:
+Medium
+
+Estimated effort:
+Medium
+
+Confidence level:
+High

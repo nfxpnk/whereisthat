@@ -1,0 +1,22 @@
+ID: WIT-011
+File and line number: src/app/wit_gui/src/AddDiskDialog.cpp:140-154
+Severity: Medium
+Category: UI responsiveness
+
+Problem:
+ISO mount waits up to about 4 seconds on the UI thread using WaitForSingleObject plus polling Sleep.
+
+Why it matters:
+The dialog is unresponsive while mounting.
+
+Suggested fix:
+Run mount detection asynchronously or pump a modal progress state.
+
+Risk of fixing:
+Medium
+
+Estimated effort:
+Medium
+
+Confidence level:
+High

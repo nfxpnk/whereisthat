@@ -1,0 +1,22 @@
+ID: WIT-003
+File and line number: src/app/wit_gui/src/ScanCoordinator.cpp:95-100
+Severity: High
+Category: UI responsiveness
+
+Problem:
+Start() creates the working copy and resolves filesystem paths on the UI thread before launching the worker.
+
+Why it matters:
+Large catalogs can make "Add/Update Disk Image" appear hung before the progress dialog even shows.
+
+Suggested fix:
+Move working-copy creation into the worker and show progress/cancellable busy state earlier.
+
+Risk of fixing:
+Medium
+
+Estimated effort:
+Medium
+
+Confidence level:
+High

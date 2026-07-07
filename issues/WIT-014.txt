@@ -1,0 +1,22 @@
+ID: WIT-014
+File and line number: src/app/wit_gui/src/AboutDialog.cpp:121, src/app/wit_gui/src/AboutDialog.cpp:126
+Severity: Low
+Category: error handling
+
+Problem:
+ShellExecuteW results are ignored.
+
+Why it matters:
+Link failures are silent.
+
+Suggested fix:
+Check result <= 32 and show/log a small failure message.
+
+Risk of fixing:
+Low
+
+Estimated effort:
+Small
+
+Confidence level:
+High

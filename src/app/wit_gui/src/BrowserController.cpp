@@ -13,29 +13,6 @@
 namespace wit::app {
 namespace {
 
-std::wstring CompactSize(std::uint64_t bytes) {
-    auto result = wit::core::FormatSize(bytes);
-    const auto decimal = result.find(L'.');
-    const auto space = result.find(L' ');
-    if (decimal != std::wstring::npos && space != std::wstring::npos) {
-        auto end = space;
-        while (end > decimal + 1 && result[end - 1] == L'0') result.erase(--end, 1);
-        if (end == decimal + 1) result.erase(decimal, 1);
-    }
-    return result;
-}
-
-int SettingsColumnFor(wit::core::FileSortColumn column) {
-    switch (column) {
-    case wit::core::FileSortColumn::Type: return 1;
-    case wit::core::FileSortColumn::Size: return 2;
-    case wit::core::FileSortColumn::Path: return 3;
-    case wit::core::FileSortColumn::Modified: return 4;
-    case wit::core::FileSortColumn::Name:
-    default: return 0;
-    }
-}
-
 std::optional<int> RootColumnForToolbarSort(wit::core::FileSortColumn column) {
     switch (column) {
     case wit::core::FileSortColumn::Name: return 0;
@@ -59,6 +36,12 @@ wit::core::FileSort ToolbarSortFromRootSort(wit::core::BrowserRootSort sort) {
     return toolbarSort;
 }
 
+std::wstring FolderEntryPath(const wit::core::FileEntry& entry, const std::wstring& fallbackParent) {
+    if (!entry.fullPath.empty()) return entry.fullPath;
+    if (!entry.parentPath.empty()) return wit::platform::Join(entry.parentPath, entry.name);
+    return wit::platform::Join(fallbackParent, entry.name);
+}
+
 }
 
 void BrowserController::Attach(HWND tree, HWND files, HWND back, HWND forward, HWND address,
@@ -80,7 +63,7 @@ void BrowserController::Clear() {
     hasTarget_ = false;
     history_.clear();
     historyIndex_ = -1;
-    files_.SetLocation({}, nullptr);
+    files_.SetLocation({}, {});
     SetWindowTextW(addressHandle_, L"");
     UpdateNavigationControls();
 }
@@ -118,7 +101,7 @@ void BrowserController::NavigateTo(const wit::core::BrowserTarget& target, bool 
     }
     currentTarget_ = target;
     hasTarget_ = true;
-    files_.SetLocation(target.location, &database->BrowserRepository());
+    files_.SetLocation(target.location, database->CreateBrowserReadContext());
     const auto address = AddressFor(target);
     SetWindowTextW(addressHandle_, address.c_str());
     if (syncTreeSelection) {
@@ -144,7 +127,7 @@ void BrowserController::RefreshCatalog(wit::core::CatalogId id, const std::wstri
         : std::nullopt;
     if (!database || !database->IsOpen()) return;
     if (hasTarget_ && currentTarget_.catalogId == id) {
-        files_.SetLocation({}, nullptr);
+        files_.SetLocation({}, {});
     }
     tree_.RefreshCatalog(id, label, database, select);
     if (select || (hasTarget_ && currentTarget_.catalogId == id)) NavigateTo({id, {}}, true);
@@ -156,7 +139,7 @@ void BrowserController::MoveDiskToGroup(wit::core::CatalogId id, std::int64_t di
     const bool clearCurrentList = hasTarget_ && currentTarget_.catalogId == id &&
         (currentTarget_.location.isRoot || currentTarget_.location.isDiskGroup);
     if (clearCurrentList) {
-        files_.SetLocation({}, nullptr);
+        files_.SetLocation({}, {});
     }
     std::wstring diskGroupName;
     if (diskGroupId != 0) {
@@ -172,13 +155,13 @@ void BrowserController::MoveDiskToGroup(wit::core::CatalogId id, std::int64_t di
         WIT_LOG_DEBUG(std::format(L"move disk tree update skipped catalogId={} diskId={} targetGroupId={}",
             id, diskId, diskGroupId));
         if (hasTarget_ && currentTarget_.catalogId == id) {
-            files_.SetLocation(currentTarget_.location, &database->BrowserRepository());
+            files_.SetLocation(currentTarget_.location, database->CreateBrowserReadContext());
         }
         return;
     }
     UpdateMovedDiskTargets(id, diskId, diskGroupId, diskGroupName);
     if (databaseReflectsChange && hasTarget_ && currentTarget_.catalogId == id) {
-        files_.SetLocation(currentTarget_.location, &database->BrowserRepository());
+        files_.SetLocation(currentTarget_.location, database->CreateBrowserReadContext());
         const auto address = AddressFor(currentTarget_);
         SetWindowTextW(addressHandle_, address.c_str());
     } else if (hasTarget_ && currentTarget_.catalogId == id) {
@@ -192,7 +175,7 @@ void BrowserController::MoveDiskGroupToGroup(wit::core::CatalogId id, std::int64
     const bool clearCurrentList = hasTarget_ && currentTarget_.catalogId == id &&
         (currentTarget_.location.isRoot || currentTarget_.location.isDiskGroup);
     if (clearCurrentList) {
-        files_.SetLocation({}, nullptr);
+        files_.SetLocation({}, {});
     }
     if (!tree_.MoveDiskGroupToGroup(id, diskGroupId, parentGroupId)) {
         WIT_LOG_DEBUG(std::format(L"move disk group tree update skipped catalogId={} groupId={} targetParentGroupId={}",
@@ -200,7 +183,7 @@ void BrowserController::MoveDiskGroupToGroup(wit::core::CatalogId id, std::int64
     }
     if (databaseReflectsChange && hasTarget_ && currentTarget_.catalogId == id) {
         auto* database = databaseResolver_ ? databaseResolver_(id) : nullptr;
-        if (database && database->IsOpen()) files_.SetLocation(currentTarget_.location, &database->BrowserRepository());
+        if (database && database->IsOpen()) files_.SetLocation(currentTarget_.location, database->CreateBrowserReadContext());
         const auto address = AddressFor(currentTarget_);
         SetWindowTextW(addressHandle_, address.c_str());
     } else if (hasTarget_ && currentTarget_.catalogId == id) {
@@ -216,7 +199,7 @@ void BrowserController::RemoveCatalog(wit::core::CatalogId id) {
     if (hasTarget_ && currentTarget_.catalogId == id) {
         currentTarget_ = {};
         hasTarget_ = false;
-        files_.SetLocation({}, nullptr);
+        files_.SetLocation({}, {});
         SetWindowTextW(addressHandle_, L"");
     }
     UpdateNavigationControls();
@@ -288,7 +271,7 @@ bool BrowserController::LocateFile(wit::core::CatalogId catalogId, const wit::co
     target.catalogId = catalogId;
     target.location.isRoot = false;
     target.location.sourceId = sourceId;
-    target.location.path = isDirectory ? wit::platform::Join(parentPath, name) : parentPath;
+    target.location.path = isDirectory ? FolderEntryPath(entry, parentPath) : parentPath;
 
     selectingTree_ = true;
     const wit::infra::ScopeGuard resetSelectingTree([this]() { selectingTree_ = false; });
@@ -299,7 +282,9 @@ bool BrowserController::LocateFile(wit::core::CatalogId catalogId, const wit::co
     if (!selectedTarget) return false;
     NavigateTo(*selectedTarget, true, false);
 
-    if (!isDirectory && !files_.SelectEntry(entryId, false)) return false;
+    if (!isDirectory && !files_.SelectEntry(entryId, false)) {
+        files_.QueueEntrySelection(entryId, false);
+    }
     ::SetFocus(isDirectory ? treeHandle_ : filesHandle_);
     return true;
 }
@@ -320,17 +305,20 @@ LRESULT BrowserController::OnTreeExpanding(LPNMHDR header) {
 
 LRESULT BrowserController::OnFileGetDispInfo(LPNMHDR header) {
     auto* displayInfo = reinterpret_cast<NMLVDISPINFOW*>(header);
+    const int row = displayInfo->item.iItem;
+    const bool rowCached = files_.ShowsBrowserItems()
+        ? files_.CachedBrowserItemAt(row) != nullptr
+        : files_.CachedEntryAt(row) != nullptr;
     if (displayInfo->item.mask & LVIF_IMAGE) {
-        displayInfo->item.iImage = files_.ImageFor(displayInfo->item.iItem);
+        displayInfo->item.iImage = files_.ImageFor(row);
     }
     if (displayInfo->item.mask & LVIF_TEXT) {
-        files_.TextFor(displayInfo->item.iItem, displayInfo->item.iSubItem,
+        files_.TextFor(row, displayInfo->item.iSubItem,
             displayInfo->item.pszText, displayInfo->item.cchTextMax);
     }
-    displayInfo->item.mask |= LVIF_DI_SETITEM;
+    if (rowCached) displayInfo->item.mask |= LVIF_DI_SETITEM;
     return 0;
 }
-
 LRESULT BrowserController::OnFileCacheHint(LPNMHDR header) {
     const auto* hint = reinterpret_cast<NMLVCACHEHINT*>(header);
     files_.PreloadRange(hint->iFrom, hint->iTo);
@@ -363,7 +351,7 @@ bool BrowserController::SetToolbarSort(wit::core::FileSort sort, bool persist) {
 
 void BrowserController::SaveContentSortPreference(wit::core::FileSort sort) const {
     auto settings = wit::platform::LoadAppSettings();
-    settings.contentSortColumn = SettingsColumnFor(sort.column);
+    settings.contentSortColumn = wit::core::ListColumnFromFileSortColumn(sort.column);
     settings.contentSortReverse = !sort.ascending;
     (void)wit::platform::SaveAppSettings(settings);
 }
@@ -434,7 +422,7 @@ std::optional<std::wstring> BrowserController::ExplorerTargetForFocusedItem(bool
         }
         if (const auto* entry = files_.EntryAt(row)) {
             if (entry->isDirectory && !entry->isArchive) {
-                return wit::platform::Join(entry->parentPath, entry->name);
+                return FolderEntryPath(*entry, currentTarget_.location.path);
             }
             selectItem = true;
             return wit::platform::Join(entry->parentPath, entry->name);
@@ -472,7 +460,7 @@ bool BrowserController::GoToFileListFolder(int row) {
         const auto* entry = files_.EntryAt(row);
         if (!entry || !entry->isDirectory) return false;
         next.location = currentTarget_.location;
-        next.location.path = wit::platform::Join(currentTarget_.location.path, entry->name);
+        next.location.path = FolderEntryPath(*entry, currentTarget_.location.path);
     }
     NavigateTo(next, true);
     return true;
@@ -498,43 +486,48 @@ void BrowserController::SelectAll() {
 
 std::wstring BrowserController::FocusedItemStatus() {
     const int index = filesHandle_ ? ListView_GetNextItem(filesHandle_, -1, LVNI_FOCUSED) : -1;
-    if (const auto* item = index >= 0 ? files_.BrowserItemAt(index) : nullptr) {
+    if (const auto* item = index >= 0 ? files_.CachedBrowserItemAt(index) : nullptr) {
         if (item->type == wit::core::BrowserItemType::DiskGroup) {
             return std::format(L"{} | Disks: {} | {}", item->group.name, item->group.totalDisks,
-                CompactSize(item->group.totalCapacity));
+                wit::ui::CompactFileSize(item->group.totalCapacity));
         }
-        auto text = item->disk.diskName + L" | " + CompactSize(item->disk.totalCapacity);
+        auto text = item->disk.diskName + L" | " + wit::ui::CompactFileSize(item->disk.totalCapacity);
         const auto updatedAt = wit::platform::FormatUnixTimestamp(item->disk.updatedAt);
         if (!updatedAt.empty()) text += L" | " + updatedAt;
         return text;
     }
-    if (const auto* entry = index >= 0 ? files_.EntryAt(index) : nullptr) {
-        auto text = entry->name + L", " + CompactSize(entry->size);
-        const auto modifiedAt = wit::platform::FormatUnixDate(entry->modifiedAt);
-        if (!modifiedAt.empty()) text += L", " + modifiedAt;
-        return text;
+    if (const auto* entry = index >= 0 ? files_.CachedEntryAt(index) : nullptr) {
+        return wit::ui::FileEntryStatusText(*entry);
     }
     return {};
 }
 
 std::wstring BrowserController::SelectionSummaryStatus() {
+    constexpr int MaxSelectedRowsForStatus = 256;
     std::uint64_t totalSize{};
     int selected{};
+    int sampled{};
+    bool totalSizeComplete = true;
     if (filesHandle_) {
+        selected = ListView_GetSelectedCount(filesHandle_);
         for (int index = ListView_GetNextItem(filesHandle_, -1, LVNI_SELECTED); index >= 0;
             index = ListView_GetNextItem(filesHandle_, index, LVNI_SELECTED)) {
-            if (const auto* item = files_.BrowserItemAt(index)) {
-                ++selected;
+            if (++sampled > MaxSelectedRowsForStatus) {
+                totalSizeComplete = false;
+                break;
+            }
+            if (const auto* item = files_.CachedBrowserItemAt(index)) {
                 totalSize += item->type == wit::core::BrowserItemType::Disk
                     ? item->disk.totalCapacity : item->group.totalCapacity;
-            } else if (const auto* entry = files_.EntryAt(index)) {
-                ++selected;
+            } else if (const auto* entry = files_.CachedEntryAt(index)) {
                 totalSize += entry->size;
+            } else {
+                totalSizeComplete = false;
             }
         }
     }
-    return std::format(L"Selected item(s): {} (total: {})", selected, CompactSize(totalSize));
+    return totalSizeComplete ? std::format(L"Selected item(s): {} (total: {})", selected,
+        wit::ui::CompactFileSize(totalSize)) : std::format(L"Selected item(s): {}", selected);
 }
 
 }
-

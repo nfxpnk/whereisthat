@@ -1,6 +1,12 @@
 #pragma once
+#include <Windows.h>
+#include <CommCtrl.h>
+#include <wit_types/FileEntry.h>
 
 namespace wit::ui {
+HIMAGELIST CreateBrowserItemImageList();
+int ImageForBrowserEntry(const wit::core::FileEntry& entry);
+
 enum BrowserItemImage : int {
     BrowserFolderImage = 0,
     BrowserDocumentImage = 1,

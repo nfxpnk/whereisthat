@@ -1,0 +1,22 @@
+ID: WIT-018
+File and line number: src/app/wit_gui/src/FileListPane.cpp:158-190, src/app/wit_gui/src/BrowserController.cpp:353-356, src/app/wit_gui/src/SearchPane.cpp:493-568, src/app/wit_gui/src/SearchPane.cpp:1006-1013, src/modules/wit_infra/src/AppSettings.cpp:208-302
+Severity: Low
+Category: UI responsiveness, performance, error handling
+
+Problem:
+Settings.ini is loaded/saved synchronously from UI interaction paths such as list setup, column width persistence, sort persistence, and search history persistence.
+
+Why it matters:
+INI APIs are usually fast, but they can block on antivirus, roaming profiles, slow disks, or locked files. Several callers ignore failure or only surface it indirectly, so preference persistence can silently fail or add latency to resize/sort/search actions.
+
+Suggested fix:
+Cache settings in the controller/session where practical, debounce column/history writes, and centralize failure logging for SaveAppSettings. Keep synchronous reads for startup if needed.
+
+Risk of fixing:
+Low/Medium
+
+Estimated effort:
+Medium
+
+Confidence level:
+Medium

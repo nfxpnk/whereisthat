@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import argparse
+import ctypes
+import re
 import sqlite3
 import time
 from pathlib import Path
@@ -22,6 +24,48 @@ TABLE_SQL_FILES = (
     "files.sql",
 )
 
+
+def _fallback_natural_compare(left: str, right: str) -> int:
+    def key(value: str) -> list[tuple[int, object]]:
+        parts: list[tuple[int, object]] = []
+        for part in re.split(r"(\d+)", value):
+            if part.isdigit():
+                parts.append((0, int(part)))
+            else:
+                parts.append((1, part.casefold()))
+        return parts
+
+    left_key = key(left or "")
+    right_key = key(right or "")
+    return (left_key > right_key) - (left_key < right_key)
+
+
+def _natural_no_case_compare(left: str, right: str) -> int:
+    try:
+        result = ctypes.windll.kernel32.CompareStringEx(
+            None,
+            0x00000010 | 0x00000008,
+            left or "",
+            len(left or ""),
+            right or "",
+            len(right or ""),
+            None,
+            None,
+            0,
+        )
+    except AttributeError:
+        result = 0
+    if result == 1:
+        return -1
+    if result == 3:
+        return 1
+    if result == 2:
+        return 0
+    return _fallback_natural_compare(left, right)
+
+
+def register_natural_collation(connection: sqlite3.Connection) -> None:
+    connection.create_collation("WIN_NATURAL_NOCASE", _natural_no_case_compare)
 
 def repo_root() -> Path:
     return Path(__file__).resolve().parents[2]
@@ -240,6 +284,7 @@ def main() -> int:
     now = int(time.time())
 
     with sqlite3.connect(output, isolation_level=None) as connection:
+        register_natural_collation(connection)
         connection.execute("PRAGMA foreign_keys=ON")
         use_bulk_load_pragmas(connection)
 

@@ -1,0 +1,22 @@
+ID: WIT-004
+File and line number: src/app/wit_gui/src/SearchPane.cpp:606-612
+Severity: Medium
+Category: UI responsiveness, threading
+
+Problem:
+Cancel joins the search worker synchronously on the UI thread.
+
+Why it matters:
+If SQLite interruption or I/O stalls, close/search/sort can freeze the app.
+
+Suggested fix:
+Request cancel, disable UI, complete cleanup from posted completion message, and avoid blocking join on UI paths.
+
+Risk of fixing:
+Medium
+
+Estimated effort:
+Medium
+
+Confidence level:
+High

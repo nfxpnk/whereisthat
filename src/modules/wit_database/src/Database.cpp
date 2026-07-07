@@ -1,5 +1,6 @@
 #include "wit_database/CatalogSchema.h"
 #include "wit_database/Database.h"
+#include "wit_database/SqliteFileListHelpers.h"
 #include "wit_database/SQLiteStatement.h"
 #include <wit_infra/Logging.h>
 #include <wit_infra/SaveProfiler.h>
@@ -110,30 +111,26 @@ bool IntegrityCheckOk(SqliteConnection& connection) {
         ? std::make_optional<wit::infra::ScopedSaveTimer>(
             wit::infra::CurrentSaveProfile()->timingsNs.integrityCheck)
         : std::nullopt;
-    sqlite3_stmt* statement{};
-    if (sqlite3_prepare_v2(connection.Raw(), "PRAGMA integrity_check;", -1, &statement, nullptr) != SQLITE_OK) {
-        return false;
-    }
+    SQLiteStatement statement(connection.Raw(), "PRAGMA integrity_check;");
+    if (!statement.IsValid()) return false;
+
     bool ok = false;
-    if (sqlite3_step(statement) == SQLITE_ROW) {
-        const auto* result = reinterpret_cast<const char*>(sqlite3_column_text(statement, 0));
-        ok = result && std::string(result) == "ok" && sqlite3_step(statement) == SQLITE_DONE;
+    if (sqlite3_step(statement.Raw()) == SQLITE_ROW) {
+        const auto* result = reinterpret_cast<const char*>(sqlite3_column_text(statement.Raw(), 0));
+        ok = result && std::string(result) == "ok" && sqlite3_step(statement.Raw()) == SQLITE_DONE;
     }
-    sqlite3_finalize(statement);
     return ok;
 }
 
 bool PragmaReturns(SqliteConnection& connection, const char* sql, const char* expectedText) {
-    sqlite3_stmt* statement{};
-    if (sqlite3_prepare_v2(connection.Raw(), sql, -1, &statement, nullptr) != SQLITE_OK) {
-        return false;
-    }
+    SQLiteStatement statement(connection.Raw(), sql);
+    if (!statement.IsValid()) return false;
+
     bool ok = false;
-    if (sqlite3_step(statement) == SQLITE_ROW) {
-        const auto* result = reinterpret_cast<const char*>(sqlite3_column_text(statement, 0));
+    if (sqlite3_step(statement.Raw()) == SQLITE_ROW) {
+        const auto* result = reinterpret_cast<const char*>(sqlite3_column_text(statement.Raw(), 0));
         ok = result && std::string(result) == expectedText;
     }
-    sqlite3_finalize(statement);
     return ok;
 }
 
@@ -269,14 +266,24 @@ Database& Database::operator=(Database&& other) noexcept {
     return *this;
 }
 
+
+BrowserReadContext Database::CreateBrowserReadContext() {
+    if (!IsOpen() || !browserReadToken_ || !browserReadToken_->IsActive()) return {};
+    return {browserReadToken_, &browserRepository_};
+}
 void Database::Close() {
+    if (browserReadToken_) browserReadToken_->Invalidate();
     FinalizeScanStatements();
+    browserRepository_.SetDatabase(nullptr);
+    searchRepository_.SetDatabase(nullptr);
     connection_.Close();
     editable_ = false;
-    RebindRepositories();
 }
 
 void Database::RebindRepositories() {
+    if (browserReadToken_) browserReadToken_->Invalidate();
+    browserReadToken_ = std::make_shared<BrowserReadToken>();
+    EnsureNaturalNoCaseCollation(connection_.Raw());
     browserRepository_.SetDatabase(connection_.Raw());
     searchRepository_.SetDatabase(connection_.Raw());
 }
@@ -386,6 +393,7 @@ bool Database::SaveCatalogDataFrom(const Database& source) {
             continue;
         }
         tempCreated = true;
+        EnsureNaturalNoCaseCollation(tempConnection.Raw());
         WIT_LOG_DEBUG(std::format(L"database save temp created path='{}'", tempPath));
         if (!BackupDatabase(tempConnection.Raw(), source.connection_.Raw(), L"save_pending_to_temp") ||
             !VerifyCatalog(tempConnection)) {

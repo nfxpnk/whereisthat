@@ -9,6 +9,7 @@ struct FileEntry {
     std::int64_t catalogId{};
     std::int64_t folderId{};
     std::wstring parentPath;
+    std::wstring fullPath;
     std::wstring name;
     std::wstring description;
     std::wstring extension;

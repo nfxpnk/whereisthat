@@ -74,6 +74,7 @@ public:
     int GetItemSearchCount(const std::wstring& nameTerm);
     std::vector<wit::core::FileEntry> GetItemSearchPage(const std::wstring& nameTerm, int offset, int limit);
     IBrowserRepository& BrowserRepository() { return browserRepository_; }
+    BrowserReadContext CreateBrowserReadContext();
     wit::search::ISearchRepository& SearchRepository() { return searchRepository_; }
 private:
     [[nodiscard]] bool OpenInternal(const std::wstring& path, bool requireExistingSchema, bool readOnly = false);
@@ -87,6 +88,7 @@ private:
     [[nodiscard]] SQLiteStatement* ScanInsertFileStatement(infra::ScanProfile* profile);
     SqliteConnection connection_;
     SqliteBrowserRepository browserRepository_{nullptr};
+    std::shared_ptr<BrowserReadToken> browserReadToken_{std::make_shared<BrowserReadToken>()};
     wit::search::SqliteSearchExecutor searchRepository_{nullptr};
     std::unique_ptr<SQLiteStatement> insertFolderStatement_;
     std::unique_ptr<SQLiteStatement> updateFolderContentSizeStatement_;

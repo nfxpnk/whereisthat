@@ -1,0 +1,22 @@
+ID: WIT-009
+File and line number: src/modules/wit_database/src/SQLiteStatement.cpp:24-36, examples at src/modules/wit_database/src/Database.cpp:591-596 and src/modules/wit_database/src/Database.cpp:628-650
+Severity: Medium
+Category: error handling, crash
+
+Problem:
+Bind return values are ignored, and many callers call sqlite3_step(statement.Raw()) without checking IsValid().
+
+Why it matters:
+Prepare/bind failures can become silent data loss or undefined behavior on null statements.
+
+Suggested fix:
+Expose bind status, check IsValid() before stepping, and propagate/log SQLite errors.
+
+Risk of fixing:
+Medium
+
+Estimated effort:
+Medium
+
+Confidence level:
+High

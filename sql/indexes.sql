@@ -13,6 +13,9 @@ CREATE INDEX IF NOT EXISTS idx_folders_parent
 CREATE INDEX IF NOT EXISTS idx_folders_parent_name
     ON folders(disk_id, parent_folder_id, name);
 
+CREATE INDEX IF NOT EXISTS idx_folders_parent_name_natural
+    ON folders(disk_id, parent_folder_id, name COLLATE WIN_NATURAL_NOCASE, id);
+
 CREATE INDEX IF NOT EXISTS idx_folders_name
     ON folders(name);
 
@@ -25,6 +28,9 @@ CREATE INDEX IF NOT EXISTS idx_files_folder
 CREATE INDEX IF NOT EXISTS idx_files_folder_name
     ON files(folder_id, name);
 
+CREATE INDEX IF NOT EXISTS idx_files_folder_name_natural
+    ON files(folder_id, name COLLATE WIN_NATURAL_NOCASE, id);
+
 CREATE INDEX IF NOT EXISTS idx_files_name
     ON files(name);
 
@@ -33,3 +39,15 @@ CREATE INDEX IF NOT EXISTS idx_files_disk_name
 
 CREATE INDEX IF NOT EXISTS idx_files_extension
     ON files(extension);
+
+CREATE INDEX IF NOT EXISTS idx_files_folder_extension_name
+    ON files(folder_id, extension, name, id);
+
+CREATE INDEX IF NOT EXISTS idx_files_folder_extension_name_natural
+    ON files(folder_id, extension COLLATE WIN_NATURAL_NOCASE, name COLLATE WIN_NATURAL_NOCASE, id);
+
+CREATE INDEX IF NOT EXISTS idx_folders_parent_entry_type_name
+    ON folders(disk_id, parent_folder_id, entry_type, name, id);
+
+CREATE INDEX IF NOT EXISTS idx_folders_parent_entry_type_name_natural
+    ON folders(disk_id, parent_folder_id, entry_type COLLATE WIN_NATURAL_NOCASE, name COLLATE WIN_NATURAL_NOCASE, id);

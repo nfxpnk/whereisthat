@@ -1,0 +1,22 @@
+ID: WIT-008
+File and line number: src/app/wit_gui/src/MainWindowChrome.cpp:177-194, src/app/wit_gui/src/MainWindowChrome.cpp:236-237, src/app/wit_gui/src/MainWindowChrome.cpp:129-161
+Severity: Medium
+Category: leak, error handling
+
+Problem:
+Partial chrome/toolbar creation can return false after creating HWNDs or image lists without cleanup.
+
+Why it matters:
+Startup failure paths can leak GDI/image-list resources and leave partially initialized members.
+
+Suggested fix:
+Call Destroy() on failure paths or use local RAII handles until creation fully succeeds.
+
+Risk of fixing:
+Low/Medium
+
+Estimated effort:
+Small/Medium
+
+Confidence level:
+High

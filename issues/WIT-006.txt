@@ -1,0 +1,22 @@
+ID: WIT-006
+File and line number: src/modules/wit_scanner/src/FileScanner.cpp:405-561, src/modules/wit_scanner/src/FileScanner.cpp:110-198
+Severity: Medium
+Category: leak, crash, maintainability
+
+Problem:
+FindFirstFileExW handles and libarchive readers are manually closed on many paths. Exceptions from allocation/string conversion/database calls can skip cleanup.
+
+Why it matters:
+Scans can leak handles/readers after unexpected exceptions.
+
+Suggested fix:
+Use RAII wrappers for FindClose and archive_read_free.
+
+Risk of fixing:
+Low
+
+Estimated effort:
+Small/Medium
+
+Confidence level:
+High

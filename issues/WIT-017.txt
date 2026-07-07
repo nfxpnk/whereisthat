@@ -1,0 +1,22 @@
+ID: WIT-017
+File and line number: src/modules/wit_database/src/Database.cpp:108-123, src/modules/wit_database/src/Database.cpp:126-137, src/modules/wit_database/src/CatalogSchema.cpp:20-33
+Severity: Medium
+Category: leak, error handling, maintainability
+
+Problem:
+Some SQLite validation helpers use raw sqlite3_stmt* with manual sqlite3_finalize. Exceptions from string allocation/conversion/comparison between prepare and finalize can skip sqlite3_finalize.
+
+Why it matters:
+Leaked prepared statements can keep SQLite resources alive and can make later sqlite3_close fail or leave the database connection in a harder-to-debug state during startup/save validation.
+
+Suggested fix:
+Use the existing SQLiteStatement RAII wrapper or a small local statement guard for IntegrityCheckOk, PragmaReturns, and TableHasColumn. Keep return values and validation behavior unchanged.
+
+Risk of fixing:
+Low
+
+Estimated effort:
+Small
+
+Confidence level:
+High

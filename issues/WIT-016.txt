@@ -1,0 +1,22 @@
+ID: WIT-016
+File and line number: src/app/wit_gui/src/BrowserController.cpp:505-519, src/app/wit_gui/src/MainWindow.cpp:468-469, src/app/wit_gui/src/MainWindow.cpp:1254-1256
+Severity: Medium
+Category: performance, UI responsiveness
+
+Problem:
+SelectionSummaryStatus iterates every selected item whenever file selection/focus changes and calls BrowserItemAt/EntryAt for each row. For large selections this can synchronously page many SQLite rows while handling UI notifications.
+
+Why it matters:
+Selecting many files, using Select All, or changing focus in a large catalog can make the UI stutter or freeze while recomputing selected totals.
+
+Suggested fix:
+Bound status aggregation work on notification paths, use cached rows only when possible, and show a count-only fallback when totals are incomplete. Longer term, maintain incremental selected count/size state instead of rescanning every selected row.
+
+Risk of fixing:
+Medium
+
+Estimated effort:
+Medium
+
+Confidence level:
+High

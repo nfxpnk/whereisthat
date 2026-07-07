@@ -244,7 +244,9 @@ LRESULT SearchDialog::OnOpenInExplorer(WORD, WORD, HWND, BOOL&) {
     const auto* entry = FocusedEntry();
     if (!entry) return 0;
     const bool selectItem = !entry->isDirectory || entry->isArchive;
-    OpenInExplorerOrAlert(m_hWnd, wit::platform::Join(entry->parentPath, entry->name), selectItem);
+    const auto explorerPath = entry->isDirectory && !entry->fullPath.empty()
+        ? entry->fullPath : wit::platform::Join(entry->parentPath, entry->name);
+    OpenInExplorerOrAlert(m_hWnd, explorerPath, selectItem);
     return 0;
 }
 
@@ -1048,7 +1050,7 @@ void SearchDialog::TextFor(int row, int column, wchar_t* buffer, std::size_t buf
         wit::core::FormatSizeRawBytesToBuffer(file.size, buffer, bufferSize);
         return;
     case 3:
-        CopyText(file.parentPath, buffer, bufferSize);
+        CopyText(file.isDirectory && !file.fullPath.empty() ? file.fullPath : file.parentPath, buffer, bufferSize);
         return;
     case 4:
         wit::platform::FormatUnixTimestampToBuffer(file.modifiedAt, buffer, bufferSize);

@@ -97,10 +97,12 @@ std::wstring PathParentText(const std::wstring& path) {
 }
 
 void NormalizeDirectoryDisplayEntry(wit::core::FileEntry& entry) {
-    if (!entry.isDirectory || !IsAbsolutePathLikeName(entry.name)) return;
-    if (entry.fullPath.empty()) entry.fullPath = entry.name;
-    entry.parentPath = PathParentText(entry.fullPath);
-    entry.name = PathLeafName(entry.fullPath);
+    if (!entry.isDirectory) return;
+    const auto sourcePath = IsAbsolutePathLikeName(entry.name) ? entry.name : entry.fullPath;
+    if (!IsAbsolutePathLikeName(sourcePath)) return;
+    entry.fullPath = sourcePath;
+    entry.parentPath = PathParentText(sourcePath);
+    if (IsAbsolutePathLikeName(entry.name)) entry.name = PathLeafName(sourcePath);
 }
 
 void PopulateDisplayEntry(wit::core::FileEntry& entry, sqlite3_stmt* stmt) {

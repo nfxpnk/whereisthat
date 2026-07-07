@@ -201,6 +201,23 @@ TEST(SearchExecutor, PageByNameSupportsAsteriskWildcards) {
     EXPECT_EQ(executor.CountByName(L"_"), 0) << "SQL LIKE metacharacters remain literal";
 }
 
+TEST(SearchExecutor, SearchFoldersWithPathNamesExposeLeafNameAndParentPath) {
+    MemoryDatabase database;
+    database.Execute(
+        "INSERT INTO folders(id,disk_id,parent_folder_id,path,name,content_size,modified_at,attributes,entry_type) "
+        "VALUES(20,1,NULL,'\\\\WhereIsItImport\\Disk 542 - Mp3_torrents\\',"
+        "'\\\\WhereIsItImport\\Disk 542 - Mp3_torrents\\',30,120,0,'directory');");
+    wit::search::SqliteSearchExecutor executor(database.Raw());
+
+    const auto entries = executor.PageByName(L"*Disk 542*", 0, 10);
+
+    ASSERT_EQ(entries.size(), 1u);
+    EXPECT_TRUE(entries[0].isDirectory);
+    EXPECT_EQ(entries[0].name, L"Disk 542 - Mp3_torrents");
+    EXPECT_EQ(entries[0].parentPath, L"\\\\WhereIsItImport");
+    EXPECT_EQ(entries[0].fullPath, L"\\\\WhereIsItImport\\Disk 542 - Mp3_torrents\\");
+}
+
 TEST(SearchExecutor, PageByNameCanMatchCaseSensitively) {
     MemoryDatabase database;
     database.Execute("UPDATE files SET name='Alpha-file.txt' WHERE id=1;");

@@ -71,6 +71,38 @@ std::wstring Text(sqlite3_stmt* stmt, int column) {
     return value ? wit::platform::ToUtf16(value) : std::wstring{};
 }
 
+bool IsAbsolutePathLikeName(const std::wstring& name) {
+    return name.rfind(L"\\\\", 0) == 0 ||
+        name.rfind(L"/", 0) == 0 ||
+        (name.size() >= 3 && name[1] == L':' && (name[2] == L'\\' || name[2] == L'/'));
+}
+
+std::wstring TrimTrailingPathSeparators(std::wstring path) {
+    while (path.size() > 2 && (path.back() == L'\\' || path.back() == L'/')) path.pop_back();
+    return path;
+}
+
+std::wstring PathLeafName(const std::wstring& path) {
+    const auto trimmed = TrimTrailingPathSeparators(path);
+    const auto separator = trimmed.find_last_of(L"\\/");
+    return separator == std::wstring::npos ? trimmed : trimmed.substr(separator + 1);
+}
+
+std::wstring PathParentText(const std::wstring& path) {
+    const auto trimmed = TrimTrailingPathSeparators(path);
+    const auto separator = trimmed.find_last_of(L"\\/");
+    if (separator == std::wstring::npos) return {};
+    if (separator == 2 && trimmed.size() >= 3 && trimmed[1] == L':') return trimmed.substr(0, 3);
+    return trimmed.substr(0, separator);
+}
+
+void NormalizeDirectoryDisplayEntry(wit::core::FileEntry& entry) {
+    if (!entry.isDirectory || !IsAbsolutePathLikeName(entry.name)) return;
+    if (entry.fullPath.empty()) entry.fullPath = entry.name;
+    entry.parentPath = PathParentText(entry.fullPath);
+    entry.name = PathLeafName(entry.fullPath);
+}
+
 void PopulateDisplayEntry(wit::core::FileEntry& entry, sqlite3_stmt* stmt) {
     entry.id = sqlite3_column_int64(stmt, 0);
     entry.catalogId = sqlite3_column_int64(stmt, 1);
@@ -83,6 +115,7 @@ void PopulateDisplayEntry(wit::core::FileEntry& entry, sqlite3_stmt* stmt) {
     entry.isDirectory = sqlite3_column_int(stmt, 8) != 0;
     entry.isArchive = Text(stmt, 9) == L"archive";
     if (sqlite3_column_count(stmt) > 10) entry.fullPath = Text(stmt, 10);
+    NormalizeDirectoryDisplayEntry(entry);
 }
 
 struct SqlParamValue {
